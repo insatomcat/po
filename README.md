@@ -68,6 +68,23 @@ Si aucune référence n'est fournie, le script :
 - parcourt quelques data objects,
 - lit et affiche la valeur de chaque objet sélectionné.
 
+#### 4.3 Reports (découverte et abonnement)
+
+Pour découvrir les Report Control Blocks (RCB) disponibles sur l’IED et s’y abonner
+(mode publisher/subscriber) :
+
+```bash
+podman run --rm --network host --entrypoint python mms-client mms_reports.py 10.132.159.191 102
+```
+
+Le script :
+
+- se connecte à l’IED ;
+- découvre tous les RCB (BRCB et URCB) via le répertoire MMS ;
+- affiche pour chaque RCB la config (DataSet, RptId, RptEna, etc.) ;
+- s’abonne à chaque RCB et affiche les reports reçus en temps réel ;
+- tourne jusqu’à Ctrl+C, puis désactive les reports et se déconnecte.
+
 ### 5. Remarques
 
 - Le projet utilise la bibliothèque `pyiec61850-ng`, qui fournit des bindings
