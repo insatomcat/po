@@ -68,22 +68,41 @@ Si aucune référence n'est fournie, le script :
 - parcourt quelques data objects,
 - lit et affiche la valeur de chaque objet sélectionné.
 
-#### 4.3 Reports (découverte et abonnement)
+#### 4.3 Récupérer les données en continu (polling)
 
-Pour découvrir les Report Control Blocks (RCB) disponibles sur l’IED et s’y abonner
-(mode publisher/subscriber) :
+Avec pyiec61850-ng on ne peut pas recevoir les reports (push) en Python, mais on peut **lire périodiquement** les mêmes points (polling) pour récupérer les données :
+
+```bash
+# Poll par références explicites
+podman run --rm --network host --entrypoint python mms-client mms_poll.py 10.132.159.191 1 102 "VMC7_1BayLD/VECAMMXU1.A.phsA.cVal.mag.f" "VMC7_1BayLD/VECAMMXU1.A.phsB.cVal.mag.f"
+```
+
+**Données utiles d’un RCB (ex. CB_LDPX_DQPO01)** : poll du **DataSet** du RCB (même contenu qu’un report) :
+
+```bash
+# Si les $ sont tronqués (erreur "2 point(s)" avec --rcb dans l’en-tête), passer la réf par variable d’env :
+MMS_POLL_RCB_REF='VMC7_1LD0 LLN0$BR$CB_LDPX_DQPO01' podman run --rm --network host -e MMS_POLL_RCB_REF --entrypoint python mms-client mms_poll.py 10.132.159.191 1 102 --rcb
+```
+
+Ou avec guillemets simples (selon le shell) :
+
+```bash
+podman run --rm --network host --entrypoint python mms-client mms_poll.py 10.132.159.191 1 102 --rcb 'VMC7_1LD0 LLN0$BR$CB_LDPX_DQPO01'
+```
+
+→ Lit le RCB pour récupérer la référence du DataSet, puis lit ce DataSet **toutes les 1 s** et affiche tous les membres (Ctrl+C pour arrêter).
+
+#### 4.4 Reports (découverte et activation RptEna)
+
+Le script `mms_reports.py` permet de découvrir les RCB et d’activer RptEna. Avec pyiec61850-ng, **on ne peut pas recevoir les reports en Python** (pas de callback). Pour les données en continu, utiliser le **polling** (4.3).
 
 ```bash
 podman run --rm --network host --entrypoint python mms-client mms_reports.py 10.132.159.191 102
 ```
 
-Le script :
-
-- se connecte à l’IED ;
-- découvre tous les RCB (BRCB et URCB) via le répertoire MMS ;
-- affiche pour chaque RCB la config (DataSet, RptId, RptEna, etc.) ;
-- s’abonne à chaque RCB et affiche les reports reçus en temps réel ;
-- tourne jusqu’à Ctrl+C, puis désactive les reports et se déconnecte.
+- Connexion, découverte des RCB (BRCB/URCB), affichage de la config ;
+- activation de RptEna sur les RCB (format MMS avec espace si besoin) ;
+- pas de réception des reports dans ce fork → utiliser `mms_poll.py` pour les données.
 
 ### 5. Remarques
 
