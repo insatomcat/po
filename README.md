@@ -51,6 +51,8 @@ Par défaut Grafana utilise un « step » d’environ 15 s, donc un seul point p
 | `--scl FICHIER` | Fichier SCL ou ICD (ex. IECS.cid) pour afficher les noms des membres (Beh, A.phsA, Hz, …) |
 | `--domain ID` | Domain ID MMS (défaut : VMC7_1LD0) |
 | `--victoriametrics-url URL` | Envoyer les valeurs des reports vers VictoriaMetrics (ex. http://localhost:8428) |
+| `--vm-batch-ms MS` | Intervalle de batch VM en ms (défaut : 200). Une requête HTTP par intervalle ou dès 500 lignes. |
+| `--vm-no-batch` | Désactiver le batching : une requête HTTP par report (comportement legacy). |
 | `host` | Adresse IP de l’IED (défaut : 10.132.159.191) |
 | `port` | Port MMS (défaut : 102) |
 

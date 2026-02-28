@@ -15,12 +15,13 @@ Sémantique des entrées du report (IEC 61850 / MMS) :
 """
 
 import argparse
+import atexit
 import sys
 
 from mms_reports_client import MMSReportsClient
 from asn1_codec import MMSReport  # juste pour le type
 from scl_parser import parse_scl_data_set_members
-from victoriametrics_push import push_mms_report
+from victoriametrics_push import push_mms_report, push_mms_report_flush
 
 VERBOSE = False  # mis à True par --verbose
 
@@ -112,7 +113,14 @@ def _is_undecoded_raw(report: MMSReport) -> bool:
     return isinstance(e, dict) and "raw_hex" in e
 
 
-def on_report(report: MMSReport, vm_url: str | None = None, show_in_console: bool = True) -> None:
+def on_report(
+    report: MMSReport,
+    vm_url: str | None = None,
+    show_in_console: bool = True,
+    *,
+    batch_interval_sec: float = 0.2,
+    batch_max_lines: int = 500,
+) -> None:
     """Callback pour chaque report : push VM si vm_url, affichage console si show_in_console."""
     if _is_undecoded_raw(report):
         n = len(report.entries[0].get("raw_hex", "")) // 2 if report.entries else 0
@@ -123,7 +131,14 @@ def on_report(report: MMSReport, vm_url: str | None = None, show_in_console: boo
 
     if vm_url:
         try:
-            push_mms_report(vm_url, report, DATA_SET_MEMBER_LABELS, debug=VERBOSE)
+            push_mms_report(
+                vm_url,
+                report,
+                DATA_SET_MEMBER_LABELS,
+                debug=VERBOSE,
+                batch_interval_sec=batch_interval_sec,
+                batch_max_lines=batch_max_lines,
+            )
         except Exception as e:
             print(f"[VictoriaMetrics] {e}", flush=True)
         if not show_in_console:
@@ -215,6 +230,17 @@ def main() -> int:
         help="Envoyer les valeurs des reports vers VictoriaMetrics (ex. http://localhost:8428).",
     )
     parser.add_argument(
+        "--vm-batch-ms",
+        type=int,
+        default=200,
+        help="Intervalle de batch VM en ms (défaut: 200). Une requête HTTP par intervalle ou dès 500 lignes.",
+    )
+    parser.add_argument(
+        "--vm-no-batch",
+        action="store_true",
+        help="Désactiver le batching : une requête HTTP par report (comportement legacy).",
+    )
+    parser.add_argument(
         "host",
         nargs="?",
         default=IED_IP_DEFAULT,
@@ -232,8 +258,13 @@ def main() -> int:
     VERBOSE = args.verbose
     vm_url = args.victoriametrics_url or None
     show_in_console = not bool(vm_url)
+    batch_interval_sec = 0 if args.vm_no_batch else args.vm_batch_ms / 1000.0
     if vm_url:
-        print(f"[VictoriaMetrics] Push activé vers {vm_url}")
+        if args.vm_no_batch:
+            print(f"[VictoriaMetrics] Push activé vers {vm_url} (pas de batch)")
+        else:
+            print(f"[VictoriaMetrics] Push activé vers {vm_url} (batch: {args.vm_batch_ms}ms)")
+        atexit.register(lambda u=vm_url: push_mms_report_flush(u))
     else:
         print("[Console] Reports affichés dans la console (pas de --victoriametrics-url)")
 
@@ -249,7 +280,13 @@ def main() -> int:
             print(f"[SCL] Erreur : {e}", file=sys.stderr)
             return 1
 
-    callback = lambda report: on_report(report, vm_url=vm_url, show_in_console=show_in_console)
+    callback = lambda report: on_report(
+        report,
+        vm_url=vm_url,
+        show_in_console=show_in_console,
+        batch_interval_sec=batch_interval_sec,
+        batch_max_lines=500,
+    )
 
     client = MMSReportsClient(args.host, args.port, debug=args.debug)
     client.connect()
