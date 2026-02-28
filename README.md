@@ -72,7 +72,7 @@ Les RCB abonnés sont définis dans `test_client_reports.py` (liste `ITEM_IDS`).
 
 Pour avoir des libellés lisibles (`[8] LogOut10`, `[9] A.phsA`, etc.), fournir le **fichier CID** (Configured IED Description) de l’IED, en général dans la config de l’appareil (ex. `/etc/cap/ied-1/config/IECS.cid`). Le script parse les DataSet et leurs FCDA pour faire correspondre l’index d’entrée au nom du membre.
 
-## Structure du projet (reports)
+## Structure du projet
 
 | Fichier | Rôle |
 |---------|------|
@@ -82,7 +82,3 @@ Pour avoir des libellés lisibles (`[8] LogOut10`, `[9] A.phsA`, etc.), fournir 
 | `mms_reports_client.py` | Client : connexion TCP/COTP/MMS, Initiate, enable_reporting (Get + 8× SetRCBValues), loop_reports |
 | `scl_parser.py` | Parse SCL/ICD pour extraire DataSet et FCDA → mapping nom du data set → liste de libellés |
 | `test_client_reports.py` | Script de test : abonnement à une liste de RCB, affichage des reports (avec ou sans --scl) |
-
-## Autres scripts
-
-Le dépôt contient aussi des scripts basés sur **pyiec61850-ng** (libiec61850, GPL) : `mms_client.py`, `mms_poll.py`, `mms_reports.py`. Ils nécessitent `pip install -r requirements.txt`. Le client reports décrit ci‑dessus n’utilise pas ces dépendances.
