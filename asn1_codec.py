@@ -363,8 +363,15 @@ def _timestamp_to_iso(sec: int, frac: float = 0.0) -> str:
     return dt.isoformat()
 
 
+# Jours entre 1970-01-01 et 1984-01-01 (IEC 61850-8-1 TimeOfDay, format 6 octets)
+_DAYS_1970_TO_1984 = 5113
+
+
 def _ber_decode_binary_time(data: bytes, offset: int) -> tuple[Any, int]:
-    """Décode binary-time (tag 8c). 4–6 octets : secondes (depuis 1970 ou 1984) + optionnel fraction."""
+    """Décode binary-time (tag 8c). Format IEC 61850-8-1 TimeOfDay :
+    - 4 octets : millisecondes depuis epoch (format relatif)
+    - 6 octets : ms du jour (4) + jours depuis 1984-01-01 (2), aligné Wireshark
+    """
     if offset >= len(data) or data[offset] != 0x8C:
         return "<binary-time?>", offset
     offset += 1
@@ -375,10 +382,20 @@ def _ber_decode_binary_time(data: bytes, offset: int) -> tuple[Any, int]:
     raw = data[offset : offset + length]
     offset += length
     try:
-        sec = int.from_bytes(raw[:4], "big")
-        frac = int.from_bytes(raw[4:6], "big") / 65536.0 if length >= 6 else 0.0
-        if 0 < sec < 0x7FFFFFFF:
-            return _timestamp_to_iso(sec, frac), offset
+        if length == 6:
+            # Format 6 octets : ms du jour (4) + jours depuis 1984-01-01 (2), comme Wireshark
+            milliseconds = int.from_bytes(raw[:4], "big")
+            days = int.from_bytes(raw[4:6], "big")
+            if milliseconds <= 86400000 and days < 0xFFFE:
+                secs = (_DAYS_1970_TO_1984 + days) * 86400 + milliseconds // 1000
+                frac = (milliseconds % 1000) / 1000.0
+                return _timestamp_to_iso(secs, frac), offset
+        else:
+            # Format 4 octets : secondes depuis 1970 ou 1984 + fraction optionnelle
+            sec = int.from_bytes(raw[:4], "big")
+            frac = int.from_bytes(raw[4:6], "big") / 65536.0 if length >= 6 else 0.0
+            if 0 < sec < 0x7FFFFFFF:
+                return _timestamp_to_iso(sec, frac), offset
         return raw.hex(), offset
     except (ValueError, OSError):
         return raw.hex(), offset

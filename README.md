@@ -32,9 +32,15 @@ python3 test_client_reports.py --domain MON_IED_1LD0 10.132.159.191 102
 # Avec fichier SCL/ICD pour les libellés des membres du data set
 python3 test_client_reports.py --scl ./IECS.cid 10.132.159.191 102
 
+# Envoyer les valeurs des reports vers VictoriaMetrics (pour Grafana)
+python3 test_client_reports.py --victoriametrics-url http://localhost:8428 --scl ./IECS.cid
+
 # Debug (PDU envoyés/reçus) et verbose (PDU brut + valeur brute des entrées)
 python3 test_client_reports.py --debug --verbose --scl ./IECS.cid
 ```
+
+**Grafana : afficher un point toutes les 2–4 s**  
+Par défaut Grafana utilise un « step » d’environ 15 s, donc un seul point par tranche. Pour voir tous les points poussés (toutes les 2–4 s) : dans le panneau, onglet **Query** → options de la requête (icône engrenage ou « Query options ») → **Min step** = `2s` ou `1s`. Vous pouvez aussi réduire l’intervalle dans « Resolution » si disponible.
 
 ### Options
 
@@ -44,6 +50,7 @@ python3 test_client_reports.py --debug --verbose --scl ./IECS.cid
 | `--verbose` | Affiche le PDU brut et la valeur brute de chaque entrée de report |
 | `--scl FICHIER` | Fichier SCL ou ICD (ex. IECS.cid) pour afficher les noms des membres (Beh, A.phsA, Hz, …) |
 | `--domain ID` | Domain ID MMS (défaut : VMC7_1LD0) |
+| `--victoriametrics-url URL` | Envoyer les valeurs des reports vers VictoriaMetrics (ex. http://localhost:8428) |
 | `host` | Adresse IP de l’IED (défaut : 10.132.159.191) |
 | `port` | Port MMS (défaut : 102) |
 
@@ -81,4 +88,5 @@ Pour avoir des libellés lisibles (`[8] LogOut10`, `[9] A.phsA`, etc.), fournir 
 | `asn1_codec.py` | Encodage BER MMS (Initiate, GetRCBValues, SetRCBValues), décodage des reports (listOfAccessResult → MMSReport) |
 | `mms_reports_client.py` | Client : connexion TCP/COTP/MMS, Initiate, enable_reporting (Get + 8× SetRCBValues), loop_reports |
 | `scl_parser.py` | Parse SCL/ICD pour extraire DataSet et FCDA → mapping nom du data set → liste de libellés |
-| `test_client_reports.py` | Script de test : abonnement à une liste de RCB, affichage des reports (avec ou sans --scl) |
+| `test_client_reports.py` | Script de test : abonnement à une liste de RCB, affichage des reports (avec ou sans --scl), option --victoriametrics-url |
+| `victoriametrics_push.py` | Conversion report → format Prometheus (avec timestamp) et POST vers /api/v1/import/prometheus |
