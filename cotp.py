@@ -152,13 +152,11 @@ def cotp_recv_data(sock: socket.socket, timeout: Optional[float] = None) -> Opti
         pdu_type = payload[1]
 
         if pdu_type == 0xF0:
-            # DT TPDU
-            if li + 1 > len(payload):
-                raise COTPError(
-                    f"Longueur DT TPDU incohérente: LI={li}, len(payload)={len(payload)}"
-                )
-            # payload[2] = octet de contrôle, le reste est user_data
-            return payload[3 : 1 + li]
+            # DT TPDU : LI peut valoir 2 (type+control uniquement), le user_data
+            # suit sur le reste du TPKT. On renvoie tout après l'en-tête (3 octets).
+            if len(payload) < 3:
+                raise COTPError(f"DT TPDU trop court: {len(payload)} octets")
+            return payload[3:]
 
         # Autres types: on ignore ou on pourrait ajouter du handling plus fin si besoin
         # 0xE0: CR, 0xD0: CC, 0x80: DR, 0xC0: DTACK, ...
