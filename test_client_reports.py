@@ -1,7 +1,7 @@
 """Test d'abonnement aux reports MMS sur un IED.
 
 Usage:
-    python3 test_client_reports.py [--debug] [--verbose] [--scl FICHIER] [--domain ID] [host [port]]
+    python3 test_client_reports.py [--debug] [--verbose] [--scl FICHIER] [--domain ID] [--victoriametrics-url URL] [host [port]]
 
 Sans --debug : pas d'affichage des PDUs envoyés/reçus.
 Avec --debug : affiche les trames (>>> envoi, <<< réception).
@@ -20,6 +20,7 @@ import sys
 from mms_reports_client import MMSReportsClient
 from asn1_codec import MMSReport  # juste pour le type
 from scl_parser import parse_scl_data_set_members
+from victoriametrics_push import push_mms_report
 
 VERBOSE = False  # mis à True par --verbose
 
@@ -111,7 +112,8 @@ def _is_undecoded_raw(report: MMSReport) -> bool:
     return isinstance(e, dict) and "raw_hex" in e
 
 
-def on_report(report: MMSReport) -> None:
+def on_report(report: MMSReport, vm_url: str | None = None, show_in_console: bool = True) -> None:
+    """Callback pour chaque report : push VM si vm_url, affichage console si show_in_console."""
     if _is_undecoded_raw(report):
         n = len(report.entries[0].get("raw_hex", "")) // 2 if report.entries else 0
         print(f"  [PDU non décodé, {n} octets] (autre type de message MMS)")
@@ -119,7 +121,20 @@ def on_report(report: MMSReport) -> None:
             print(f"      {report.entries[0].get('raw_hex', '')[:120]}...")
         return
 
-    print("REPORT reçu :")
+    if vm_url:
+        try:
+            push_mms_report(vm_url, report, DATA_SET_MEMBER_LABELS, debug=VERBOSE)
+        except Exception as e:
+            print(f"[VictoriaMetrics] {e}", flush=True)
+        if not show_in_console:
+            return
+
+    _print_report(report)
+
+
+def _print_report(report: MMSReport) -> None:
+    """Affiche le détail d'un report dans la console."""
+    print("REPORT reçu :", flush=True)
     if VERBOSE and getattr(report, "raw_pdu", None):
         pdu = report.raw_pdu
         print(f"  [verbose] PDU brut ({len(pdu)} octets) :")
@@ -128,7 +143,11 @@ def on_report(report: MMSReport) -> None:
     print(f"  RptId       : {report.rpt_id}")
     print(f"  DataSet     : {report.data_set_name}")
     print(f"  SeqNum      : {report.seq_num}")
-    print(f"  TimeOfEntry : {report.time_of_entry}")
+    toe = report.time_of_entry
+    toe_note = ""
+    if isinstance(toe, str) and len(toe) >= 4 and toe[:4].isdigit() and int(toe[:4]) < 2000:
+        toe_note = "  (epoch IEC 61850 1984, souvent = horloge IED non synchronisée)"
+    print(f"  TimeOfEntry : {toe}{toe_note}")
     print(f"  BufOvfl     : {report.buf_ovfl}")
     if report.entries:
         ds_name = report.data_set_name or ""
@@ -191,6 +210,11 @@ def main() -> int:
         help=f"Domain ID MMS (défaut: {DOMAIN_ID}).",
     )
     parser.add_argument(
+        "--victoriametrics-url",
+        metavar="URL",
+        help="Envoyer les valeurs des reports vers VictoriaMetrics (ex. http://localhost:8428).",
+    )
+    parser.add_argument(
         "host",
         nargs="?",
         default=IED_IP_DEFAULT,
@@ -206,6 +230,12 @@ def main() -> int:
     args = parser.parse_args()
     global VERBOSE
     VERBOSE = args.verbose
+    vm_url = args.victoriametrics_url or None
+    show_in_console = not bool(vm_url)
+    if vm_url:
+        print(f"[VictoriaMetrics] Push activé vers {vm_url}")
+    else:
+        print("[Console] Reports affichés dans la console (pas de --victoriametrics-url)")
 
     if args.scl:
         try:
@@ -219,16 +249,19 @@ def main() -> int:
             print(f"[SCL] Erreur : {e}", file=sys.stderr)
             return 1
 
+    callback = lambda report: on_report(report, vm_url=vm_url, show_in_console=show_in_console)
+
     client = MMSReportsClient(args.host, args.port, debug=args.debug)
     client.connect()
 
     domain_id = args.domain
     for i, item_id in enumerate(ITEM_IDS, 1):
         print(f"Abonnement [{i}/{len(ITEM_IDS)}] {domain_id}/{item_id} ...")
-        client.enable_reporting(domain_id, item_id)
+        client.enable_reporting(domain_id, item_id, report_callback=callback)
 
-    print(f"\n{len(ITEM_IDS)} RCB abonnés. En attente de reports...\n")
-    client.loop_reports(on_report)
+    print(f"\n{len(ITEM_IDS)} RCB abonnés. En attente de reports...")
+    print("  (Si rien n'apparaît : l'IED n'envoie peut-être qu'en cas d'événement. Essayez --debug pour voir les PDUs reçus.)\n")
+    client.loop_reports(callback)
 
     return 0
 

@@ -15,6 +15,8 @@ from __future__ import annotations
 import socket
 from typing import Callable, Optional
 
+HEARTBEAT_INTERVAL = 60.0  # secondes entre deux messages "en attente"
+
 from cotp import cotp_connect, cotp_send_data, cotp_recv_data, COTPError
 from tpkt import TPKTError
 from asn1_codec import (
@@ -32,6 +34,14 @@ class MMSConnectionError(RuntimeError):
 
 
 ReportCallback = Callable[[MMSReport], None]
+
+
+def _is_information_report(report: MMSReport) -> bool:
+    """True si le PDU est un vrai informationReport (pas le fallback raw_hex)."""
+    if not report.entries or len(report.entries) != 1:
+        return True
+    e = report.entries[0]
+    return not (isinstance(e, dict) and "raw_hex" in e)
 
 
 def _hex_debug(data: bytes, max_bytes: int = 128) -> str:
@@ -122,6 +132,24 @@ class MMSReportsClient:
             finally:
                 self._sock = None
 
+    def _recv_until_response(self, report_callback: Optional[ReportCallback] = None) -> None:
+        """Reçoit un PDU ; si c'est un Report, appelle le callback et réessaie jusqu'à avoir la réponse Get/Set."""
+        while True:
+            resp = cotp_recv_data(self._sock, timeout=self._timeout)
+            if resp is None:
+                return
+            try:
+                decoded = decode_mms_pdu(resp)
+            except NotImplementedError:
+                return
+            if isinstance(decoded, MMSReport) and _is_information_report(decoded) and report_callback:
+                decoded.raw_pdu = resp
+                report_callback(decoded)
+                continue
+            if self._debug:
+                print(f"[DEBUG] <<< réponse ({len(resp)} octets)")
+            return
+
     def enable_reporting(
         self,
         domain_id: str,
@@ -130,11 +158,13 @@ class MMSReportsClient:
         rpt_ena: bool = True,
         intg_pd_ms: int = 2000,
         do_get_first: bool = True,
+        report_callback: Optional[ReportCallback] = None,
     ) -> None:
         """Active les reports sur un RCB donné.
 
         Envoie GetRCBValues puis la séquence complète de SetRCBValues
         (ResvTms, IntgPd, TrgOps, OptFlds, PurgeBuf, EntryID, RptEna, GI).
+        Tout Report reçu pendant la phase est transmis à report_callback.
         """
         if self._sock is None:
             raise MMSConnectionError("Connexion MMS non établie.")
@@ -145,13 +175,7 @@ class MMSReportsClient:
                 print(f"[DEBUG] >>> GetRCBValues {domain_id}/{item_id} ({len(get_pdu)} octets)")
                 print(f"[DEBUG]     {_hex_debug(get_pdu)}")
             cotp_send_data(self._sock, get_pdu)
-            resp = cotp_recv_data(self._sock, timeout=self._timeout)
-            if self._debug:
-                if resp is not None:
-                    print(f"[DEBUG] <<< GetRCBValuesResponse ({len(resp)} octets)")
-                    print(f"[DEBUG]     {_hex_debug(resp)}")
-                else:
-                    print("[DEBUG] <<< (aucune réponse GetRCBValues)")
+            self._recv_until_response(report_callback)
 
         set_attrs = (
             "ResvTms", "IntgPd", "TrgOps", "OptFlds",
@@ -168,28 +192,25 @@ class MMSReportsClient:
                 print(f"[DEBUG] >>> SetRCBValues ${attr} ({len(pdu)} octets)")
                 print(f"[DEBUG]     {_hex_debug(pdu)}")
             cotp_send_data(self._sock, pdu)
-            resp = cotp_recv_data(self._sock, timeout=self._timeout)
-            if self._debug:
-                if resp is not None:
-                    print(f"[DEBUG] <<< SetRCBValuesResponse ${attr} ({len(resp)} octets)")
-                    print(f"[DEBUG]     {_hex_debug(resp)}")
-                else:
-                    print(f"[DEBUG] <<< (aucune réponse SetRCBValues ${attr})")
+            self._recv_until_response(report_callback)
 
     def loop_reports(self, callback: ReportCallback) -> None:
         """Boucle de réception bloquante qui invoque callback pour chaque Report."""
         if self._sock is None:
             raise MMSConnectionError("Connexion MMS non établie.")
 
-        # En phase "subscriber", on attend indéfiniment des reports.
-        # On désactive donc le timeout réseau du socket.
+        # Timeout pour afficher un message "en attente" périodiquement (heartbeat).
         try:
-            self._sock.settimeout(None)
+            self._sock.settimeout(HEARTBEAT_INTERVAL)
         except OSError:
             pass
 
         while True:
-            pdu = cotp_recv_data(self._sock)
+            try:
+                pdu = cotp_recv_data(self._sock, timeout=HEARTBEAT_INTERVAL)
+            except socket.timeout:
+                print("  (en attente de reports...)")
+                continue
             if pdu is None:
                 if self._debug:
                     print("[DEBUG] <<< connexion fermée (fin de flux)")
