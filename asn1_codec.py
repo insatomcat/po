@@ -347,12 +347,24 @@ def _ber_decode_bit_string(data: bytes, offset: int) -> tuple[bytes, int]:
     return data[offset : offset + length], offset + length
 
 
-# Epoch utilisé par certains IED (IEC 61850)
+# Epochs : 1984 (IEC 61850) pour petites valeurs, 1970 (Unix) pour timestamps type 202x
 _EPOCH_1984 = datetime(1984, 1, 1, tzinfo=timezone.utc)
+# Seuil : au-delà on considère que c'est un timestamp Unix (évite 2040 au lieu de 2024)
+_SECS_UNIX_MIN = 1_000_000_000  # ~2001
+
+
+def _timestamp_to_iso(sec: int, frac: float = 0.0) -> str:
+    """Convertit secondes (depuis 1970 ou 1984) + fraction en ISO UTC."""
+    if sec >= _SECS_UNIX_MIN:
+        base = 0.0  # Unix epoch
+    else:
+        base = _EPOCH_1984.timestamp()
+    dt = datetime.fromtimestamp(base + sec + frac, tz=timezone.utc)
+    return dt.isoformat()
 
 
 def _ber_decode_binary_time(data: bytes, offset: int) -> tuple[Any, int]:
-    """Décode binary-time (tag 8c). 4–8 octets selon IED (s souvent secondes/ms depuis 1984 ou epoch)."""
+    """Décode binary-time (tag 8c). 4–6 octets : secondes (depuis 1970 ou 1984) + optionnel fraction."""
     if offset >= len(data) or data[offset] != 0x8C:
         return "<binary-time?>", offset
     offset += 1
@@ -363,25 +375,17 @@ def _ber_decode_binary_time(data: bytes, offset: int) -> tuple[Any, int]:
     raw = data[offset : offset + length]
     offset += length
     try:
-        if length >= 6:
-            # 4 octets = secondes depuis 1984 (ou epoch), 2 = fraction ms
-            sec = int.from_bytes(raw[:4], "big")
-            frac = int.from_bytes(raw[4:6], "big") if length >= 6 else 0
-            if sec < 0x7FFFFFFF and sec > 0:
-                dt = _EPOCH_1984.timestamp() + sec + frac / 65536.0
-                return datetime.fromtimestamp(dt, tz=timezone.utc).isoformat(), offset
-        if length == 4:
-            sec = int.from_bytes(raw[:4], "big")
-            if 0 < sec < 0x7FFFFFFF:
-                dt = _EPOCH_1984.timestamp() + sec
-                return datetime.fromtimestamp(dt, tz=timezone.utc).isoformat(), offset
+        sec = int.from_bytes(raw[:4], "big")
+        frac = int.from_bytes(raw[4:6], "big") / 65536.0 if length >= 6 else 0.0
+        if 0 < sec < 0x7FFFFFFF:
+            return _timestamp_to_iso(sec, frac), offset
         return raw.hex(), offset
     except (ValueError, OSError):
         return raw.hex(), offset
 
 
 def _ber_decode_utc_time(data: bytes, offset: int) -> tuple[Any, int]:
-    """Décode utc-time (tag 91). Structure MMS avec flags + secondes/fraction."""
+    """Décode utc-time (tag 91). 4 octets secondes (1970 ou 1984) + optionnel fraction."""
     if offset >= len(data) or data[offset] != 0x91:
         return "<utc-time?>", offset
     offset += 1
@@ -391,13 +395,11 @@ def _ber_decode_utc_time(data: bytes, offset: int) -> tuple[Any, int]:
         return "<utc-time?>", offset + max(0, length)
     raw = data[offset : offset + length]
     offset += length
-    if length >= 8:
+    if length >= 4:
         try:
-            # Certains IED: 4 octets secondes + 4 fraction
             sec = int.from_bytes(raw[:4], "big")
             if 0 < sec < 0x7FFFFFFF:
-                dt = _EPOCH_1984.timestamp() + sec
-                return datetime.fromtimestamp(dt, tz=timezone.utc).isoformat(), offset
+                return _timestamp_to_iso(sec), offset
         except (ValueError, OSError):
             pass
     return raw.hex(), offset
