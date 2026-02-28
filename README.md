@@ -1,113 +1,88 @@
-## Client MMS IEC 61850 en Python
+# Client MMS IEC 61850 – Reports
 
-Ce projet fournit un petit client MMS IEC 61850 en Python, empaqueté pour être
-exécuté dans un conteneur (Docker/Podman).
+Client MMS en Python pour **s’abonner aux reports** IEC 61850 et recevoir les données en push. Implémentation **sans bibliothèque GPL** : TPKT/COTP et encodage/décodage MMS en BER (ASN.1) dans le projet.
 
-### 1. Prérequis
+## Fonctionnalités
 
-- Python 3.11+ (si tu veux l'exécuter hors conteneur)
-- Ou bien un moteur de conteneur compatible Docker (par exemple **Podman**)
+- Connexion TCP → TPKT (RFC 1006) → COTP classe 0 → MMS
+- Initiate MMS, puis **GetRCBValues** + **SetRCBValues** (RptEna, options) pour chaque RCB
+- Réception des **reports** (unconfirmed PDU [RPT] / informationReport)
+- Décodage des entrées : en-tête (RptId, DataSet, SeqNum, TimeOfEntry, BufOvfl, …) et **membres du Data Set** (valeur, qualité, horodatage)
+- Option **SCL/ICD** : chargement d’un fichier CID/SCL pour afficher les noms des membres (ex. `[8] LogOut10`, `[9] A.phsA`, `[12] Hz`)
 
-### 2. Installation locale (sans conteneur)
+## Prérequis
 
-```bash
-pip install -r requirements.txt
-python mms_client.py 192.168.1.100 102 "LD0/MMXU1.TotW"
-```
+- **Python 3.10+**
+- Aucune dépendance externe : tout tourne avec la stdlib, sans conteneur ni `pip install`
 
-### 3. Construction de l'image (Podman)
+## Utilisation
 
-Depuis la racine du projet :
-
-```bash
-podman build -t mms-client .
-```
-
-### 4. Exécution du client avec Podman
-
-**Réseau :** si le serveur IEC 61850 est sur le même réseau que la machine hôte
-(par ex. 10.132.159.x), il faut utiliser le réseau de l’hôte, sinon le conteneur
-ne peut pas joindre l’IP :
+Script principal : **`test_client_reports.py`**
 
 ```bash
-podman run --rm --network host mms-client 10.132.159.191
+# Connexion à l’IED par défaut (host/port dans le script)
+python3 test_client_reports.py
+
+# Host et port explicites
+python3 test_client_reports.py 10.132.159.191 102
+
+# Avec domain ID (défaut : VMC7_1LD0)
+python3 test_client_reports.py --domain MON_IED_1LD0 10.132.159.191 102
+
+# Avec fichier SCL/ICD pour les libellés des membres du data set
+python3 test_client_reports.py --scl ./IECS.cid 10.132.159.191 102
+
+# Debug (PDU envoyés/reçus) et verbose (PDU brut + valeur brute des entrées)
+python3 test_client_reports.py --debug --verbose --scl ./IECS.cid
 ```
 
-Sans `--network host`, le conteneur est isolé et la connexion échoue souvent
-avec « Failed to connect … Error code: (None, 0) ».
+### Options
 
-#### 4.1 Lecture automatique de quelques valeurs
+| Option | Description |
+|--------|-------------|
+| `--debug` | Affiche les PDUs MMS envoyés et reçus (hex) |
+| `--verbose` | Affiche le PDU brut et la valeur brute de chaque entrée de report |
+| `--scl FICHIER` | Fichier SCL ou ICD (ex. IECS.cid) pour afficher les noms des membres (Beh, A.phsA, Hz, …) |
+| `--domain ID` | Domain ID MMS (défaut : VMC7_1LD0) |
+| `host` | Adresse IP de l’IED (défaut : 10.132.159.191) |
+| `port` | Port MMS (défaut : 102) |
 
-Le script se connecte à un serveur IEC 61850, parcourt une partie du modèle
-et lit quelques valeurs :
+### Exemple de sortie (avec --scl)
 
-```bash
-podman run --rm --network host mms-client 192.168.1.100
+```
+REPORT reçu :
+  RptId       : LDPHAS1_CYPO_DEP1
+  DataSet     : VMC7_1LD0/LLN0$DS_LDPHAS1_CYPO
+  SeqNum      : 1
+  TimeOfEntry : 1984-12-04T04:08:33.234970+00:00
+  BufOvfl     : False
+  Entries (24) :
+    [0] RptId: LDPHAS1_CYPO_DEP1
+    ...
+    [8] LogOut10: value=False  quality=030000
+    [9] A.phsA: value=[[0.0], [0.0]]  quality=030000
+    [12] Hz: value=[50.0]  quality=034000  time=2040-02-27T22:07:25+00:00
+    [16] qualité(LogOut10): 0208 (good)
+    [17] qualité(A.phsA): 0208 (good)
 ```
 
-Tu peux aussi préciser le port (par défaut 102) :
+Les RCB abonnés sont définis dans `test_client_reports.py` (liste `ITEM_IDS`). Les PDU qui ne sont pas des reports (ex. autres types MMS) sont affichés en une ligne : `[PDU non décodé, N octets]`.
 
-```bash
-podman run --rm --network host mms-client 192.168.1.100 102
-```
+## Fichier SCL/ICD
 
-#### 4.2 Lecture d'objets spécifiques
+Pour avoir des libellés lisibles (`[8] LogOut10`, `[9] A.phsA`, etc.), fournir le **fichier CID** (Configured IED Description) de l’IED, en général dans la config de l’appareil (ex. `/etc/cap/ied-1/config/IECS.cid`). Le script parse les DataSet et leurs FCDA pour faire correspondre l’index d’entrée au nom du membre.
 
-Tu peux fournir une ou plusieurs références complètes d'objets IEC 61850
-(par exemple `LD0/MMXU1.TotW`) :
+## Structure du projet (reports)
 
-```bash
-podman run --rm --network host mms-client 192.168.1.100 102 "LD0/MMXU1.TotW"
-podman run --rm --network host mms-client 192.168.1.100 "LD0/MMXU1.TotW.mag.f" "LD0/MMXU1.PhV.phsA.mag.f"
-```
+| Fichier | Rôle |
+|---------|------|
+| `tpkt.py` | TPKT RFC 1006 (send/recv) |
+| `cotp.py` | COTP classe 0 (connexion, send_data, recv_data) |
+| `asn1_codec.py` | Encodage BER MMS (Initiate, GetRCBValues, SetRCBValues), décodage des reports (listOfAccessResult → MMSReport) |
+| `mms_reports_client.py` | Client : connexion TCP/COTP/MMS, Initiate, enable_reporting (Get + 8× SetRCBValues), loop_reports |
+| `scl_parser.py` | Parse SCL/ICD pour extraire DataSet et FCDA → mapping nom du data set → liste de libellés |
+| `test_client_reports.py` | Script de test : abonnement à une liste de RCB, affichage des reports (avec ou sans --scl) |
 
-Si aucune référence n'est fournie, le script :
+## Autres scripts
 
-- découvre les logical devices,
-- parcourt quelques logical nodes,
-- parcourt quelques data objects,
-- lit et affiche la valeur de chaque objet sélectionné.
-
-#### 4.3 Récupérer les données en continu (polling)
-
-Avec pyiec61850-ng on ne peut pas recevoir les reports (push) en Python, mais on peut **lire périodiquement** les mêmes points (polling) pour récupérer les données :
-
-```bash
-# Poll par références explicites
-podman run --rm --network host --entrypoint python mms-client mms_poll.py 10.132.159.191 1 102 "VMC7_1BayLD/VECAMMXU1.A.phsA.cVal.mag.f" "VMC7_1BayLD/VECAMMXU1.A.phsB.cVal.mag.f"
-```
-
-**Données utiles d’un RCB (ex. CB_LDPX_DQPO01)** : poll du **DataSet** du RCB (même contenu qu’un report) :
-
-```bash
-# Si les $ sont tronqués (erreur "2 point(s)" avec --rcb dans l’en-tête), passer la réf par variable d’env :
-MMS_POLL_RCB_REF='VMC7_1LD0 LLN0$BR$CB_LDPX_DQPO01' podman run --rm --network host -e MMS_POLL_RCB_REF --entrypoint python mms-client mms_poll.py 10.132.159.191 1 102 --rcb
-```
-
-Ou avec guillemets simples (selon le shell) :
-
-```bash
-podman run --rm --network host --entrypoint python mms-client mms_poll.py 10.132.159.191 1 102 --rcb 'VMC7_1LD0 LLN0$BR$CB_LDPX_DQPO01'
-```
-
-→ Lit le RCB pour récupérer la référence du DataSet, puis lit ce DataSet **toutes les 1 s** et affiche tous les membres (Ctrl+C pour arrêter).
-
-#### 4.4 Reports (découverte et activation RptEna)
-
-Le script `mms_reports.py` permet de découvrir les RCB et d’activer RptEna. Avec pyiec61850-ng, **on ne peut pas recevoir les reports en Python** (pas de callback). Pour les données en continu, utiliser le **polling** (4.3).
-
-```bash
-podman run --rm --network host --entrypoint python mms-client mms_reports.py 10.132.159.191 102
-```
-
-- Connexion, découverte des RCB (BRCB/URCB), affichage de la config ;
-- activation de RptEna sur les RCB (format MMS avec espace si besoin) ;
-- pas de réception des reports dans ce fork → utiliser `mms_poll.py` pour les données.
-
-### 5. Remarques
-
-- Le projet utilise la bibliothèque `pyiec61850-ng`, qui fournit des bindings
-  Python pour `libiec61850` (MMS IEC 61850).
-- Le conteneur est basé sur `python:3.11-slim` pour rester léger tout en étant
-  compatible avec les roues binaires de `pyiec61850-ng`.
-
+Le dépôt contient aussi des scripts basés sur **pyiec61850-ng** (libiec61850, GPL) : `mms_client.py`, `mms_poll.py`, `mms_reports.py`. Ils nécessitent `pip install -r requirements.txt`. Le client reports décrit ci‑dessus n’utilise pas ces dépendances.
