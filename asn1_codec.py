@@ -8,18 +8,22 @@ Basé sur l'analyse des trames Wireshark pour l'IED cible.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Union
 
 
 @dataclass
 class MMSReport:
-    """Représentation Python simplifiée d'un Report MMS."""
+    """Représentation Python simplifiée d'un Report MMS (informationReport)."""
 
     rcb_reference: Optional[str] = None
     rpt_id: Optional[str] = None
     data_set_name: Optional[str] = None
     seq_num: Optional[int] = None
+    time_of_entry: Optional[Any] = None
+    buf_ovfl: Optional[bool] = None
     entries: list[Dict[str, Any]] | None = None
+    raw_pdu: Optional[bytes] = None  # PDU brut (rempli par le client pour debug/verbose)
 
 
 _PREFIX = b"\x01\x00\x01\x00"  # Session/Presentation
@@ -252,12 +256,353 @@ def encode_mms_set_rcb(
     return pdus
 
 
+# --- Décodage BER (longueur, skip, types MMS Report) -------------------------
+
+
+def _ber_read_length(data: bytes, offset: int) -> tuple[int, int]:
+    """Lit la longueur BER à offset. Retourne (length, nb_octets_lus)."""
+    if offset >= len(data):
+        return 0, 0
+    b = data[offset]
+    if b < 0x80:
+        return b, 1
+    n = b & 0x7F
+    if offset + 1 + n > len(data):
+        return 0, 0
+    length = 0
+    for i in range(n):
+        length = (length << 8) | data[offset + 1 + i]
+    return length, 1 + n
+
+
+def _ber_skip(data: bytes, offset: int) -> int:
+    """Avance offset après le TLV (tag + length + value). Retourne nouvel offset."""
+    if offset >= len(data):
+        return offset
+    tag = data[offset]
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n + length
+    return offset
+
+
+def _ber_decode_visible_string(data: bytes, offset: int) -> tuple[str, int]:
+    """Décode visible-string (tag 8a ou 1a) à offset. Retourne (str, nouvel_offset)."""
+    if offset >= len(data):
+        return "", offset
+    tag = data[offset]
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    if offset + length > len(data):
+        return "", offset
+    val = data[offset : offset + length].decode("ascii", errors="replace")
+    return val, offset + length
+
+
+def _ber_decode_unsigned(data: bytes, offset: int) -> tuple[int, int]:
+    """Décode unsigned (tag 85/86) à offset."""
+    if offset >= len(data):
+        return 0, offset
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    if length == 0 or offset + length > len(data):
+        return 0, offset
+    val = int.from_bytes(data[offset : offset + length], "big")
+    return val, offset + length
+
+
+def _ber_decode_boolean(data: bytes, offset: int) -> tuple[bool, int]:
+    """Décode boolean (tag 83) à offset."""
+    if offset + 3 > len(data) or data[offset] != 0x83:
+        return False, offset
+    offset += 1
+    if data[offset] != 1:
+        return False, offset + 2
+    return data[offset + 1] != 0, offset + 2
+
+
+def _ber_decode_octet_string(data: bytes, offset: int) -> tuple[bytes, int]:
+    """Décode octet-string (tag 89) à offset."""
+    if offset >= len(data) or data[offset] != 0x89:
+        return b"", offset
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    if offset + length > len(data):
+        return b"", offset
+    return data[offset : offset + length], offset + length
+
+
+def _ber_decode_bit_string(data: bytes, offset: int) -> tuple[bytes, int]:
+    """Décode bit-string (tag 84) à offset. Retourne (octets bruts, nouvel_offset)."""
+    if offset >= len(data) or data[offset] != 0x84:
+        return b"", offset
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    if offset + length > len(data):
+        return b"", offset
+    return data[offset : offset + length], offset + length
+
+
+# Epoch utilisé par certains IED (IEC 61850)
+_EPOCH_1984 = datetime(1984, 1, 1, tzinfo=timezone.utc)
+
+
+def _ber_decode_binary_time(data: bytes, offset: int) -> tuple[Any, int]:
+    """Décode binary-time (tag 8c). 4–8 octets selon IED (s souvent secondes/ms depuis 1984 ou epoch)."""
+    if offset >= len(data) or data[offset] != 0x8C:
+        return "<binary-time?>", offset
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    if offset + length > len(data) or length < 4:
+        return "<binary-time?>", offset + max(0, length)
+    raw = data[offset : offset + length]
+    offset += length
+    try:
+        if length >= 6:
+            # 4 octets = secondes depuis 1984 (ou epoch), 2 = fraction ms
+            sec = int.from_bytes(raw[:4], "big")
+            frac = int.from_bytes(raw[4:6], "big") if length >= 6 else 0
+            if sec < 0x7FFFFFFF and sec > 0:
+                dt = _EPOCH_1984.timestamp() + sec + frac / 65536.0
+                return datetime.fromtimestamp(dt, tz=timezone.utc).isoformat(), offset
+        if length == 4:
+            sec = int.from_bytes(raw[:4], "big")
+            if 0 < sec < 0x7FFFFFFF:
+                dt = _EPOCH_1984.timestamp() + sec
+                return datetime.fromtimestamp(dt, tz=timezone.utc).isoformat(), offset
+        return raw.hex(), offset
+    except (ValueError, OSError):
+        return raw.hex(), offset
+
+
+def _ber_decode_utc_time(data: bytes, offset: int) -> tuple[Any, int]:
+    """Décode utc-time (tag 91). Structure MMS avec flags + secondes/fraction."""
+    if offset >= len(data) or data[offset] != 0x91:
+        return "<utc-time?>", offset
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    if offset + length > len(data):
+        return "<utc-time?>", offset + max(0, length)
+    raw = data[offset : offset + length]
+    offset += length
+    if length >= 8:
+        try:
+            # Certains IED: 4 octets secondes + 4 fraction
+            sec = int.from_bytes(raw[:4], "big")
+            if 0 < sec < 0x7FFFFFFF:
+                dt = _EPOCH_1984.timestamp() + sec
+                return datetime.fromtimestamp(dt, tz=timezone.utc).isoformat(), offset
+        except (ValueError, OSError):
+            pass
+    return raw.hex(), offset
+
+
+def _ber_decode_float(data: bytes, offset: int) -> tuple[Any, int]:
+    """Décode MMS floating-point (tag 87). 1 octet format puis 4 ou 8 octets (IEEE 754)."""
+    import struct
+    if offset >= len(data) or data[offset] != 0x87:
+        return None, offset
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    if offset + length > len(data) or length < 5:
+        return None, offset + max(0, length)
+    # Premier octet = format, puis 4 ou 8 octets IEEE 754 big-endian
+    payload = data[offset + 1 : offset + length]
+    end = offset + length
+    try:
+        if len(payload) == 4:
+            return round(struct.unpack("!f", payload)[0], 6), end
+        if len(payload) == 8:
+            return round(struct.unpack("!d", payload)[0], 6), end
+    except struct.error:
+        pass
+    return payload.hex(), end
+
+
+def _ber_decode_structure(data: bytes, offset: int) -> tuple[Union[List[Any], Dict[str, Any]], int]:
+    """Décode une structure (tag a2 ou constructed 0x20+). Retourne liste des champs décodés."""
+    if offset >= len(data):
+        return [], offset
+    tag = data[offset]
+    if tag != 0xA2 and (tag & 0x1F) != 0x20:
+        return [], offset
+    offset += 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    end = offset + length
+    if end > len(data):
+        return [], offset
+    content = data[offset:end]
+    offset = end
+    fields: List[Any] = []
+    pos = 0
+    while pos < len(content):
+        try:
+            val, pos = _ber_decode_data_value(content, pos)
+            fields.append(val)
+        except (IndexError, ValueError):
+            break
+    return fields, offset
+
+
+def _ber_decode_data_value(data: bytes, offset: int) -> tuple[Any, int]:
+    """
+    Décode une valeur Data MMS à offset (tag 8a, 80, 1a, 84, 86, 8c, 83, 89, 87, 91, a2...).
+    Retourne (valeur Python, nouvel_offset). Les structures sont décodées récursivement.
+    """
+    if offset >= len(data):
+        return None, offset
+    tag = data[offset]
+    if tag in (0x8A, 0x1A, 0x80):
+        return _ber_decode_visible_string(data, offset)
+    if tag == 0x84:
+        bits, off = _ber_decode_bit_string(data, offset)
+        return bits.hex(), off
+    if tag == 0x85 or tag == 0x86:
+        return _ber_decode_unsigned(data, offset)
+    if tag == 0x83:
+        return _ber_decode_boolean(data, offset)
+    if tag == 0x89:
+        octs, off = _ber_decode_octet_string(data, offset)
+        return octs.hex(), off
+    if tag == 0x8C:
+        return _ber_decode_binary_time(data, offset)
+    if tag == 0x91:
+        return _ber_decode_utc_time(data, offset)
+    if tag == 0x87:
+        return _ber_decode_float(data, offset)
+    if tag == 0xA2 or (tag & 0x1F) == 0x20:
+        fields, off = _ber_decode_structure(data, offset)
+        return fields if fields else "<structure>", off
+    # défaut: skip
+    return "<unknown>", _ber_skip(data, offset)
+
+
+def _decode_mms_report_list(data: bytes, offset: int) -> tuple[list[Dict[str, Any]], int]:
+    """
+    Décode listOfAccessResult : suite de valeurs Data (8a, 84, 86, 8c, 83, 89, a2...).
+    Retourne (liste de {"success": value}, nouvel_offset).
+    """
+    results: list[Dict[str, Any]] = []
+    while offset < len(data):
+        try:
+            val, offset = _ber_decode_data_value(data, offset)
+            results.append({"success": val})
+        except (IndexError, ValueError):
+            break
+    return results, offset
+
+
 def decode_mms_pdu(pdu: bytes) -> Any:
-    """Décode un PDU MMS et retourne un MMSReport ou autre structure."""
+    """
+    Décode un PDU MMS. Si c'est un Report (unconfirmed-PDU [RPT] / informationReport),
+    retourne un MMSReport avec rpt_id, data_set_name, seq_num, time_of_entry, buf_ovfl, entries.
+    Sinon retourne un MMSReport avec entries=[raw_hex] pour compatibilité.
+    """
+    data = pdu
+    if data.startswith(_PREFIX):
+        data = data[len(_PREFIX) :]
+
+    if len(data) < 4 or data[0] != 0x61:
+        return MMSReport(
+            rcb_reference=None,
+            rpt_id=None,
+            data_set_name=None,
+            seq_num=None,
+            entries=[{"raw_hex": pdu.hex()}],
+        )
+
+    offset = 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    end_outer = offset + length
+    if end_outer > len(data):
+        data = data[offset:]
+    else:
+        data = data[offset:end_outer]
+
+    # unconfirmed-PDU : SEQUENCE { version, [0] { [3] informationReport } }
+    offset = 0
+    if len(data) < 2 or data[0] != 0x30:
+        return MMSReport(entries=[{"raw_hex": pdu.hex()}])
+    offset += 1
+    seq_len, nn = _ber_read_length(data, offset)
+    offset += nn
+    # 02 01 03 (version)
+    if offset + 3 <= len(data) and data[offset] == 0x02:
+        offset = _ber_skip(data, offset)
+    # [0] contient [3] informationReport
+    if offset >= len(data) or data[offset] != 0xA0:
+        return MMSReport(entries=[{"raw_hex": pdu.hex()}])
+    offset += 1
+    outer_len, nn = _ber_read_length(data, offset)
+    offset += nn
+    a0_content = data[offset : offset + outer_len]
+    offset += outer_len
+    if len(a0_content) < 2 or a0_content[0] != 0xA3:
+        return MMSReport(entries=[{"raw_hex": pdu.hex()}])
+    ir_len, nn = _ber_read_length(a0_content, 1)
+    # contenu de [3] = après tag (1) + length (nn)
+    ir_start = 1 + nn
+    ir = a0_content[ir_start : ir_start + ir_len]
+    pos = 0
+    # Premier [0] dans informationReport : contient variableAccessSpec (a1 "RPT") puis [0] listOfAccessResult
+    if len(ir) < 5 or ir[pos] != 0xA0:
+        return MMSReport(entries=[{"raw_hex": pdu.hex()}])
+    pos += 1
+    outer_len, nn = _ber_read_length(ir, pos)
+    pos += nn
+    # inner = contenu du premier [0]
+    inner = ir[pos : pos + outer_len] if pos + outer_len <= len(ir) else ir[pos:]
+    pos = 0
+    # Skip a1 (variableListName "RPT")
+    if len(inner) < 2 or inner[pos] != 0xA1:
+        return MMSReport(entries=[{"raw_hex": pdu.hex()}])
+    pos = _ber_skip(inner, pos)
+    # a0 [0] listOfAccessResult
+    if pos >= len(inner) or inner[pos] != 0xA0:
+        return MMSReport(entries=[{"raw_hex": pdu.hex()}])
+    pos += 1
+    list_len, nn = _ber_read_length(inner, pos)
+    pos += nn
+    list_data = inner[pos : pos + list_len] if pos + list_len <= len(inner) else inner[pos:]
+
+    entries_list, _ = _decode_mms_report_list(list_data, 0)
+    if not entries_list:
+        return MMSReport(entries=[{"raw_hex": pdu.hex()}])
+
+    # Mapping Wireshark: 0=RptID, 1=OptFlds, 2=SeqNum, 3=TimeOfEntry, 4=DatSet, 5=BufOvfl, 6=EntryID, 7=Inclusion, 8+=data
+    rpt_id = None
+    seq_num = None
+    data_set_name = None
+    time_of_entry = None
+    buf_ovfl = None
+    if len(entries_list) > 0:
+        rpt_id = entries_list[0].get("success")
+    if len(entries_list) > 1:
+        pass  # OptFlds
+    if len(entries_list) > 2:
+        seq_num = entries_list[2].get("success")
+    if len(entries_list) > 3:
+        time_of_entry = entries_list[3].get("success")
+    if len(entries_list) > 4:
+        data_set_name = entries_list[4].get("success")
+    if len(entries_list) > 5:
+        buf_ovfl = entries_list[5].get("success")
+
     return MMSReport(
         rcb_reference=None,
-        rpt_id=None,
-        data_set_name=None,
-        seq_num=None,
-        entries=[{"raw_hex": pdu.hex()}],
+        rpt_id=rpt_id,
+        data_set_name=data_set_name,
+        seq_num=seq_num,
+        time_of_entry=time_of_entry,
+        buf_ovfl=buf_ovfl,
+        entries=entries_list,
     )

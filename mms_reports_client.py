@@ -206,6 +206,7 @@ class MMSReportsClient:
                 ) from e
 
             if isinstance(decoded, MMSReport):
+                decoded.raw_pdu = pdu
                 callback(decoded)
             # Pour d'autres types de PDUs, on pourrait ajouter un dispatch ici.
 
