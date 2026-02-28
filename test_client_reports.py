@@ -1,7 +1,7 @@
 """Test d'abonnement aux reports MMS sur un IED.
 
 Usage:
-    python3 test_client_reports.py [--debug] [--verbose] [--scl FICHIER] [host [port]]
+    python3 test_client_reports.py [--debug] [--verbose] [--scl FICHIER] [--domain ID] [host [port]]
 
 Sans --debug : pas d'affichage des PDUs envoyés/reçus.
 Avec --debug : affiche les trames (>>> envoi, <<< réception).
@@ -186,6 +186,11 @@ def main() -> int:
         help="Fichier SCL ou ICD pour afficher les noms des membres du data set ([8]=Beh, etc.).",
     )
     parser.add_argument(
+        "--domain",
+        default=DOMAIN_ID,
+        help=f"Domain ID MMS (défaut: {DOMAIN_ID}).",
+    )
+    parser.add_argument(
         "host",
         nargs="?",
         default=IED_IP_DEFAULT,
@@ -217,9 +222,10 @@ def main() -> int:
     client = MMSReportsClient(args.host, args.port, debug=args.debug)
     client.connect()
 
+    domain_id = args.domain
     for i, item_id in enumerate(ITEM_IDS, 1):
-        print(f"Abonnement [{i}/{len(ITEM_IDS)}] {DOMAIN_ID}/{item_id} ...")
-        client.enable_reporting(DOMAIN_ID, item_id)
+        print(f"Abonnement [{i}/{len(ITEM_IDS)}] {domain_id}/{item_id} ...")
+        client.enable_reporting(domain_id, item_id)
 
     print(f"\n{len(ITEM_IDS)} RCB abonnés. En attente de reports...\n")
     client.loop_reports(on_report)
