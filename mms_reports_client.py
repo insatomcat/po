@@ -34,6 +34,13 @@ class MMSConnectionError(RuntimeError):
 ReportCallback = Callable[[MMSReport], None]
 
 
+def _hex_debug(data: bytes, max_bytes: int = 128) -> str:
+    """Format hex pour debug (tronqué si long)."""
+    if len(data) <= max_bytes:
+        return data.hex(" ")
+    return data[:max_bytes].hex(" ") + f" ... (+{len(data) - max_bytes} octets)"
+
+
 class MMSReportsClient:
     """Client minimal pour s'abonner à des reports MMS sur un IED IEC 61850.
 
@@ -44,11 +51,18 @@ class MMSReportsClient:
       - la boucle de réception de Reports.
     """
 
-    def __init__(self, host: str, port: int = 102, timeout: float = 5.0) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int = 102,
+        timeout: float = 5.0,
+        debug: bool = False,
+    ) -> None:
         self._host = host
         self._port = port
         self._timeout = timeout
         self._sock: Optional[socket.socket] = None
+        self._debug = debug
 
     def connect(self) -> None:
         """Ouvre la connexion TCP, établit COTP et envoie MMS Initiate."""
@@ -63,7 +77,11 @@ class MMSReportsClient:
         self._sock = sock
 
         try:
+            if self._debug:
+                print("[DEBUG] >>> COTP Connection Request (CR)")
             cotp_connect(sock, timeout=self._timeout)
+            if self._debug:
+                print("[DEBUG] <<< COTP Connection Confirm (CC)")
         except (COTPError, TPKTError, OSError) as e:
             self.close()
             raise MMSConnectionError(f"Échec handshake COTP: {e}") from e
@@ -78,6 +96,9 @@ class MMSReportsClient:
                 "Branchez asn1_codec sur une implémentation ASN.1 réelle."
             ) from e
 
+        if self._debug:
+            print(f"[DEBUG] >>> MMS InitiateRequest ({len(initiate_pdu)} octets)")
+            print(f"[DEBUG]     {_hex_debug(initiate_pdu)}")
         cotp_send_data(sock, initiate_pdu)
 
         # On attend la réponse à l'initiate (optionnellement on pourrait la décoder)
@@ -85,6 +106,9 @@ class MMSReportsClient:
         if resp is None:
             self.close()
             raise MMSConnectionError("Connexion fermée pendant le MMS InitiateResponse.")
+        if self._debug:
+            print(f"[DEBUG] <<< MMS InitiateResponse ({len(resp)} octets)")
+            print(f"[DEBUG]     {_hex_debug(resp)}")
 
         reset_invoke_id()
 
@@ -117,18 +141,40 @@ class MMSReportsClient:
 
         if do_get_first:
             get_pdu = encode_mms_get_rcb(domain_id, item_id)
+            if self._debug:
+                print(f"[DEBUG] >>> GetRCBValues {domain_id}/{item_id} ({len(get_pdu)} octets)")
+                print(f"[DEBUG]     {_hex_debug(get_pdu)}")
             cotp_send_data(self._sock, get_pdu)
-            _ = cotp_recv_data(self._sock, timeout=self._timeout)
+            resp = cotp_recv_data(self._sock, timeout=self._timeout)
+            if self._debug:
+                if resp is not None:
+                    print(f"[DEBUG] <<< GetRCBValuesResponse ({len(resp)} octets)")
+                    print(f"[DEBUG]     {_hex_debug(resp)}")
+                else:
+                    print("[DEBUG] <<< (aucune réponse GetRCBValues)")
 
+        set_attrs = (
+            "ResvTms", "IntgPd", "TrgOps", "OptFlds",
+            "PurgeBuf", "EntryID", "RptEna", "GI",
+        )
         set_pdus = encode_mms_set_rcb(
             domain_id,
             item_id,
             rpt_ena=rpt_ena,
             intg_pd_ms=intg_pd_ms,
         )
-        for pdu in set_pdus:
+        for attr, pdu in zip(set_attrs, set_pdus):
+            if self._debug:
+                print(f"[DEBUG] >>> SetRCBValues ${attr} ({len(pdu)} octets)")
+                print(f"[DEBUG]     {_hex_debug(pdu)}")
             cotp_send_data(self._sock, pdu)
-            _ = cotp_recv_data(self._sock, timeout=self._timeout)
+            resp = cotp_recv_data(self._sock, timeout=self._timeout)
+            if self._debug:
+                if resp is not None:
+                    print(f"[DEBUG] <<< SetRCBValuesResponse ${attr} ({len(resp)} octets)")
+                    print(f"[DEBUG]     {_hex_debug(resp)}")
+                else:
+                    print(f"[DEBUG] <<< (aucune réponse SetRCBValues ${attr})")
 
     def loop_reports(self, callback: ReportCallback) -> None:
         """Boucle de réception bloquante qui invoque callback pour chaque Report."""
@@ -145,7 +191,12 @@ class MMSReportsClient:
         while True:
             pdu = cotp_recv_data(self._sock)
             if pdu is None:
+                if self._debug:
+                    print("[DEBUG] <<< connexion fermée (fin de flux)")
                 break
+            if self._debug:
+                print(f"[DEBUG] <<< PDU reçu ({len(pdu)} octets)")
+                print(f"[DEBUG]     {_hex_debug(pdu)}")
             try:
                 decoded = decode_mms_pdu(pdu)
             except NotImplementedError as e:
