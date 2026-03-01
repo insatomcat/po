@@ -19,9 +19,14 @@ env/
 
 # Fichiers SCL/ICD (config IED, souvent spécifiques à l’installation)
 *.cid
+*.scl
+*.icd
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+
+# Liste RCD
+rcd_*.txt
