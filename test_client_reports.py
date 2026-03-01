@@ -27,7 +27,7 @@ VERBOSE = False  # mis à True par --verbose
 
 IED_IP_DEFAULT = "10.132.159.191"
 IED_PORT_DEFAULT = 102
-DOMAIN_ID = "VMC7_1LD0"
+DOMAIN_ID = "VMC7_1LD0" # ABB : SSC600SW_ALD0
 
 # Libellés des entrées 0-7 (en-tête MMS)
 ENTRY_LABELS = (
@@ -99,6 +99,28 @@ ITEM_IDS = [
     "LLN0$BR$CB_LDCMDDJ_CYPO03",
     "LLN0$BR$CB_LDPHAS1_CYPO03",
 ]
+
+
+def _load_item_ids_from_file(path: str | None) -> list[str]:
+    """Charge la liste des RCB (ITEM_IDS) depuis un fichier texte, une par ligne.
+
+    - Lignes vides ou commençant par '#' sont ignorées.
+    - Si le fichier est absent ou invalide, on revient à ITEM_IDS par défaut.
+    """
+    if not path:
+        return ITEM_IDS
+    try:
+        ids: list[str] = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                ids.append(line)
+        return ids or ITEM_IDS
+    except OSError as e:
+        print(f"[RCB] Impossible de lire {path}: {e}. Utilisation de la liste intégrée.", flush=True)
+        return ITEM_IDS
 
 
 def _hex_block(data: bytes, line_len: int = 64) -> str:
@@ -245,6 +267,14 @@ def main() -> int:
         help="Désactiver le batching : une requête HTTP par report (comportement legacy).",
     )
     parser.add_argument(
+        "--rcb-list",
+        metavar="FICHIER",
+        help=(
+            "Fichier texte listant les RCB à activer (une par ligne, ex. "
+            "LLN0$BR$CB_LDPX_DQPO03). Si omis, utilise la liste intégrée."
+        ),
+    )
+    parser.add_argument(
         "host",
         nargs="?",
         default=IED_IP_DEFAULT,
@@ -299,7 +329,9 @@ def main() -> int:
     client.connect()
 
     domain_id = args.domain
-    for i, item_id in enumerate(ITEM_IDS, 1):
+    item_ids = _load_item_ids_from_file(args.rcb_list)
+    print(f"[RCB] {len(item_ids)} RCB à activer (source: {'fichier' if args.rcb_list else 'liste intégrée'})")
+    for i, item_id in enumerate(item_ids, 1):
         print(f"Abonnement [{i}/{len(ITEM_IDS)}] {domain_id}/{item_id} ...")
         client.enable_reporting(domain_id, item_id, report_callback=callback)
 
