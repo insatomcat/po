@@ -17,6 +17,9 @@ env/
 # Captures réseau
 *.pcap
 
+# Fichiers SCL/ICD (config IED, souvent spécifiques à l’installation)
+*.cid
+
 # IDE
 .idea/
 .vscode/

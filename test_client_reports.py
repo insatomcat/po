@@ -20,7 +20,7 @@ import sys
 
 from mms_reports_client import MMSReportsClient
 from asn1_codec import MMSReport  # juste pour le type
-from scl_parser import parse_scl_data_set_members
+from scl_parser import parse_scl_data_set_members, parse_scl_data_set_members_with_components
 from victoriametrics_push import push_mms_report, push_mms_report_flush
 
 VERBOSE = False  # mis à True par --verbose
@@ -38,6 +38,8 @@ ENTRY_LABELS = (
 # Noms des membres du Data Set (ordre = ordre dans le report).
 # Rempli automatiquement par --scl FICHIER, ou manuellement ci-dessous.
 DATA_SET_MEMBER_LABELS: dict[str, list[str]] = {}
+# Noms des composants par membre (ex. A.phsA -> [mag, ang]) depuis DataTypeTemplates dans l'ICD.
+DATA_SET_MEMBER_COMPONENTS: dict[str, dict[str, list[str]]] = {}
 
 # Codes qualité/reason courants (hex → libellé court)
 QUALITY_LABELS = {
@@ -120,6 +122,7 @@ def on_report(
     *,
     batch_interval_sec: float = 0.2,
     batch_max_lines: int = 500,
+    member_components: dict[str, dict[str, list[str]]] | None = None,
 ) -> None:
     """Callback pour chaque report : push VM si vm_url, affichage console si show_in_console."""
     if _is_undecoded_raw(report):
@@ -135,6 +138,7 @@ def on_report(
                 vm_url,
                 report,
                 DATA_SET_MEMBER_LABELS,
+                member_components=member_components or DATA_SET_MEMBER_COMPONENTS or None,
                 debug=VERBOSE,
                 batch_interval_sec=batch_interval_sec,
                 batch_max_lines=batch_max_lines,
@@ -270,8 +274,10 @@ def main() -> int:
 
     if args.scl:
         try:
-            parsed = parse_scl_data_set_members(args.scl)
+            parsed, comp = parse_scl_data_set_members_with_components(args.scl)
             DATA_SET_MEMBER_LABELS.update(parsed)
+            for k, v in comp.items():
+                DATA_SET_MEMBER_COMPONENTS.setdefault(k, {}).update(v)
             print(f"[SCL] {len(parsed)} data set(s) chargé(s) depuis {args.scl}")
         except FileNotFoundError:
             print(f"[SCL] Fichier non trouvé : {args.scl}", file=sys.stderr)
@@ -286,6 +292,7 @@ def main() -> int:
         show_in_console=show_in_console,
         batch_interval_sec=batch_interval_sec,
         batch_max_lines=500,
+        member_components=DATA_SET_MEMBER_COMPONENTS or None,
     )
 
     client = MMSReportsClient(args.host, args.port, debug=args.debug)

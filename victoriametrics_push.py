@@ -32,37 +32,40 @@ def _label_escape(s: str) -> str:
 
 
 def _value_to_float(val: Any) -> Optional[float]:
-    """Convertit une valeur décodée MMS en float (ou None). Gère bool, nombre, listes imbriquées."""
-    if val is None:
-        return None
-    if isinstance(val, bool):
-        return 1.0 if val else 0.0
-    if isinstance(val, (int, float)) and not isinstance(val, bool):
-        return float(val)
-    if isinstance(val, list) and len(val) >= 1:
-        first = val[0]
-        if isinstance(first, (int, float)) and not isinstance(first, bool):
-            return float(first)
-        if isinstance(first, bool):
-            return 1.0 if first else 0.0
-        if isinstance(first, list):
-            # [[0.0], [0.0]] ou [[0.0]] : prendre le premier nombre trouvé
-            for item in first:
-                if isinstance(item, (int, float)) and not isinstance(item, bool):
-                    return float(item)
-                if isinstance(item, list) and len(item) >= 1 and isinstance(item[0], (int, float)):
-                    return float(item[0])
-    return None
+    """Convertit une valeur décodée MMS en float (ou None). Garde la première valeur pour rétrocompat."""
+    floats = _value_to_floats(val)
+    return floats[0] if floats else None
 
 
-def _entry_value_and_timestamp(val: Any, report: MMSReport) -> tuple[Optional[float], int]:
-    """Retourne (valeur numérique, timestamp_ms). Si l'entrée est [value, quality, time], extrait value."""
+def _value_to_floats(val: Any) -> List[float]:
+    """Extrait toutes les valeurs numériques d'une structure MMS (ex. [[250.31], [-140.0]] → [250.31, -140.0])."""
+    out: List[float] = []
+
+    def collect(x: Any) -> None:
+        if x is None:
+            return
+        if isinstance(x, bool):
+            out.append(1.0 if x else 0.0)
+            return
+        if isinstance(x, (int, float)) and not isinstance(x, bool):
+            out.append(float(x))
+            return
+        if isinstance(x, list):
+            for item in x:
+                collect(item)
+
+    collect(val)
+    return out
+
+
+def _entry_values_and_timestamp(val: Any, report: MMSReport) -> tuple[List[float], int]:
+    """Retourne (liste des valeurs numériques, timestamp_ms). Si l'entrée est [value, quality, time], extrait value."""
     value_part = val
     if isinstance(val, list) and len(val) >= 3:
         value_part = val[0]
-    num = _value_to_float(value_part)
+    nums = _value_to_floats(value_part)
     ts_ms = _entry_timestamp(val, report)
-    return num, ts_ms
+    return nums, ts_ms
 
 
 def _parse_iso_to_ts_ms(s: Any) -> Optional[int]:
@@ -106,6 +109,20 @@ _ENTRY_LABELS = (
 )
 
 
+# Noms de membres type phasor (magnitude + angle) pour repli mag/ang quand l'ICD ne fournit pas les composants
+_PHASOR_MEMBER_PATTERNS = ("phsA", "phsB", "phsC")
+
+
+def _default_component_names(member: str, n: int) -> Optional[List[str]]:
+    """Si le membre ressemble à un phasor (A.phsA, PhV.phsB, ...) et n==2, retourne ['mag', 'ang']."""
+    if n != 2:
+        return None
+    for pat in _PHASOR_MEMBER_PATTERNS:
+        if pat in member:
+            return ["mag", "ang"]
+    return None
+
+
 def _member_name(index: int, member_labels: List[str]) -> str:
     """Nom du membre pour le label Prometheus."""
     if index < len(_ENTRY_LABELS):
@@ -138,14 +155,26 @@ def _do_post_impl(base_url: str, lines: List[str], debug: bool = False) -> None:
 def _report_to_lines(
     report: MMSReport,
     member_labels: Optional[Dict[str, List[str]]] = None,
+    member_components: Optional[Dict[str, Dict[str, List[str]]]] = None,
 ) -> List[str]:
-    """Convertit un report MMS en lignes Prometheus (sans envoyer)."""
+    """Convertit un report MMS en lignes Prometheus (sans envoyer).
+    member_components[ds_key][member_label] = noms des composants (ex. [mag, ang]) depuis l'ICD.
+    """
     if not report.entries or getattr(report, "rpt_id", None) is None:
         return []
     rpt_id = (report.rpt_id or "unknown").replace('"', "_")
     data_set = (report.data_set_name or "unknown").replace('"', "_")
     ds_name = report.data_set_name or ""
     labels_list = (member_labels or {}).get(ds_name, [])
+    comp_map: Dict[str, List[str]] = {}
+    if member_components:
+        comp_map = (member_components.get(ds_name) or {})
+        if not comp_map and ds_name and "$" in ds_name:
+            suffix = "$" + ds_name.split("$", 1)[-1]
+            for k, c in (member_components or {}).items():
+                if k.endswith(suffix):
+                    comp_map = c
+                    break
     if not labels_list and ds_name and "$" in ds_name:
         suffix = "$" + ds_name.split("$", 1)[-1]
         for k, L in (member_labels or {}).items():
@@ -155,13 +184,26 @@ def _report_to_lines(
     lines: List[str] = []
     for i, e in enumerate(report.entries):
         val = e.get("success", e) if isinstance(e, dict) else e
-        num, ts_ms = _entry_value_and_timestamp(val, report)
-        if num is None:
+        nums, ts_ms = _entry_values_and_timestamp(val, report)
+        if not nums:
             continue
         member = _member_name(i, labels_list)
         member_esc = _label_escape(member)
-        line = f'mms_report_value{{rpt_id="{_label_escape(rpt_id)}",data_set="{_label_escape(data_set)}",member="{member_esc}"}} {num} {ts_ms}'
-        lines.append(line)
+        comp_names = comp_map.get(member) if comp_map else None
+        if comp_names is None and len(nums) > 1:
+            comp_names = _default_component_names(member, len(nums))
+        for idx, num in enumerate(nums):
+            if len(nums) > 1:
+                comp = (
+                    comp_names[idx]
+                    if comp_names and idx < len(comp_names)
+                    else str(idx)
+                )
+                labels = f'rpt_id="{_label_escape(rpt_id)}",data_set="{_label_escape(data_set)}",member="{member_esc}",component="{_label_escape(comp)}"'
+            else:
+                labels = f'rpt_id="{_label_escape(rpt_id)}",data_set="{_label_escape(data_set)}",member="{member_esc}"'
+            line = f"mms_report_value{{{labels}}} {num} {ts_ms}"
+            lines.append(line)
     return lines
 
 
@@ -238,6 +280,7 @@ def push_mms_report(
     base_url: str,
     report: MMSReport,
     member_labels: Optional[Dict[str, List[str]]] = None,
+    member_components: Optional[Dict[str, Dict[str, List[str]]]] = None,
     debug: bool = False,
     *,
     batch_interval_sec: float = DEFAULT_BATCH_INTERVAL_SEC,
@@ -245,12 +288,10 @@ def push_mms_report(
 ) -> None:
     """
     Envoie les valeurs numériques d'un report MMS vers VictoriaMetrics (POST /api/v1/import/prometheus).
-    Les reports sont mis en buffer et envoyés par batch (intervalle par défaut 200 ms, ou dès 500 lignes)
-    pour réduire le nombre de requêtes HTTP.
-    Chaque entrée convertible en float devient une métrique mms_report_value avec labels rpt_id, data_set, member.
-    Si batch_interval_sec=0, envoi immédiat (pas de batching).
+    member_components : optionnel, depuis parse_scl_data_set_members_with_components, pour des libellés
+    de composants (ex. mag, ang) au lieu de 0, 1.
     """
-    lines = _report_to_lines(report, member_labels)
+    lines = _report_to_lines(report, member_labels, member_components)
     if not lines:
         if debug:
             print("[VictoriaMetrics] skip: no entries or rpt_id or no numeric values", flush=True)
