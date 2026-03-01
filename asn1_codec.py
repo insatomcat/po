@@ -30,6 +30,12 @@ _PREFIX = b"\x01\x00\x01\x00"  # Session/Presentation
 _invoke_id = 0x012C  # Compteur pour invokeID (aligné sur les traces Wireshark)
 
 
+# ObjectClass ISO 9506 GetNameList : domain=9, namedVariable=0, namedVariableList=2
+OBJECT_CLASS_DOMAIN = 9
+OBJECT_CLASS_NAMED_VARIABLE = 0
+OBJECT_CLASS_NAMED_VARIABLE_LIST = 2
+
+
 def reset_invoke_id(base: int = 0x012C) -> None:
     """Réinitialise le compteur invokeID (appelé à chaque nouvelle session)."""
     global _invoke_id
@@ -103,6 +109,53 @@ def encode_mms_get_rcb(domain_id: str, item_id: str) -> bytes:
     seq_top = fixed + a0_4
     seq_2 = b"\x30" + bytes([len(seq_top)]) + seq_top
     # 61 [len] seq_2
+    app1 = b"\x61" + bytes([len(seq_2)]) + seq_2
+
+    return _PREFIX + app1
+
+
+def encode_mms_get_name_list(
+    object_class: int,
+    scope_vmd: bool = True,
+    domain_id: Optional[str] = None,
+) -> bytes:
+    """Construit un MMS GetNameList (confirmed-RequestPDU [getNameList]).
+
+    object_class : OBJECT_CLASS_DOMAIN (9), OBJECT_CLASS_NAMED_VARIABLE (0), etc.
+    scope_vmd : True = vmd-specific (NULL), False = domain-specific avec domain_id.
+    domain_id : requis si scope_vmd=False (ex: VMC7_1LD0).
+    """
+    # GetNameList-Request ::= SEQUENCE {
+    #   objectClass [0] IMPLICIT ObjectClass,
+    #   objectScope [1] IMPLICIT ObjectScope
+    # }
+    # objectClass ENUMERATED : 80 01 09 pour domain
+    obj_class = b"\x80\x01" + bytes([object_class & 0xFF])
+    if scope_vmd:
+        # vmd-specific [0] IMPLICIT NULL
+        obj_scope = b"\x81\x00"
+    else:
+        if not domain_id:
+            raise ValueError("domain_id requis pour scope domain-specific")
+        # domain-specific [1] IMPLICIT Identifier (VisibleString)
+        id_bytes = _encode_ia5(domain_id)
+        obj_scope = b"\x81" + bytes([len(id_bytes)]) + id_bytes
+
+    gnl_req = b"\x30" + bytes([len(obj_class) + len(obj_scope)]) + obj_class + obj_scope
+
+    # getNameList [1] IMPLICIT (ISO 9506 ConfirmedServiceRequest)
+    gnl_wrapper = b"\xa1" + bytes([len(gnl_req)]) + gnl_req
+
+    inv = _next_invoke_id()
+    invoke_part = b"\x02\x02" + bytes([inv >> 8, inv & 0xFF])
+
+    # confirmed-RequestPDU : invokeID + getNameList
+    inner = invoke_part + gnl_wrapper
+    a0_3 = b"\xa0" + bytes([len(inner)]) + inner
+    a0_4 = b"\xa0" + bytes([len(a0_3)]) + a0_3
+    fixed = b"\x02\x01\x03"
+    seq_top = fixed + a0_4
+    seq_2 = b"\x30" + bytes([len(seq_top)]) + seq_top
     app1 = b"\x61" + bytes([len(seq_2)]) + seq_2
 
     return _PREFIX + app1
@@ -517,6 +570,143 @@ def _decode_mms_report_list(data: bytes, offset: int) -> tuple[list[Dict[str, An
         except (IndexError, ValueError):
             break
     return results, offset
+
+
+def _ber_decode_sequence_of_visible_strings(data: bytes, offset: int) -> tuple[List[str], int]:
+    """Décode SEQUENCE OF VisibleString (1a ou 8a). Retourne (liste, nouvel_offset)."""
+    names: List[str] = []
+    while offset < len(data):
+        if offset >= len(data):
+            break
+        tag = data[offset]
+        if tag not in (0x1A, 0x8A, 0x80):
+            break
+        s, offset = _ber_decode_visible_string(data, offset)
+        if s:
+            names.append(s)
+    return names, offset
+
+
+def is_read_response_success(pdu: bytes) -> bool:
+    """
+    True si le PDU est une confirmed-ResponsePDU avec Read-Response (a4) *réussie*.
+
+    Read-Response success : contenu de a4 inclut des données (8a, 86, 83...).
+    Read-Response failure : contenu de a4 = failure [1] avec erreur (ex. a1 03 80 01 0a
+    pour object-non-existent).
+    """
+    data = pdu
+    if data.startswith(_PREFIX):
+        data = data[len(_PREFIX):]
+    if len(data) < 6 or data[0] != 0x61:
+        return False
+    # Chercher a4 (read [4]) dans le PDU (il peut être imbriqué dans 61)
+    pos = data.find(b"\xa4")
+    if pos < 0:
+        return False
+    pos += 1
+    if pos >= len(data):
+        return False
+    ln, n = _ber_read_length(data, pos)
+    pos += n
+    if pos + ln > len(data):
+        return False
+    content = data[pos : pos + ln]
+    # Failure : pattern a1 03 80 01 0a (failure [1] avec error code 0x0a)
+    if ln <= 12 and b"\xa1\x03\x80" in content[:8]:
+        return False
+    # Success : contient des données (visible string 8a/1a, unsigned 86/85, boolean 83, etc.)
+    return any(b in content for b in (b"\x8a", b"\x1a", b"\x86", b"\x85", b"\x83", b"\x84"))
+
+
+def decode_mms_get_name_list_response(pdu: bytes) -> Optional[tuple[List[str], bool]]:
+    """
+    Décode une réponse GetNameList (confirmed-ResponsePDU [getNameList]).
+    Retourne (list_of_identifier, more_follows) ou None si ce n'est pas une réponse GetNameList.
+    """
+    data = pdu
+    if data.startswith(_PREFIX):
+        data = data[len(_PREFIX):]
+    if len(data) < 8 or data[0] != 0x61:
+        return None
+    offset = 1
+    length, n = _ber_read_length(data, offset)
+    offset += n
+    end_outer = min(offset + length, len(data))
+    payload = data[offset:end_outer]
+
+    # Chercher getNameList [1] = 0xA1 (ISO 9506 ConfirmedServiceResponse)
+    pos = 0
+    # Skip version et invokeID dans confirmed-ResponsePDU
+    if len(payload) < 4 or payload[pos] != 0x30:
+        return None
+    pos += 1
+    seq_len, nn = _ber_read_length(payload, pos)
+    pos += nn
+    seq_end = pos + seq_len
+    if seq_end > len(payload):
+        seq_end = len(payload)
+    def _find_a1_in(inner: bytes, start: int, end: int) -> Optional[int]:
+        """Recherche récursive du TLV a1 (getNameList) dans inner[start:end]."""
+        p = start
+        while p < end - 1:
+            tag = inner[p]
+            p += 1
+            ln, nn = _ber_read_length(inner, p)
+            p += nn
+            if p + ln > end:
+                break
+            if tag == 0xA1:
+                return p - 1  # position du tag a1
+            if tag == 0xA0:
+                found = _find_a1_in(inner, p, p + ln)
+                if found is not None:
+                    return found
+            p += ln
+        return None
+
+    a1_pos = _find_a1_in(payload, pos, seq_end)
+    if a1_pos is None:
+        return None
+
+    pos = a1_pos
+    gnl_len, nn = _ber_read_length(payload, pos)
+    pos += nn
+    gnl_end = pos + gnl_len
+    if gnl_end > len(payload):
+        gnl_end = len(payload)
+    gnl_content = payload[pos:gnl_end]
+
+    # GetNameList-Response : listOfIdentifier [0], moreFollows [1]
+    names: List[str] = []
+    more_follows = False
+    p = 0
+    while p < len(gnl_content):
+        if p >= len(gnl_content):
+            break
+        tag = gnl_content[p]
+        p += 1
+        ln, nn = _ber_read_length(gnl_content, p)
+        p += nn
+        if p + ln > len(gnl_content):
+            break
+        chunk = gnl_content[p:p + ln]
+        p += ln
+        if tag == 0xA0:
+            # listOfIdentifier SEQUENCE OF VisibleString
+            q = 0
+            while q < len(chunk):
+                if chunk[q] in (0x1A, 0x8A, 0x80):
+                    s, q = _ber_decode_visible_string(chunk, q)
+                    if s:
+                        names.append(s)
+                else:
+                    q = _ber_skip(chunk, q)
+        elif tag == 0xA1 and len(chunk) >= 2 and chunk[0] == 0x83:
+            # moreFollows BOOLEAN
+            more_follows = len(chunk) > 1 and chunk[1] != 0
+
+    return names, more_follows
 
 
 def decode_mms_pdu(pdu: bytes) -> Any:
