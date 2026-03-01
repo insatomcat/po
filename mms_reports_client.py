@@ -22,8 +22,11 @@ from tpkt import TPKTError
 from asn1_codec import (
     encode_mms_initiate,
     encode_mms_get_rcb,
+    encode_mms_get_name_list,
     encode_mms_set_rcb,
     decode_mms_pdu,
+    decode_mms_get_name_list_response,
+    is_read_response_success,
     MMSReport,
     reset_invoke_id,
 )
@@ -132,23 +135,60 @@ class MMSReportsClient:
             finally:
                 self._sock = None
 
-    def _recv_until_response(self, report_callback: Optional[ReportCallback] = None) -> None:
-        """Reçoit un PDU ; si c'est un Report, appelle le callback et réessaie jusqu'à avoir la réponse Get/Set."""
+    def _recv_until_response(self, report_callback: Optional[ReportCallback] = None) -> Optional[bytes]:
+        """Reçoit un PDU ; si c'est un Report, appelle le callback et réessaie jusqu'à avoir la réponse Get/Set.
+        Retourne le PDU brut de la réponse confirmée, ou None si connexion fermée."""
         while True:
             resp = cotp_recv_data(self._sock, timeout=self._timeout)
             if resp is None:
-                return
+                return None
             try:
                 decoded = decode_mms_pdu(resp)
             except NotImplementedError:
-                return
+                return resp
             if isinstance(decoded, MMSReport) and _is_information_report(decoded) and report_callback:
                 decoded.raw_pdu = resp
                 report_callback(decoded)
                 continue
             if self._debug:
                 print(f"[DEBUG] <<< réponse ({len(resp)} octets)")
-            return
+            return resp
+
+    def get_name_list(
+        self,
+        object_class: int,
+        scope_vmd: bool = True,
+        domain_id: Optional[str] = None,
+    ) -> Optional[tuple[list[str], bool]]:
+        """Envoie GetNameList et retourne (liste_de_noms, more_follows) ou None en cas d'échec."""
+        if self._sock is None:
+            raise MMSConnectionError("Connexion MMS non établie.")
+        pdu = encode_mms_get_name_list(object_class, scope_vmd=scope_vmd, domain_id=domain_id)
+        if self._debug:
+            print(f"[DEBUG] >>> GetNameList objectClass={object_class} scope_vmd={scope_vmd} domain={domain_id!r}")
+            print(f"[DEBUG]     {_hex_debug(pdu)}")
+        cotp_send_data(self._sock, pdu)
+        resp = self._recv_until_response()
+        if resp is None:
+            return None
+        if self._debug:
+            print(f"[DEBUG] <<< GetNameList response ({len(resp)} octets)")
+            print(f"[DEBUG]     {_hex_debug(resp)}")
+        result = decode_mms_get_name_list_response(resp)
+        if self._debug and result:
+            print(f"[DEBUG]     → {len(result[0])} noms, moreFollows={result[1]}")
+        return result
+
+    def probe_rcb(self, domain_id: str, item_id: str) -> bool:
+        """Envoie GetRCBValues et retourne True si le RCB existe (Read-Response), False sinon."""
+        if self._sock is None:
+            raise MMSConnectionError("Connexion MMS non établie.")
+        pdu = encode_mms_get_rcb(domain_id, item_id)
+        cotp_send_data(self._sock, pdu)
+        resp = self._recv_until_response()
+        if resp is None:
+            return False
+        return is_read_response_success(resp)
 
     def enable_reporting(
         self,
