@@ -89,17 +89,17 @@ _TS_MS_MIN_2000 = 946684800000
 
 
 def _entry_timestamp(entry_val: Any, report: MMSReport) -> int:
-    """Retourne le timestamp (ms) pour une entrée : celui de l'entrée si dispo, sinon time_of_entry, sinon now."""
-    if isinstance(entry_val, list) and len(entry_val) >= 3:
-        # [value, quality, time] ou [value, reserved, quality, time]
-        ts_val = entry_val[2] if len(entry_val) == 3 else entry_val[3]
-        ms = _parse_iso_to_ts_ms(ts_val)
-        if ms is not None:
-            return ms if ms >= _TS_MS_MIN_2000 else int(time.time() * 1000)
+    """Retourne le timestamp (ms) pour une entrée.
+
+    Simplification volontaire : on utilise systématiquement time_of_entry du report
+    (s'il est valide), afin d'avoir exactement un point par Report et par série,
+    et éviter les timestamps divergents entre membres du même DataSet.
+    """
     if getattr(report, "time_of_entry", None):
         ms = _parse_iso_to_ts_ms(report.time_of_entry)
-        if ms is not None:
-            return ms if ms >= _TS_MS_MIN_2000 else int(time.time() * 1000)
+        if ms is not None and ms >= _TS_MS_MIN_2000:
+            return ms
+    # Fallback : now si le report n'a pas de time_of_entry exploitable
     return int(time.time() * 1000)
 
 
