@@ -109,12 +109,14 @@ _ENTRY_LABELS = (
 )
 
 
-# Noms de membres type phasor (magnitude + angle) pour repli mag/ang quand l'ICD ne fournit pas les composants
 _PHASOR_MEMBER_PATTERNS = ("phsA", "phsB", "phsC")
 
 
 def _default_component_names(member: str, n: int) -> Optional[List[str]]:
-    """Si le membre ressemble à un phasor (A.phsA, PhV.phsB, ...) et n==2, retourne ['mag', 'ang']."""
+    """Si le membre ressemble à un phasor (A.phsA, PhV.phsB, ...) et n==2, retourne ['mag', 'ang'].
+
+    Utilisé en repli quand le modèle MMS (DataTypeTemplates) ne fournit pas les composants.
+    """
     if n != 2:
         return None
     for pat in _PHASOR_MEMBER_PATTERNS:
@@ -156,6 +158,8 @@ def _report_to_lines(
     report: MMSReport,
     member_labels: Optional[Dict[str, List[str]]] = None,
     member_components: Optional[Dict[str, Dict[str, List[str]]]] = None,
+    *,
+    debug: bool = False,
 ) -> List[str]:
     """Convertit un report MMS en lignes Prometheus (sans envoyer).
     member_components[ds_key][member_label] = noms des composants (ex. [mag, ang]) depuis l'ICD.
@@ -175,6 +179,22 @@ def _report_to_lines(
                 if k.endswith(suffix):
                     comp_map = c
                     break
+        # Repli : si on n'a pas de composants pour un DataSet CYPO/DQPO,
+        # essayer de récupérer ceux du DataSet GME équivalent (suffixe GOOSE dans l'ICD).
+        if not comp_map and ds_name:
+            alt = None
+            if "_CYPO_" in ds_name:
+                alt = ds_name.replace("_CYPO_", "_GME_")
+            elif "_DQPO_" in ds_name:
+                alt = ds_name.replace("_DQPO_", "_GME_")
+            if alt:
+                comp_map = (member_components.get(alt) or {})
+                if not comp_map and "$" in alt:
+                    suffix_alt = "$" + alt.split("$", 1)[-1]
+                    for k, c in (member_components or {}).items():
+                        if k.endswith(suffix_alt):
+                            comp_map = c
+                            break
     if not labels_list and ds_name and "$" in ds_name:
         suffix = "$" + ds_name.split("$", 1)[-1]
         for k, L in (member_labels or {}).items():
@@ -190,8 +210,17 @@ def _report_to_lines(
         member = _member_name(i, labels_list)
         member_esc = _label_escape(member)
         comp_names = comp_map.get(member) if comp_map else None
+        # Si on a plusieurs valeurs numériques et pas de noms de composants fournis
+        # par l'ICD, repli heuristique mag/ang pour les phasors.
         if comp_names is None and len(nums) > 1:
             comp_names = _default_component_names(member, len(nums))
+        if debug and ("PhV.phs" in member or "PhV" in member):
+            # Log détaillé pour debug des phasors (val brut + nums extraits)
+            print(
+                f"[DEBUG MMS->VM] member={member} raw_val={val!r} nums={nums}",
+                flush=True,
+            )
+
         for idx, num in enumerate(nums):
             if len(nums) > 1:
                 comp = (
@@ -291,11 +320,19 @@ def push_mms_report(
     member_components : optionnel, depuis parse_scl_data_set_members_with_components, pour des libellés
     de composants (ex. mag, ang) au lieu de 0, 1.
     """
-    lines = _report_to_lines(report, member_labels, member_components)
+    lines = _report_to_lines(
+        report,
+        member_labels,
+        member_components,
+        debug=debug,
+    )
     if not lines:
         if debug:
             print("[VictoriaMetrics] skip: no entries or rpt_id or no numeric values", flush=True)
         return
+    if debug:
+        for line in lines:
+            print(f"[DEBUG VM LINE] {line}", flush=True)
     if batch_interval_sec <= 0:
         # Envoi immédiat (comportement legacy, pas de batching)
         _do_post_impl(base_url, lines, debug)

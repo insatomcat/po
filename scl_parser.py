@@ -149,84 +149,20 @@ def _resolve_fcda_components(
     return datypes.get(da_type)
 
 
-def _data_set_keys(
-    ied_name: str,
-    ld_inst: str,
-    ln_class: str,
-    ln_inst: str,
-    ds_name: str,
-    extra_ied_names: Optional[List[str]] = None,
-) -> List[str]:
+def _data_set_keys(ied_name: str, ld_inst: str, ln_class: str, ln_inst: str, ds_name: str) -> List[str]:
     """Construit les clés possibles pour matcher report.data_set_name (formats courants)."""
-    # Format type rapport MMS : "VMC7_1LD0/LLN0$DS_LDPHAS1_CYPO" ou "SSC600SW_ALD0/LLN0$DS_LDADD_DQPO_DEP1"
     keys = []
-    ied_names = [ied_name]
-    if extra_ied_names:
-        ied_names = list(dict.fromkeys([ied_name] + extra_ied_names))
     ln_part = f"{ln_class}{ln_inst}" if ln_inst and ln_inst != "0" else ln_class
     ln_variants = [ln_part]
     if ln_part != ln_class:
         ln_variants.append(ln_class)
-    for ied in ied_names:
-        for ln in ln_variants:
-            keys.append(f"{ied}/{ln}${ds_name}")
-            keys.append(f"{ied}_1{ld_inst}/{ln}${ds_name}")
-        keys.append(f"{ied}/{ld_inst}${ds_name}")
-        keys.append(f"{ied}_1{ld_inst}/{ld_inst}${ds_name}")
+    for ln in ln_variants:
+        keys.append(f"{ied_name}/{ln}${ds_name}")
+        keys.append(f"{ied_name}_1{ld_inst}/{ln}${ds_name}")
+    keys.append(f"{ied_name}/{ld_inst}${ds_name}")
+    keys.append(f"{ied_name}_1{ld_inst}/{ld_inst}${ds_name}")
     seen: set[str] = set()
     return [k for k in keys if k not in seen and not seen.add(k)]
-
-
-# Paires (nom dans SCL, nom dans rapport MMS) pour les DataSets ABB / IEC 61850
-_DS_MIDDLE_ALIASES = (
-    ("_GSE_", "_DQPO_"),
-    ("_GSI_", "_DQPO_"),
-    ("_GSI_", "_CYPO_"),
-    ("_GME_", "_CYPO_"),
-)
-
-
-def _ds_name_aliases(ds_name: str) -> List[str]:
-    """
-    Retourne des alias de nom de DataSet pour matcher les reports (ex. IED ABB :
-    rapport envoie DS_xxx_DQPO_DEPn ou DS_xxx_CYPO_CBO, SCL définit DS_xxx_GSE/GSI/GME_DEPn).
-    """
-    seen: set[str] = set()
-    result: List[str] = []
-
-    def add(a: str) -> None:
-        if a and a not in seen:
-            seen.add(a)
-            result.append(a)
-
-    # Alias partie médiane : GSE/GSI/GME <-> DQPO/CYPO
-    for scl_part, report_part in _DS_MIDDLE_ALIASES:
-        if scl_part in ds_name:
-            add(ds_name.replace(scl_part, report_part, 1))
-        if report_part in ds_name:
-            add(ds_name.replace(report_part, scl_part, 1))
-    # Alias suffixe CBO <-> DEP1 sur le nom original et les alias déjà générés
-    for name in [ds_name] + result[:]:
-        if name.endswith("_CBO"):
-            add(name[:-4] + "_DEP1")
-        elif name.endswith("_DEP1"):
-            add(name[:-5] + "_CBO")
-    return result
-
-
-def _collect_runtime_domain_names(root: ET.Element) -> List[str]:
-    """
-    Extrait les noms de domaine MMS (Logical Device) depuis appID, rptID, etc.
-    Utile quand l'IED a name="TEMPLATE" dans l'ICD mais le runtime utilise un autre nom.
-    """
-    domains: set[str] = set()
-    for elem in root.iter():
-        app_id = elem.get("appID") or elem.get("rptID") or ""
-        if app_id and "/" in app_id:
-            domain = app_id.split("/", 1)[0].strip()
-            if domain and domain not in ("", "TEMPLATE"):
-                domains.add(domain)
-    return sorted(domains)
 
 
 def parse_scl_data_set_members(
@@ -238,12 +174,9 @@ def parse_scl_data_set_members(
       valeur = liste des libellés des membres (FCDA) dans l'ordre.
 
     Plusieurs clés peuvent pointer vers la même liste (formats de nom différents).
-    Utilise les domaines MMS trouvés dans appID/rptID (ex. SSC600SW_ALD0) et les
-    alias de noms (ex. DS_xxx_DQPO_DEPn pour DS_xxx_GSE_DEPn).
     """
     tree = ET.parse(path)
     root = tree.getroot()
-    runtime_domains = _collect_runtime_domain_names(root)
     result: Dict[str, List[str]] = {}
 
     for ied in root.iter():
@@ -288,23 +221,8 @@ def parse_scl_data_set_members(
                             if not members:
                                 continue
 
-                            ds_names = [ds_name] + _ds_name_aliases(ds_name)
-                            for dsn in ds_names:
-                                for key in _data_set_keys(
-                                    ied_name, ld_inst, ln_class, ln_inst, dsn,
-                                    extra_ied_names=runtime_domains,
-                                ):
-                                    result[key] = members
-
-                            # LDCAP1 (rapport) = sous-ensemble Hz + 3 phasors de LDPHAS1 (absent de l'ICD ABB)
-                            if ds_name == "DS_LDPHAS1_GME_DEP1":
-                                ldcap1_members = ["Hz", "PhV.phsA", "PhV.phsB", "PhV.phsC"]
-                                for dsn in ("DS_LDCAP1_CYPO_CBO", "DS_LDCAP1_CYPO_DEP1"):
-                                    for key in _data_set_keys(
-                                        ied_name, ld_inst, ln_class, ln_inst, dsn,
-                                        extra_ied_names=runtime_domains,
-                                    ):
-                                        result[key] = ldcap1_members
+                            for key in _data_set_keys(ied_name, ld_inst, ln_class, ln_inst, ds_name):
+                                result[key] = members
 
     return result
 
@@ -319,7 +237,6 @@ def parse_scl_data_set_members_with_components(
     tree = ET.parse(path)
     root = tree.getroot()
     lnodetypes, dotypes, datypes = _parse_data_type_templates(root)
-    runtime_domains = _collect_runtime_domain_names(root)
 
     result: Dict[str, List[str]] = {}
     components: Dict[str, Dict[str, List[str]]] = {}  # key -> { member_label -> [comp0, comp1, ...] }
@@ -378,30 +295,9 @@ def parse_scl_data_set_members_with_components(
                             if not members_list:
                                 continue
 
-                            ds_names = [ds_name] + _ds_name_aliases(ds_name)
-                            for dsn in ds_names:
-                                for key in _data_set_keys(
-                                    ied_name, ld_inst, ln_class, ln_inst, dsn,
-                                    extra_ied_names=runtime_domains,
-                                ):
-                                    result[key] = members_list
-                                    if comp_map:
-                                        components[key] = comp_map
-
-                            # LDCAP1 = sous-ensemble de LDPHAS1 (Hz + 3 phasors)
-                            if ds_name == "DS_LDPHAS1_GME_DEP1":
-                                ldcap1_members = ["Hz", "PhV.phsA", "PhV.phsB", "PhV.phsC"]
-                                ldcap1_comp = {
-                                    "PhV.phsA": ["mag", "ang"],
-                                    "PhV.phsB": ["mag", "ang"],
-                                    "PhV.phsC": ["mag", "ang"],
-                                }
-                                for dsn in ("DS_LDCAP1_CYPO_CBO", "DS_LDCAP1_CYPO_DEP1"):
-                                    for key in _data_set_keys(
-                                        ied_name, ld_inst, ln_class, ln_inst, dsn,
-                                        extra_ied_names=runtime_domains,
-                                    ):
-                                        result[key] = ldcap1_members
-                                        components[key] = ldcap1_comp
+                            for key in _data_set_keys(ied_name, ld_inst, ln_class, ln_inst, ds_name):
+                                result[key] = members_list
+                                if comp_map:
+                                    components[key] = comp_map
 
     return result, components
