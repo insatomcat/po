@@ -267,6 +267,11 @@ def main() -> int:
         help="Désactiver le batching : une requête HTTP par report (comportement legacy).",
     )
     parser.add_argument(
+        "--vm-console",
+        action="store_true",
+        help="Afficher les reports dans la console en plus de les envoyer vers VictoriaMetrics.",
+    )
+    parser.add_argument(
         "--rcb-list",
         metavar="FICHIER",
         help=(
@@ -291,13 +296,15 @@ def main() -> int:
     global VERBOSE
     VERBOSE = args.verbose
     vm_url = args.victoriametrics_url or None
-    show_in_console = not bool(vm_url)
+    show_in_console = not bool(vm_url) or args.vm_console
     batch_interval_sec = 0 if args.vm_no_batch else args.vm_batch_ms / 1000.0
     if vm_url:
         if args.vm_no_batch:
             print(f"[VictoriaMetrics] Push activé vers {vm_url} (pas de batch)")
         else:
             print(f"[VictoriaMetrics] Push activé vers {vm_url} (batch: {args.vm_batch_ms}ms)")
+        if args.vm_console:
+            print("[Console] Affichage des reports activé (--vm-console)")
         atexit.register(lambda u=vm_url: push_mms_report_flush(u))
     else:
         print("[Console] Reports affichés dans la console (pas de --victoriametrics-url)")
