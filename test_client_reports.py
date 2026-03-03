@@ -16,9 +16,10 @@ Sémantique des entrées du report (IEC 61850 / MMS) :
 
 import argparse
 import atexit
+import time
 import sys
 
-from mms_reports_client import MMSReportsClient
+from mms_reports_client import MMSReportsClient, MMSConnectionError
 from asn1_codec import MMSReport  # juste pour le type
 from scl_parser import parse_scl_data_set_members, parse_scl_data_set_members_with_components
 from victoriametrics_push import push_mms_report, push_mms_report_flush
@@ -332,19 +333,47 @@ def main() -> int:
         member_components=DATA_SET_MEMBER_COMPONENTS or None,
     )
 
-    client = MMSReportsClient(args.host, args.port, debug=args.debug)
-    client.connect()
-
     domain_id = args.domain
     item_ids = _load_item_ids_from_file(args.rcb_list)
     print(f"[RCB] {len(item_ids)} RCB à activer (source: {'fichier' if args.rcb_list else 'liste intégrée'})")
-    for i, item_id in enumerate(item_ids, 1):
-        print(f"Abonnement [{i}/{len(ITEM_IDS)}] {domain_id}/{item_id} ...")
-        client.enable_reporting(domain_id, item_id, report_callback=callback)
 
-    print(f"\n{len(ITEM_IDS)} RCB abonnés. En attente de reports...")
-    print("  (Si rien n'apparaît : l'IED n'envoie peut-être qu'en cas d'événement. Essayez --debug pour voir les PDUs reçus.)\n")
-    client.loop_reports(callback)
+    # Boucle de (re)connexion automatique : tant que le processus tourne, on tente
+    # de se reconnecter et de réactiver les RCB si la connexion est perdue (reboot IED, coupure réseau, etc.).
+    reconnect_delay_sec = 5.0
+    while True:
+        client = MMSReportsClient(args.host, args.port, debug=args.debug)
+        try:
+            print(f"[MMS] Connexion à {args.host}:{args.port} ...")
+            client.connect()
+            print("[MMS] Connexion établie. Activation des RCB...")
+
+            for i, item_id in enumerate(item_ids, 1):
+                print(f"Abonnement [{i}/{len(item_ids)}] {domain_id}/{item_id} ...")
+                client.enable_reporting(domain_id, item_id, report_callback=callback)
+
+            print(f"\n{len(item_ids)} RCB abonnés. En attente de reports...")
+            print("  (Si rien n'apparaît : l'IED n'envoie peut-être qu'en cas d'événement. Essayez --debug pour voir les PDUs reçus.)\n")
+
+            # Boucle bloquante jusqu'à perte de connexion ou Ctrl+C
+            client.loop_reports(callback)
+
+            # Si on sort de loop_reports sans exception, la connexion est fermée proprement côté IED.
+            print("[MMS] Connexion fermée par l'IED. Tentative de reconnexion...")
+
+        except KeyboardInterrupt:
+            print("\n[Interrupt] Arrêt demandé par l'utilisateur, fermeture de la connexion.")
+            client.close()
+            break
+        except MMSConnectionError as e:
+            print(f"[MMS] Erreur de connexion ou de protocole : {e}")
+            print(f"[MMS] Nouvelle tentative dans {reconnect_delay_sec} s...")
+        finally:
+            client.close()
+        try:
+            time.sleep(reconnect_delay_sec)
+        except KeyboardInterrupt:
+            print("\n[Interrupt] Arrêt demandé par l'utilisateur, fermeture de la connexion.")
+            break
 
     return 0
 
