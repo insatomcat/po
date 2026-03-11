@@ -51,6 +51,15 @@ QUALITY_LABELS = {
     "0000": "invalid",
 }
 
+# Mapping standard IEC 61850 pour Dbpos (double-bit position) quand aucun EnumType
+# spécifique n'est fourni dans le CID.
+DBPOS_LABELS = {
+    0: "intermediate",
+    1: "off",
+    2: "on",
+    3: "bad",
+}
+
 
 def _looks_like_quality_hex(s) -> bool:
     """True si la valeur ressemble à un code qualité (4 ou 6 caractères hex)."""
@@ -78,7 +87,19 @@ def _format_entry_value(val):  # noqa: C901
         q = str(qual) if isinstance(qual, str) else (qual.hex() if hasattr(qual, "hex") else str(qual))
         q_label = QUALITY_LABELS.get(q.lower(), "")
         q_str = f"{q}" + (f" ({q_label})" if q_label else "")
-        parts = [f"stVal={st_val!r}"]
+        parts = []
+        # Essayer de donner une signification sémantique à stVal (Dbpos).
+        if isinstance(st_val, bool):
+            st_num = int(st_val)
+        else:
+            try:
+                st_num = int(st_val)
+            except (TypeError, ValueError):
+                st_num = None
+        if st_num is not None and st_num in DBPOS_LABELS:
+            parts.append(f"stVal={st_val!r} ({DBPOS_LABELS[st_num]})")
+        else:
+            parts.append(f"stVal={st_val!r}")
         if or_ident is not None:
             parts.append(f"origin.orIdent={or_ident!r}")
         if isinstance(or_cat, str):
