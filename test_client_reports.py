@@ -41,6 +41,8 @@ ENTRY_LABELS = (
 DATA_SET_MEMBER_LABELS: dict[str, list[str]] = {}
 # Noms des composants par membre (ex. A.phsA -> [mag, ang]) depuis DataTypeTemplates dans l'ICD.
 DATA_SET_MEMBER_COMPONENTS: dict[str, dict[str, list[str]]] = {}
+# Mappings enum par membre (ex. Pos.stVal -> {0: "off", 1: "on", ...}) depuis EnumType / Dbpos.
+DATA_SET_MEMBER_ENUMS: dict[str, dict[str, dict[int, str]]] = {}
 
 # Codes qualité/reason courants (hex → libellé court)
 QUALITY_LABELS = {
@@ -339,10 +341,12 @@ def main() -> int:
 
     if args.scl:
         try:
-            parsed, comp = parse_scl_data_set_members_with_components(args.scl)
+            parsed, comp, enums = parse_scl_data_set_members_with_components(args.scl)
             DATA_SET_MEMBER_LABELS.update(parsed)
             for k, v in comp.items():
                 DATA_SET_MEMBER_COMPONENTS.setdefault(k, {}).update(v)
+            for k, v in enums.items():
+                DATA_SET_MEMBER_ENUMS.setdefault(k, {}).update(v)
             print(f"[SCL] {len(parsed)} data set(s) chargé(s) depuis {args.scl}")
         except FileNotFoundError:
             print(f"[SCL] Fichier non trouvé : {args.scl}", file=sys.stderr)
