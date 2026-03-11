@@ -73,13 +73,24 @@ def _find_ln_type_for_fcda(ied_elem: ET.Element, fcda: ET.Element) -> str:
 
 def _parse_data_type_templates(
     root: ET.Element,
-) -> Tuple[Dict[str, Dict[str, str]], Dict[str, Dict[str, str]], Dict[str, List[str]]]:
+) -> Tuple[
+    Dict[str, Dict[str, str]],
+    Dict[str, Dict[str, Tuple[str, str]]],
+    Dict[str, List[str]],
+    Dict[str, Dict[int, str]],
+]:
     """
-    Parse DataTypeTemplates : LNodeType id -> { DO name -> type }, DOType id -> { DA name -> type }, DAType id -> [BDA names].
+    Parse DataTypeTemplates :
+
+    - LNodeType id -> { DO name -> DOType id }
+    - DOType id   -> { DA name -> (DA type id, bType) }
+    - DAType id   -> [BDA names] (pour les composants mag/ang, etc.)
+    - EnumType id -> { ordinal(int) -> label(str) }
     """
     lnodetypes: Dict[str, Dict[str, str]] = {}
-    dotypes: Dict[str, Dict[str, str]] = {}
+    dotypes: Dict[str, Dict[str, Tuple[str, str]]] = {}
     datypes: Dict[str, List[str]] = {}
+    enumtypes: Dict[str, Dict[int, str]] = {}
 
     templates = None
     for elem in root.iter():
@@ -87,7 +98,7 @@ def _parse_data_type_templates(
             templates = elem
             break
     if templates is None:
-        return lnodetypes, dotypes, datypes
+        return lnodetypes, dotypes, datypes, enumtypes
 
     for elem in templates:
         if _tag(elem, "LNodeType"):
@@ -106,13 +117,14 @@ def _parse_data_type_templates(
             did = elem.get("id") or ""
             if not did:
                 continue
-            da_map = {}
+            da_map: Dict[str, Tuple[str, str]] = {}
             for da in elem:
                 if _tag(da, "DA"):
                     name = da.get("name") or ""
-                    typ = da.get("type") or da.get("bType") or ""
+                    da_type = da.get("type") or ""
+                    btype = da.get("bType") or ""
                     if name:
-                        da_map[name] = typ
+                        da_map[name] = (da_type, btype)
             dotypes[did] = da_map
         elif _tag(elem, "DAType"):
             aid = elem.get("id") or ""
@@ -121,8 +133,25 @@ def _parse_data_type_templates(
             bdas = [bda.get("name") or "" for bda in elem if _tag(bda, "BDA")]
             bdas = [n for n in bdas if n]
             datypes[aid] = bdas
+        elif _tag(elem, "EnumType"):
+            eid = elem.get("id") or ""
+            if not eid:
+                continue
+            vals: Dict[int, str] = {}
+            for ev in elem:
+                if _tag(ev, "EnumVal"):
+                    ord_str = ev.get("ord")
+                    if ord_str is None:
+                        continue
+                    try:
+                        ord_val = int(ord_str)
+                    except ValueError:
+                        continue
+                    vals[ord_val] = (ev.text or "").strip()
+            if vals:
+                enumtypes[eid] = vals
 
-    return lnodetypes, dotypes, datypes
+    return lnodetypes, dotypes, datypes, enumtypes
 
 
 def _resolve_fcda_components(
@@ -130,7 +159,7 @@ def _resolve_fcda_components(
     da_name: str,
     ln_type: str,
     lnodetypes: Dict[str, Dict[str, str]],
-    dotypes: Dict[str, Dict[str, str]],
+    dotypes: Dict[str, Dict[str, Tuple[str, str]]],
     datypes: Dict[str, List[str]],
 ) -> Optional[List[str]]:
     """Pour un FCDA (doName, daName) et un lnType, retourne la liste des noms de composants (ex. [mag, ang]) ou None."""
@@ -143,10 +172,56 @@ def _resolve_fcda_components(
     da_map = dotypes.get(do_type)
     if not da_map:
         return None
-    da_type = da_map.get(da_name)
+    da_info = da_map.get(da_name)
+    if not da_info:
+        return None
+    da_type, _ = da_info
     if not da_type:
         return None
     return datypes.get(da_type)
+
+
+def _resolve_fcda_enum(
+    do_name: str,
+    da_name: str,
+    ln_type: str,
+    lnodetypes: Dict[str, Dict[str, str]],
+    dotypes: Dict[str, Dict[str, Tuple[str, str]]],
+    enumtypes: Dict[str, Dict[int, str]],
+) -> Optional[Dict[int, str]]:
+    """
+    Pour un FCDA (doName, daName) et un lnType, retourne un mapping enum ordinal->label
+    si le type est un EnumType ou, à défaut, applique un mapping standard pour Dbpos.
+    """
+    do_map = lnodetypes.get(ln_type)
+    if not do_map:
+        return None
+    do_type = do_map.get(do_name)
+    if not do_type:
+        return None
+    da_map = dotypes.get(do_type)
+    if not da_map:
+        return None
+    da_info = da_map.get(da_name)
+    if not da_info:
+        return None
+    da_type, btype = da_info
+
+    # Cas 1 : DA.type référence directement un EnumType
+    mapping = enumtypes.get(da_type)
+    if mapping:
+        return mapping
+
+    # Cas 2 : bType standard Dbpos (double bit position) → mapping IEC 61850
+    if btype.lower() == "dbpos":
+        return {
+            0: "intermediate",
+            1: "off",
+            2: "on",
+            3: "bad",
+        }
+
+    return None
 
 
 def _data_set_keys(ied_name: str, ld_inst: str, ln_class: str, ln_inst: str, ds_name: str) -> List[str]:
@@ -229,17 +304,22 @@ def parse_scl_data_set_members(
 
 def parse_scl_data_set_members_with_components(
     path: str | Path,
-) -> Tuple[Dict[str, List[str]], Dict[str, Dict[str, List[str]]]]:
+) -> Tuple[
+    Dict[str, List[str]],
+    Dict[str, Dict[str, List[str]]],
+    Dict[str, Dict[str, Dict[int, str]]],
+]:
     """
     Comme parse_scl_data_set_members, et en plus retourne pour chaque data set
     les noms des composants par membre (ex. A.phsA -> [mag, ang]) depuis DataTypeTemplates.
     """
     tree = ET.parse(path)
     root = tree.getroot()
-    lnodetypes, dotypes, datypes = _parse_data_type_templates(root)
+    lnodetypes, dotypes, datypes, enumtypes = _parse_data_type_templates(root)
 
     result: Dict[str, List[str]] = {}
     components: Dict[str, Dict[str, List[str]]] = {}  # key -> { member_label -> [comp0, comp1, ...] }
+    enums: Dict[str, Dict[str, Dict[int, str]]] = {}  # key -> { member_label -> {ordinal -> label} }
 
     for ied in root.iter():
         if not _tag(ied, "IED"):
@@ -276,6 +356,7 @@ def parse_scl_data_set_members_with_components(
 
                             members_list: List[str] = []
                             comp_map: Dict[str, List[str]] = {}
+                            enum_map: Dict[str, Dict[int, str]] = {}
                             for fcda in ds:
                                 if _tag(fcda, "FCDA"):
                                     do_name, da_name = _fcda_do_da(fcda)
@@ -289,6 +370,12 @@ def parse_scl_data_set_members_with_components(
                                         )
                                         if comp_names:
                                             comp_map[label] = comp_names
+                                        enum_mapping = _resolve_fcda_enum(
+                                            do_name, da_name, fcda_ln_type,
+                                            lnodetypes, dotypes, enumtypes,
+                                        )
+                                        if enum_mapping:
+                                            enum_map[label] = enum_mapping
                                 elif _tag(fcda, "FCCB"):
                                     members_list.append(fcda.get("cbName") or "FCCB")
 
@@ -299,5 +386,7 @@ def parse_scl_data_set_members_with_components(
                                 result[key] = members_list
                                 if comp_map:
                                     components[key] = comp_map
+                                if enum_map:
+                                    enums[key] = enum_map
 
-    return result, components
+    return result, components, enums
