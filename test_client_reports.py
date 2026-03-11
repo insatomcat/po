@@ -59,6 +59,33 @@ def _looks_like_quality_hex(s) -> bool:
 
 def _format_entry_value(val):  # noqa: C901
     """Formate une entrée pour affichage (structure data+qualité+time ou qualité seule)."""
+    # Cas particulier : Pos (position de disjoncteur) encodé comme structure imbriquée.
+    # Exemple de val brut:
+    # [[3, '...orIdent...'], '0600', '034000', '2026-03-11T10:30:29+00:00', False]
+    if (
+        isinstance(val, list)
+        and len(val) >= 4
+        and isinstance(val[0], list)
+        and len(val[0]) >= 1
+    ):
+        st_val = val[0][0]
+        or_ident = val[0][1] if len(val[0]) > 1 else None
+        or_cat = val[1]
+        qual = val[2]
+        ts = val[3]
+        q = str(qual) if isinstance(qual, str) else (qual.hex() if hasattr(qual, "hex") else str(qual))
+        q_label = QUALITY_LABELS.get(q.lower(), "")
+        q_str = f"{q}" + (f" ({q_label})" if q_label else "")
+        parts = [f"stVal={st_val!r}"]
+        if or_ident is not None:
+            parts.append(f"origin.orIdent={or_ident!r}")
+        if isinstance(or_cat, str):
+            try:
+                parts.append(f"origin.orCat=0x{int(or_cat, 16):04x}")
+            except ValueError:
+                parts.append(f"origin.orCat={or_cat!r}")
+        return "  ".join(parts) + f"  quality={q_str}  time={ts}"
+
     if isinstance(val, list) and len(val) >= 3:
         # Structure [value, quality_hex?, timestamp] ou [value, reserved, quality_hex, timestamp]
         v = val[0]
