@@ -125,6 +125,30 @@ def _default_component_names(member: str, n: int) -> Optional[List[str]]:
     return None
 
 
+def _extract_pos_components(val: Any) -> Optional[Dict[str, float]]:
+    """Extrait des composantes numériques pour Pos (stVal, orCat) à partir de la valeur brute.
+
+    Exemple attendu:
+        [[3, '...orIdent...'], '0600', '034000', '2026-03-11T10:30:29+00:00', False]
+    """
+    if not (isinstance(val, list) and len(val) >= 3):
+        return None
+    main = val[0]
+    if not (isinstance(main, list) and len(main) >= 1):
+        return None
+    comps: Dict[str, float] = {}
+    st_val = main[0]
+    if isinstance(st_val, (int, float, bool)):
+        comps["stVal"] = float(st_val)
+    # orCat arrive généralement en deuxième élément de la liste principale sous forme hex (ex. '0600')
+    if len(val) > 1 and isinstance(val[1], str):
+        try:
+            comps["orCat"] = float(int(val[1], 16))
+        except ValueError:
+            pass
+    return comps or None
+
+
 def _member_name(index: int, member_labels: List[str]) -> str:
     """Nom du membre pour le label Prometheus."""
     if index < len(_ENTRY_LABELS):
@@ -204,11 +228,33 @@ def _report_to_lines(
     lines: List[str] = []
     for i, e in enumerate(report.entries):
         val = e.get("success", e) if isinstance(e, dict) else e
+        member = _member_name(i, labels_list)
+        member_esc = _label_escape(member)
+
+        # Cas particulier : Pos (position de disjoncteur) encodé comme structure imbriquée.
+        if member.startswith("Pos"):
+            comps = _extract_pos_components(val)
+            if comps:
+                ts_ms = _entry_timestamp(val, report)
+                for cname, num in comps.items():
+                    labels = (
+                        f'rpt_id="{_label_escape(rpt_id)}",'
+                        f'data_set="{_label_escape(data_set)}",'
+                        f'member="{member_esc}",'
+                        f'component="{_label_escape(cname)}"'
+                    )
+                    line = f"mms_report_value{{{labels}}} {num} {ts_ms}"
+                    lines.append(line)
+                if debug:
+                    print(
+                        f"[DEBUG MMS->VM] member={member} raw_val={val!r} POS_comps={comps}",
+                        flush=True,
+                    )
+                continue
+
         nums, ts_ms = _entry_values_and_timestamp(val, report)
         if not nums:
             continue
-        member = _member_name(i, labels_list)
-        member_esc = _label_escape(member)
         comp_names = comp_map.get(member) if comp_map else None
         # Si on a plusieurs valeurs numériques et pas de noms de composants fournis
         # par l'ICD, repli heuristique mag/ang pour les phasors.
