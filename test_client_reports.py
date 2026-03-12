@@ -51,13 +51,16 @@ QUALITY_LABELS = {
     "0000": "invalid",
 }
 
-# Mapping standard IEC 61850 pour Dbpos (double-bit position) quand aucun EnumType
-# spécifique n'est fourni dans le CID.
-DBPOS_LABELS = {
-    0: "intermediate",
-    1: "off",
-    2: "on",
-    3: "bad",
+ORCAT_LABELS = {
+    0: "not-supported",
+    1: "bay-control",
+    2: "station-control",
+    3: "remote-control",
+    4: "automatic-bay",
+    5: "automatic-station",
+    6: "automatic-remote",
+    7: "maintenance",
+    8: "process",
 }
 
 
@@ -71,42 +74,53 @@ def _looks_like_quality_hex(s) -> bool:
 def _format_entry_value(val):  # noqa: C901
     """Formate une entrée pour affichage (structure data+qualité+time ou qualité seule)."""
     # Cas particulier : Pos (position de disjoncteur) encodé comme structure imbriquée.
-    # Exemple de val brut:
-    # [[3, '...orIdent...'], '0600', '034000', '2026-03-11T10:30:29+00:00', False]
+    # Exemple de val brut observé :
+    # [[3, '...orIdent...'], '0680', '034000', '2026-03-11T10:30:29+00:00', False]
     if (
         isinstance(val, list)
         and len(val) >= 4
         and isinstance(val[0], list)
         and len(val[0]) >= 1
     ):
-        st_val = val[0][0]
+        # val[0][0] = orCat (ordinal), val[0][1] = origin.orIdent, val[1] = mot hexa avec bits de position
+        or_cat_ordinal = val[0][0]
         or_ident = val[0][1] if len(val[0]) > 1 else None
-        or_cat = val[1]
+        pos_word = val[1]
         qual = val[2]
         ts = val[3]
         q = str(qual) if isinstance(qual, str) else (qual.hex() if hasattr(qual, "hex") else str(qual))
         q_label = QUALITY_LABELS.get(q.lower(), "")
         q_str = f"{q}" + (f" ({q_label})" if q_label else "")
         parts = []
-        # Essayer de donner une signification sémantique à stVal (Dbpos).
-        if isinstance(st_val, bool):
-            st_num = int(st_val)
+        # orCat (catégorie d'origine)
+        try:
+            or_cat_int = int(or_cat_ordinal)
+        except (TypeError, ValueError):
+            or_cat_int = None
+        if or_cat_int is not None and or_cat_int in ORCAT_LABELS:
+            parts.append(f"origin.orCat={or_cat_int} ({ORCAT_LABELS[or_cat_int]})")
         else:
+            parts.append(f"origin.orCat={or_cat_ordinal!r}")
+
+        # Position (double bit dans le mot hexa, ex. 0x0640=open, 0x0680=closed)
+        pos_state = "unknown"
+        if isinstance(pos_word, str):
             try:
-                st_num = int(st_val)
-            except (TypeError, ValueError):
-                st_num = None
-        if st_num is not None and st_num in DBPOS_LABELS:
-            parts.append(f"stVal={st_val!r} ({DBPOS_LABELS[st_num]})")
-        else:
-            parts.append(f"stVal={st_val!r}")
+                pw = int(pos_word, 16)
+                if pw & 0x80:
+                    pos_state = "closed"
+                elif pw & 0x40:
+                    pos_state = "open"
+                elif pw == 0x0000 or pw == 0x0012:
+                    pos_state = "intermediate"
+                else:
+                    pos_state = f"0x{pw:04x}"
+            except ValueError:
+                pos_state = pos_word
+        parts.append(f"stVal={pos_state}")
+
         if or_ident is not None:
             parts.append(f"origin.orIdent={or_ident!r}")
-        if isinstance(or_cat, str):
-            try:
-                parts.append(f"origin.orCat=0x{int(or_cat, 16):04x}")
-            except ValueError:
-                parts.append(f"origin.orCat={or_cat!r}")
         return "  ".join(parts) + f"  quality={q_str}  time={ts}"
 
     if isinstance(val, list) and len(val) >= 3:

@@ -126,26 +126,44 @@ def _default_component_names(member: str, n: int) -> Optional[List[str]]:
 
 
 def _extract_pos_components(val: Any) -> Optional[Dict[str, float]]:
-    """Extrait des composantes numériques pour Pos (stVal, orCat) à partir de la valeur brute.
+    """Extrait des composantes numériques pour Pos (state, orCat) à partir de la valeur brute.
 
     Exemple attendu:
-        [[3, '...orIdent...'], '0600', '034000', '2026-03-11T10:30:29+00:00', False]
+        [[3, '...orIdent...'], '0680', '034000', '2026-03-11T10:30:29+00:00', False]
+
+    - val[0][0] = orCat (ordinal)
+    - val[1]    = mot hexa combinant orCat/position (bits 0x40=open, 0x80=closed, 0x0/0x12=intermediate)
     """
-    if not (isinstance(val, list) and len(val) >= 3):
+    if not (isinstance(val, list) and len(val) >= 2):
         return None
     main = val[0]
     if not (isinstance(main, list) and len(main) >= 1):
         return None
     comps: Dict[str, float] = {}
-    st_val = main[0]
-    if isinstance(st_val, (int, float, bool)):
-        comps["stVal"] = float(st_val)
-    # orCat arrive généralement en deuxième élément de la liste principale sous forme hex (ex. '0600')
-    if len(val) > 1 and isinstance(val[1], str):
+
+    # Catégorie d'origine (orCat) en ordinal
+    or_cat = main[0]
+    try:
+        comps["orCat"] = float(int(or_cat))
+    except (TypeError, ValueError):
+        pass
+
+    # Position : extraire un état numérique simple à partir du mot hexa
+    state_val: float | None = None
+    if isinstance(val[1], str):
         try:
-            comps["orCat"] = float(int(val[1], 16))
+            pw = int(val[1], 16)
+            if pw & 0x80:
+                state_val = 2.0  # closed
+            elif pw & 0x40:
+                state_val = 1.0  # open
+            elif pw == 0x0000 or pw == 0x0012:
+                state_val = 0.0  # intermediate / manoeuvre
         except ValueError:
-            pass
+            state_val = None
+    if state_val is not None:
+        comps["state"] = state_val
+
     return comps or None
 
 
