@@ -207,6 +207,20 @@ def cmd_delete(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_purge(args: argparse.Namespace) -> int:
+    """Supprime tous les flux côté service (DELETE /subscriptions)."""
+    base = args.api_url.rstrip("/")
+    url = f"{base}/subscriptions"
+    status, body = _http_request("DELETE", url)
+    if status == 0:
+        return 1
+    if status not in (200, 204):
+        print(f"Erreur {status}: {body}", file=sys.stderr)
+        return 1
+    print("Tous les flux ont été supprimés.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="CLI pour gérer les flux MMS d'un service mms_service.py.",
@@ -257,6 +271,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_delete = sub.add_parser("delete", help="Supprimer un flux.")
     p_delete.add_argument("id", help="Identifiant du flux à supprimer.")
     p_delete.set_defaults(func=cmd_delete)
+
+    # purge
+    p_purge = sub.add_parser("purge", help="Supprimer tous les flux.")
+    p_purge.set_defaults(func=cmd_purge)
 
     return parser
 

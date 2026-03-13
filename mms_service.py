@@ -25,7 +25,7 @@ Concepts:
   - Chaque flux tourne dans un thread dédié qui ouvre la connexion MMS,
     active les RCB, boucle sur les reports et les pousse vers VictoriaMetrics.
 
-API HTTP (JSON):
+API HTTP (JSON, état persistant dans mms_subscriptions.json):
 
   POST /subscriptions
       Body:
@@ -72,6 +72,9 @@ API HTTP (JSON):
   DELETE /subscriptions/<id>
       Supprime le flux (arrête le thread) et renvoie 204.
 
+  DELETE /subscriptions
+      Supprime tous les flux (arrête tous les threads) et renvoie 204.
+
   GET /healthz
       Simple check 200 OK.
 """
@@ -79,6 +82,7 @@ API HTTP (JSON):
 import argparse
 import errno
 import json
+import os
 import threading
 import time
 import uuid
@@ -122,13 +126,17 @@ class SubscriptionRuntime:
 
 
 class SubscriptionManager:
-    """Gestion centralisée des flux (in‑memory)."""
+    """Gestion centralisée des flux (in‑memory avec persistance sur disque)."""
+
+    _STATE_FILE = "mms_subscriptions.json"
 
     def __init__(self, vm_url: Optional[str], vm_batch_ms: int) -> None:
         self._subs: Dict[str, SubscriptionRuntime] = {}
         self._lock = threading.Lock()
         self._vm_url = vm_url
         self._vm_batch_ms = vm_batch_ms
+        self._state_path = os.path.join(os.getcwd(), self._STATE_FILE)
+        self._load_state()
 
     def list_subscriptions(self) -> Dict[str, SubscriptionRuntime]:
         with self._lock:
@@ -144,6 +152,7 @@ class SubscriptionManager:
                 raise ValueError(f"subscription {cfg.id!r} already exists")
             runtime = SubscriptionRuntime(config=cfg)
             self._subs[cfg.id] = runtime
+            self._save_state_locked()
         self._start_subscription_thread(runtime)
         return runtime
 
@@ -159,6 +168,7 @@ class SubscriptionManager:
             runtime.config = cfg
             # Arrêter le thread courant
             self._stop_runtime_locked(runtime)
+            self._save_state_locked()
         # (re)lancer en dehors du lock
         self._start_subscription_thread(runtime)
         return runtime
@@ -166,8 +176,18 @@ class SubscriptionManager:
     def delete_subscription(self, sub_id: str) -> None:
         with self._lock:
             runtime = self._subs.pop(sub_id, None)
+            self._save_state_locked()
         if runtime:
             self._stop_runtime(runtime)
+
+    def purge_all(self) -> None:
+        """Supprime tous les flux (arrêt de tous les threads + reset du fichier de conf)."""
+        with self._lock:
+            runtimes = list(self._subs.values())
+            self._subs.clear()
+            self._save_state_locked()
+        for rt in runtimes:
+            self._stop_runtime(rt)
 
     # --- gestion des threads ---
 
@@ -185,6 +205,48 @@ class SubscriptionManager:
         )
         runtime.thread = t
         t.start()
+
+    # --- persistance ---
+
+    def _load_state(self) -> None:
+        """Charge la configuration des flux depuis le fichier JSON (si présent)."""
+        try:
+            with open(self._state_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except FileNotFoundError:
+            return
+        except Exception as e:
+            print(f"[State] Impossible de charger {self._state_path}: {e}")
+            return
+        if not isinstance(raw, list):
+            print(f"[State] Format inattendu dans {self._state_path}, ignoré.")
+            return
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            try:
+                cfg = SubscriptionConfig(**item)
+            except TypeError as e:
+                print(f"[State] Config invalide ignorée: {e}")
+                continue
+            rt = SubscriptionRuntime(config=cfg)
+            self._subs[cfg.id] = rt
+        if self._subs:
+            print(f"[State] {len(self._subs)} flux rechargés depuis {self._state_path}.")
+            # Démarrer les threads après reconstruction des runtimes
+            for rt in list(self._subs.values()):
+                self._start_subscription_thread(rt)
+
+    def _save_state_locked(self) -> None:
+        """Sauvegarde la configuration des flux dans un fichier JSON (lock déjà tenu)."""
+        try:
+            data = [asdict(rt.config) for rt in self._subs.values()]
+            tmp_path = self._state_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, self._state_path)
+        except Exception as e:
+            print(f"[State] Erreur lors de l'enregistrement de {self._state_path}: {e}")
 
     def _stop_runtime_locked(self, runtime: SubscriptionRuntime) -> None:
         runtime.stop_event.set()
@@ -441,16 +503,22 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
         self._send_json(HTTPStatus.OK, self._runtime_to_dict(rt))
 
     def do_DELETE(self) -> None:  # noqa: N802
-        if not self.path.startswith("/subscriptions/"):
-            _json_error(self, HTTPStatus.NOT_FOUND, "unknown endpoint")
+        if self.path == "/subscriptions":
+            # Purge globale de tous les flux
+            self.manager.purge_all()
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.end_headers()
             return
-        sub_id = self.path.split("/", 2)[2]
-        if not self.manager.get_subscription(sub_id):
-            _json_error(self, HTTPStatus.NOT_FOUND, f"subscription {sub_id!r} not found")
+        if self.path.startswith("/subscriptions/"):
+            sub_id = self.path.split("/", 2)[2]
+            if not self.manager.get_subscription(sub_id):
+                _json_error(self, HTTPStatus.NOT_FOUND, f"subscription {sub_id!r} not found")
+                return
+            self.manager.delete_subscription(sub_id)
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.end_headers()
             return
-        self.manager.delete_subscription(sub_id)
-        self.send_response(HTTPStatus.NO_CONTENT)
-        self.end_headers()
+        _json_error(self, HTTPStatus.NOT_FOUND, "unknown endpoint")
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
         # Réduire le bruit des logs HTTP standard
