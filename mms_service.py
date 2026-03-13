@@ -77,6 +77,7 @@ API HTTP (JSON):
 """
 
 import argparse
+import errno
 import json
 import threading
 import time
@@ -264,11 +265,20 @@ class SubscriptionManager:
                 print(f"[Flux {cfg.id}] Connexion fermée par l'IED. Tentative de reconnexion...")
 
             except MMSConnectionError as e:
+                if runtime.stop_event.is_set():
+                    # Arrêt demandé pendant une opération MMS : on sort proprement.
+                    break
                 runtime.status = "error"
                 runtime.last_error = str(e)
                 print(f"[MMS] Flux {cfg.id}: erreur de connexion ou de protocole : {e}")
                 print(f"[MMS] Flux {cfg.id}: nouvelle tentative dans {reconnect_delay_sec} s...")
             except Exception as e:
+                # Cas fréquent : socket fermé pendant un arrêt → EBADF, qu'on ne logue pas comme erreur.
+                if isinstance(e, OSError) and getattr(e, "errno", None) == errno.EBADF:
+                    break
+                if runtime.stop_event.is_set():
+                    # Erreur liée probablement à la fermeture du socket lors d'un arrêt demandé
+                    break
                 runtime.status = "error"
                 runtime.last_error = str(e)
                 print(f"[Flux {cfg.id}] Erreur inattendue: {e}")
@@ -278,6 +288,9 @@ class SubscriptionManager:
                 except Exception:
                     pass
                 runtime.client = None
+
+            if runtime.stop_event.is_set():
+                break
 
             # Attente avant reconnexion
             for _ in range(int(reconnect_delay_sec * 10)):
