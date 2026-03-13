@@ -495,8 +495,8 @@ def main() -> int:
     parser.add_argument(
         "--vm-batch-ms",
         type=int,
-        default=200,
-        help="Intervalle de batch VM en ms (défaut: 200).",
+        default=5000,
+        help="Intervalle de batch VM en ms (défaut: 5000).",
     )
     args = parser.parse_args()
 
