@@ -478,14 +478,14 @@ def main() -> int:
     )
     parser.add_argument(
         "--listen-host",
-        default="127.0.0.1",
-        help="Adresse d'écoute HTTP (défaut: 127.0.0.1).",
+        default="localhost",
+        help="Adresse d'écoute HTTP (défaut: localhost).",
     )
     parser.add_argument(
         "--listen-port",
         type=int,
-        default=8080,
-        help="Port d'écoute HTTP (défaut: 8080).",
+        default=7050,
+        help="Port d'écoute HTTP (défaut: 7050).",
     )
     parser.add_argument(
         "--victoriametrics-url",
