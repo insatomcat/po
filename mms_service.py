@@ -116,6 +116,9 @@ class SubscriptionRuntime:
     thread: Optional[threading.Thread] = None
     stop_event: threading.Event = threading.Event()
     client: Optional[MMSReportsClient] = None
+    total_reports: int = 0
+    reports_since_log: int = 0
+    last_log_ts: float = 0.0
 
 
 class SubscriptionManager:
@@ -172,6 +175,9 @@ class SubscriptionManager:
         runtime.stop_event = threading.Event()
         runtime.status = "running"
         runtime.last_error = None
+        runtime.total_reports = 0
+        runtime.reports_since_log = 0
+        runtime.last_log_ts = time.time()
         t = threading.Thread(
             target=self._subscription_worker,
             args=(runtime,),
@@ -233,6 +239,19 @@ class SubscriptionManager:
                 print("[MMS] Connexion établie. Activation des RCB...")
 
                 def callback(report: Any) -> None:
+                    now = time.time()
+                    runtime.total_reports += 1
+                    runtime.reports_since_log += 1
+                    # Log périodique (~1 min) du statut du flux
+                    if now - runtime.last_log_ts >= 60.0:
+                        print(
+                            f"[Flux {cfg.id}] Statut: {len(item_ids)} RCB abonnés, "
+                            f"{runtime.reports_since_log} report(s) reçu(s) sur les "
+                            f"{int(now - runtime.last_log_ts)} dernières secondes.",
+                            flush=True,
+                        )
+                        runtime.reports_since_log = 0
+                        runtime.last_log_ts = now
                     process_mms_report(
                         report,
                         vm_url=vm_url,
@@ -253,12 +272,11 @@ class SubscriptionManager:
                     break
 
                 print(
-                    f"[Flux {cfg.id}] {len(item_ids)} RCB abonnés. En attente de reports "
-                    "(Ctrl+C sur le service pour arrêter)..."
+                    f"[Flux {cfg.id}] {len(item_ids)} RCB abonnés. En attente de reports..."
                 )
 
                 # Boucle bloquante jusqu'à perte de connexion ou arrêt
-                client.loop_reports(callback)
+                client.loop_reports(callback, quiet_heartbeat=True)
 
                 if runtime.stop_event.is_set():
                     break

@@ -234,12 +234,16 @@ class MMSReportsClient:
             cotp_send_data(self._sock, pdu)
             self._recv_until_response(report_callback)
 
-    def loop_reports(self, callback: ReportCallback) -> None:
-        """Boucle de réception bloquante qui invoque callback pour chaque Report."""
+    def loop_reports(self, callback: ReportCallback, *, quiet_heartbeat: bool = False) -> None:
+        """Boucle de réception bloquante qui invoque callback pour chaque Report.
+
+        quiet_heartbeat=True désactive l'affichage périodique
+        "  (en attente de reports...)" lorsqu'aucun PDU n'est reçu.
+        """
         if self._sock is None:
             raise MMSConnectionError("Connexion MMS non établie.")
 
-        # Timeout pour afficher un message "en attente" périodiquement (heartbeat).
+        # Timeout pour éventuellement afficher un message "en attente" périodiquement (heartbeat).
         try:
             self._sock.settimeout(HEARTBEAT_INTERVAL)
         except OSError:
@@ -249,7 +253,8 @@ class MMSReportsClient:
             try:
                 pdu = cotp_recv_data(self._sock, timeout=HEARTBEAT_INTERVAL)
             except socket.timeout:
-                print("  (en attente de reports...)")
+                if not quiet_heartbeat:
+                    print("  (en attente de reports...)")
                 continue
             if pdu is None:
                 if self._debug:

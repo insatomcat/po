@@ -171,10 +171,10 @@ def main() -> int:
                 client.enable_reporting(domain_id, item_id, report_callback=callback)
 
             print(f"\n{len(item_ids)} RCB abonnés. En attente de reports...")
-            print("  (Si rien n'apparaît : l'IED n'envoie peut-être qu'en cas d'événement. Essayez --debug pour voir les PDUs reçus.)\n")
+            print("  (Si rien n'apparaît : l'IED n'envoie peut-être qu'en cas d'événement.)\n")
 
             # Boucle bloquante jusqu'à perte de connexion ou Ctrl+C
-            client.loop_reports(callback)
+            client.loop_reports(callback, quiet_heartbeat=False)
 
             # Si on sort de loop_reports sans exception, la connexion est fermée proprement côté IED.
             print("[MMS] Connexion fermée par l'IED. Tentative de reconnexion...")
