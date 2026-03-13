@@ -161,7 +161,18 @@ class SubscriptionManager:
             runtime = self._subs.get(sub_id)
             if not runtime:
                 raise KeyError(sub_id)
-            # Construire une nouvelle config à partir de l'ancienne
+            # Cas 1 : mise à jour uniquement du flag debug → pas besoin de redémarrer le flux
+            only_debug = all(
+                (k == "debug") or (v is None)
+                for k, v in new_fields.items()
+            )
+            if only_debug and "debug" in new_fields and new_fields["debug"] is not None:
+                runtime.config.debug = bool(new_fields["debug"])
+                self._save_state_locked()
+                return runtime
+
+            # Cas 2 : modification de la connectivité (host, port, domain, scl, rcb_list, etc.)
+            # → reconstruire la config et redémarrer le thread.
             data = asdict(runtime.config)
             data.update({k: v for k, v in new_fields.items() if v is not None})
             cfg = SubscriptionConfig(**data)
