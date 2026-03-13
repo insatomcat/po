@@ -427,19 +427,41 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_webui(self) -> None:
+        """Sert la page webui.html (même répertoire que ce script)."""
+        state_dir = os.path.dirname(os.path.abspath(__file__))
+        ui_path = os.path.join(state_dir, "webui.html")
+        try:
+            with open(ui_path, "rb") as f:
+                body = f.read()
+        except OSError as e:
+            self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
+            self.end_headers()
+            self.wfile.write(f"webui non trouvée: {e}".encode("utf-8"))
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:  # noqa: N802
-        if self.path == "/healthz":
+        path = self.path.split("?", 1)[0]
+        if path == "/healthz":
             self._send_json(HTTPStatus.OK, {"status": "ok"})
             return
-        if self.path == "/subscriptions":
+        if path == "/" or path == "/ui" or path == "/index.html":
+            self._serve_webui()
+            return
+        if path == "/subscriptions":
             subs = [
                 self._runtime_to_dict(rt)
                 for rt in self.manager.list_subscriptions().values()
             ]
             self._send_json(HTTPStatus.OK, subs)
             return
-        if self.path.startswith("/subscriptions/"):
-            sub_id = self.path.split("/", 2)[2]
+        if path.startswith("/subscriptions/"):
+            sub_id = path.split("/", 2)[2]
             rt = self.manager.get_subscription(sub_id)
             if not rt:
                 _json_error(self, HTTPStatus.NOT_FOUND, f"subscription {sub_id!r} not found")
