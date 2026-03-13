@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MMS Subscriptions</title>
+  <style>
+    :root {
+      --bg: #1a1b26;
+      --surface: #24283b;
+      --text: #c0caf5;
+      --muted: #565f89;
+      --accent: #7aa2f7;
+      --danger: #f7768e;
+      --success: #9ece6a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1.5rem;
+      line-height: 1.5;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin: 0 0 1rem 0;
+      color: var(--accent);
+    }
+    .toolbar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+    .btn {
+      padding: 0.5rem 0.75rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--text);
+    }
+    .btn:hover { filter: brightness(1.15); }
+    .btn--accent { background: var(--accent); color: var(--bg); }
+    .btn--danger { background: var(--danger); color: #fff; }
+    .btn--small { padding: 0.35rem 0.6rem; font-size: 0.8rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td { padding: 0.6rem 0.75rem; text-align: left; }
+    th {
+      background: rgba(0,0,0,0.2);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+    }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .status { font-weight: 500; }
+    .status.running { color: var(--success); }
+    .status.error { color: var(--danger); }
+    .status.stopped { color: var(--muted); }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .empty {
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+    }
+    .error-msg { color: var(--danger); font-size: 0.85rem; }
+    #loading { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>Flux MMS</h1>
+  <div class="toolbar">
+    <button type="button" class="btn btn--accent" id="refresh">Actualiser</button>
+    <button type="button" class="btn btn--danger" id="purge">Tout supprimer</button>
+    <span id="loading"></span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Id</th>
+        <th>Domaine</th>
+        <th>IED</th>
+        <th>Statut</th>
+        <th>Debug</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="list"></tbody>
+  </table>
+
+  <script>
+    const api = ''; // same origin
+
+    async function subs() {
+      const r = await fetch(api + '/subscriptions');
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      return r.json();
+    }
+
+    async function setDebug(id, debug) {
+      const r = await fetch(api + '/subscriptions/' + encodeURIComponent(id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ debug })
+      });
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+    }
+
+    async function del(id) {
+      const r = await fetch(api + '/subscriptions/' + encodeURIComponent(id), { method: 'DELETE' });
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+    }
+
+    async function purgeAll() {
+      if (!confirm('Supprimer tous les flux ?')) return;
+      const r = await fetch(api + '/subscriptions', { method: 'DELETE' });
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+    }
+
+    function render(rows) {
+      const tbody = document.getElementById('list');
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(s => {
+        const statusClass = (s.status || '').toLowerCase();
+        const err = s.last_error ? `<div class="error-msg">${escapeHtml(s.last_error)}</div>` : '';
+        return `<tr>
+          <td><strong>${escapeHtml(s.id)}</strong></td>
+          <td>${escapeHtml(s.domain)}</td>
+          <td>${escapeHtml(s.ied_host)}:${s.ied_port}</td>
+          <td><span class="status ${statusClass}">${escapeHtml(s.status)}</span>${err}</td>
+          <td>${s.debug ? 'Oui' : 'Non'}</td>
+          <td class="actions">
+            <button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button>
+            <button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      tbody.querySelectorAll('[data-action="debug"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          const debug = btn.dataset.debug === 'true';
+          setLoading('Mise à jour…');
+          try {
+            await setDebug(id, debug);
+            await load();
+          } catch (e) {
+            setLoading(e.message, true);
+          }
+        });
+      });
+      tbody.querySelectorAll('[data-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Supprimer le flux "' + btn.dataset.id + '" ?')) return;
+          setLoading('Suppression…');
+          try {
+            await del(btn.dataset.id);
+            await load();
+          } catch (e) {
+            setLoading(e.message, true);
+          }
+        });
+      });
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function setLoading(msg, isError) {
+      const el = document.getElementById('loading');
+      el.textContent = msg || '';
+      el.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+    }
+
+    async function load() {
+      setLoading('Chargement…');
+      try {
+        const data = await subs();
+        render(data);
+        setLoading('');
+      } catch (e) {
+        setLoading('Erreur: ' + e.message, true);
+        document.getElementById('list').innerHTML = '<tr><td colspan="6" class="empty">Impossible de charger les flux.</td></tr>';
+      }
+    }
+
+    document.getElementById('refresh').addEventListener('click', load);
+    document.getElementById('purge').addEventListener('click', async () => {
+      setLoading('Purge…');
+      try {
+        await purgeAll();
+        await load();
+      } catch (e) {
+        setLoading(e.message, true);
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>
