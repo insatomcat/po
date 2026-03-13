@@ -77,6 +77,28 @@
     }
     .error-msg { color: var(--danger); font-size: 0.85rem; }
     #loading { color: var(--muted); }
+    .logs-section {
+      margin-top: 2rem;
+      border-top: 1px solid var(--surface);
+    }
+    .logs-section h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0.75rem 0 0.5rem 0;
+      color: var(--muted);
+    }
+    #logs {
+      background: #0f0f14;
+      color: var(--text);
+      font-family: ui-monospace, monospace;
+      font-size: 0.75rem;
+      padding: 0.75rem;
+      border-radius: 6px;
+      max-height: 280px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
@@ -99,6 +121,11 @@
     </thead>
     <tbody id="list"></tbody>
   </table>
+
+  <section class="logs-section">
+    <h2>Logs (temps réel)</h2>
+    <pre id="logs"></pre>
+  </section>
 
   <script>
     const api = ''; // same origin
@@ -213,6 +240,18 @@
         setLoading(e.message, true);
       }
     });
+
+    const logsEl = document.getElementById('logs');
+    const LOG_MAX = 500;
+    const logLines = [];
+    const es = new EventSource('logs');
+    es.onmessage = (e) => {
+      logLines.push(e.data);
+      if (logLines.length > LOG_MAX) logLines.shift();
+      logsEl.textContent = logLines.join('\n');
+      logsEl.scrollTop = logsEl.scrollHeight;
+    };
+    // EventSource reconnecte automatiquement en cas d'erreur si on ne ferme pas
 
     load();
   </script>
