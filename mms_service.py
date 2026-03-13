@@ -88,11 +88,11 @@ from typing import Dict, Optional, Any, Tuple
 
 from mms_reports_client import MMSReportsClient, MMSConnectionError
 from scl_parser import parse_scl_data_set_members_with_components
-from test_client_reports import (
-    on_report,
-    _load_item_ids_from_file,
+from mms_report_processing import (
     DATA_SET_MEMBER_LABELS,
     DATA_SET_MEMBER_COMPONENTS,
+    load_item_ids_from_file,
+    process_mms_report,
 )
 
 
@@ -213,7 +213,7 @@ class SubscriptionManager:
             except Exception as e:
                 print(f"[SCL] Erreur lors du chargement de {cfg.scl}: {e}")
 
-        item_ids = _load_item_ids_from_file(cfg.rcb_list)
+        item_ids = load_item_ids_from_file(cfg.rcb_list)
         print(
             f"[RCB] Flux {cfg.id}: {len(item_ids)} RCB à activer "
             f"(source: {'fichier' if cfg.rcb_list else 'liste intégrée'})"
@@ -231,14 +231,16 @@ class SubscriptionManager:
                 client.connect()
                 print("[MMS] Connexion établie. Activation des RCB...")
 
-                callback = lambda report: on_report(
-                    report,
-                    vm_url=vm_url,
-                    show_in_console=cfg.debug,
-                    batch_interval_sec=batch_interval_sec,
-                    batch_max_lines=500,
-                    member_components=DATA_SET_MEMBER_COMPONENTS or None,
-                )
+                def callback(report: Any) -> None:
+                    process_mms_report(
+                        report,
+                        vm_url=vm_url,
+                        show_in_console=cfg.debug,
+                        verbose=False,
+                        batch_interval_sec=batch_interval_sec,
+                        batch_max_lines=500,
+                        member_components=DATA_SET_MEMBER_COMPONENTS or None,
+                    )
 
                 for i, item_id in enumerate(item_ids, 1):
                     if runtime.stop_event.is_set():
