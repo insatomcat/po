@@ -77,12 +77,16 @@ API HTTP (JSON, état persistant dans mms_subscriptions.json):
 
   GET /healthz
       Simple check 200 OK.
+
+  GET /logs
+      Flux SSE des logs du service (temps réel).
 """
 
 import argparse
 import errno
 import json
 import os
+import sys
 import threading
 import time
 import uuid
@@ -99,6 +103,37 @@ from mms_report_processing import (
     load_item_ids_from_file,
     process_mms_report,
 )
+
+# Capture des logs pour diffusion SSE (seq monotonique pour fenêtre glissante)
+LOG_LINES: list[tuple[int, str]] = []  # (seq, line)
+LOG_NEXT_SEQ = 0
+LOG_MAX = 500
+LOG_LOCK = threading.Lock()
+LOG_CONDITION = threading.Condition(LOG_LOCK)
+
+
+class _TeeStdout:
+    """Redirige stdout vers la sortie réelle + buffer pour GET /logs."""
+
+    def __init__(self, real: Any) -> None:
+        self._real = real
+        self._buf = ""
+
+    def write(self, s: str) -> None:
+        global LOG_NEXT_SEQ
+        self._real.write(s)
+        with LOG_LOCK:
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                LOG_NEXT_SEQ += 1
+                LOG_LINES.append((LOG_NEXT_SEQ, line))
+                if len(LOG_LINES) > LOG_MAX:
+                    LOG_LINES.pop(0)
+                LOG_CONDITION.notify_all()
+
+    def flush(self) -> None:
+        self._real.flush()
 
 
 @dataclass
@@ -427,6 +462,32 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_logs_sse(self) -> None:
+        """Flux SSE des logs en temps réel (seq pour fenêtre glissante)."""
+        def escape_sse(s: str) -> str:
+            return s.replace("\r", "").replace("\n", " ").replace("\x00", "")
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        last_sent_seq = 0
+        while True:
+            try:
+                with LOG_LOCK:
+                    for seq, line in LOG_LINES:
+                        if seq > last_sent_seq:
+                            self.wfile.write(f"data: {escape_sse(line)}\n\n".encode("utf-8"))
+                            self.wfile.flush()
+                            last_sent_seq = seq
+                    LOG_CONDITION.wait(timeout=2.0)
+                self.wfile.write(b": \n\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                break
+
     def _serve_webui(self) -> None:
         """Sert la page webui.html (même répertoire que ce script)."""
         state_dir = os.path.dirname(os.path.abspath(__file__))
@@ -452,6 +513,9 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             return
         if path == "/" or path == "/ui" or path == "/index.html":
             self._serve_webui()
+            return
+        if path == "/logs":
+            self._serve_logs_sse()
             return
         if path == "/subscriptions":
             subs = [
@@ -603,6 +667,8 @@ def main() -> int:
 
     manager = SubscriptionManager(vm_url=args.victoriametrics_url, vm_batch_ms=args.vm_batch_ms)
     MMSServiceHandler.manager = manager
+
+    sys.stdout = _TeeStdout(sys.__stdout__)
 
     server_address = (args.listen_host, args.listen_port)
     httpd = ThreadingHTTPServer(server_address, MMSServiceHandler)
