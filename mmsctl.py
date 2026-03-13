@@ -43,7 +43,7 @@ from typing import Any, Dict
 
 
 def _default_api_url() -> str:
-    return "http://127.0.0.1:8080"
+    return "http://localhost:7050"
 
 
 def _http_request(
