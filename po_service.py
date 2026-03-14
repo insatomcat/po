@@ -25,8 +25,8 @@ sys.path.insert(0, str(ROOT / "goose"))
 sys.path.insert(0, str(ROOT / "svgenerator"))
 
 # Import après configuration du path
-from mms_service import SubscriptionManager, _TeeStdout
-from mms_api import handle_mms, serve_logs_sse
+from mms.mms_service import SubscriptionManager, _TeeStdout
+from mms.mms_api import handle_mms, serve_logs_sse
 from goose61850.service import GooseService, _handle_api as goose_handle_api
 from svgenerator.sv_api import handle_sv, init_sv_api
 

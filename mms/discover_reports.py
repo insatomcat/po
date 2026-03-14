@@ -5,20 +5,27 @@ lister les domaines et RCB. Si l'IED ne supporte pas GetNameList (réponse
 incorrecte), utilise un sondage par GetRCBValues sur des domaines/RCB connus.
 
 Usage:
-    python3 discover_reports.py [--debug] [--domain ID] [host [port]]
+    python3 -m mms.discover_reports [--debug] [--domain ID] [host [port]]
+    python3 mms/discover_reports.py [--debug] [--domain ID] [host [port]]
 
 Exemple:
-    python3 discover_reports.py 10.132.159.191 102
-    python3 discover_reports.py --domain VMC7_1LD0 10.132.159.94 102
+    python3 -m mms.discover_reports 10.132.159.191 102
+    python3 -m mms.discover_reports --domain VMC7_1LD0 10.132.159.94 102
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-from mms_reports_client import MMSReportsClient, MMSConnectionError
-from asn1_codec import OBJECT_CLASS_DOMAIN, OBJECT_CLASS_NAMED_VARIABLE
+# Permettre l'exécution directe (python3 mms/discover_reports.py)
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from mms.mms_reports_client import MMSReportsClient, MMSConnectionError
+from mms.asn1_codec import OBJECT_CLASS_DOMAIN, OBJECT_CLASS_NAMED_VARIABLE
 
 
 # Patterns typiques pour les Report Control Blocks IEC 61850

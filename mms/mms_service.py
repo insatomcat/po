@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Bootstrap pour exécution standalone (python3 mms/mms_service.py)
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 """
 Service HTTP long‑running pour gérer des flux de reports MMS par domaine.
 
@@ -95,9 +103,9 @@ from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Optional, Any, Tuple
 
-from mms_reports_client import MMSReportsClient, MMSConnectionError
-from scl_parser import parse_scl_data_set_members_with_components
-from mms_report_processing import (
+from mms.mms_reports_client import MMSReportsClient, MMSConnectionError
+from mms.scl_parser import parse_scl_data_set_members_with_components
+from mms.mms_report_processing import (
     DATA_SET_MEMBER_LABELS,
     DATA_SET_MEMBER_COMPONENTS,
     load_item_ids_from_file,
