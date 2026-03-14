@@ -1,9 +1,10 @@
 """Test d'abonnement aux reports MMS sur un IED.
 
 Usage:
-    python3 test_client_reports.py [--debug] [--verbose] [--scl FICHIER]
-                                   [--domain ID] [--victoriametrics-url URL]
-                                   [host [port]]
+    python3 -m mms.test_client_reports [--debug] [--verbose] [--scl FICHIER]
+                                       [--domain ID] [--victoriametrics-url URL]
+                                       [host [port]]
+    python3 mms/test_client_reports.py ...
 
 Sans --debug : pas d'affichage des PDUs envoyés/reçus.
 Avec --debug : affiche les trames (>>> envoi, <<< réception).
@@ -20,11 +21,17 @@ import argparse
 import atexit
 import sys
 import time
+from pathlib import Path
 
-from mms_reports_client import MMSReportsClient, MMSConnectionError
-from scl_parser import parse_scl_data_set_members_with_components
-from victoriametrics_push import push_mms_report_flush
-from mms_report_processing import (
+# Permettre l'exécution directe (python3 mms/test_client_reports.py)
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from mms.mms_reports_client import MMSReportsClient, MMSConnectionError
+from mms.scl_parser import parse_scl_data_set_members_with_components
+from mms.victoriametrics_push import push_mms_report_flush
+from mms.mms_report_processing import (
     MMSReport,
     DATA_SET_MEMBER_LABELS,
     DATA_SET_MEMBER_COMPONENTS,

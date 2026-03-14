@@ -17,9 +17,9 @@ from typing import Callable, Optional
 
 HEARTBEAT_INTERVAL = 60.0  # secondes entre deux messages "en attente"
 
-from cotp import cotp_connect, cotp_send_data, cotp_recv_data, COTPError
-from tpkt import TPKTError
-from asn1_codec import (
+from .cotp import cotp_connect, cotp_send_data, cotp_recv_data, COTPError
+from .tpkt import TPKTError
+from .asn1_codec import (
     encode_mms_initiate,
     encode_mms_get_rcb,
     encode_mms_get_name_list,

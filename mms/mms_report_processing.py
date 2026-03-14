@@ -13,8 +13,8 @@ Ce module est utilisé à la fois par :
 
 from typing import Any, Dict, List, Optional
 
-from asn1_codec import MMSReport  # juste pour le type
-from victoriametrics_push import push_mms_report
+from .asn1_codec import MMSReport  # juste pour le type
+from .victoriametrics_push import push_mms_report
 
 
 ENTRY_LABELS = (

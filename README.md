@@ -17,26 +17,26 @@ Client MMS en Python pour **s’abonner aux reports** IEC 61850 et recevoir les 
 
 ## Utilisation
 
-Script principal : **`test_client_reports.py`**
+Script principal : **`mms/test_client_reports.py`**
 
 ```bash
 # Connexion à l’IED par défaut (host/port dans le script)
-python3 test_client_reports.py
+python3 -m mms.test_client_reports
 
 # Host et port explicites
-python3 test_client_reports.py 10.132.159.191 102
+python3 -m mms.test_client_reports 10.132.159.191 102
 
 # Avec domain ID (défaut : VMC7_1LD0)
-python3 test_client_reports.py --domain MON_IED_1LD0 10.132.159.191 102
+python3 -m mms.test_client_reports --domain MON_IED_1LD0 10.132.159.191 102
 
 # Avec fichier SCL/ICD pour les libellés des membres du data set
-python3 test_client_reports.py --scl ./IECS.cid 10.132.159.191 102
+python3 -m mms.test_client_reports --scl ./IECS.cid 10.132.159.191 102
 
 # Envoyer les valeurs des reports vers VictoriaMetrics (pour Grafana)
-python3 test_client_reports.py --victoriametrics-url http://localhost:8428 --scl ./IECS.cid
+python3 -m mms.test_client_reports --victoriametrics-url http://localhost:8428 --scl ./IECS.cid
 
 # Debug (PDU envoyés/reçus) et verbose (PDU brut + valeur brute des entrées)
-python3 test_client_reports.py --debug --verbose --scl ./IECS.cid
+python3 -m mms.test_client_reports --debug --verbose --scl ./IECS.cid
 ```
 
 **Grafana : afficher un point toutes les 2–4 s**  
@@ -75,7 +75,7 @@ REPORT reçu :
     [17] qualité(A.phsA): 0208 (good)
 ```
 
-Les RCB abonnés sont définis dans `test_client_reports.py` (liste `ITEM_IDS`). Les PDU qui ne sont pas des reports (ex. autres types MMS) sont affichés en une ligne : `[PDU non décodé, N octets]`.
+Les RCB abonnés sont définis dans `mms/test_client_reports.py` (liste `ITEM_IDS`). Les PDU qui ne sont pas des reports (ex. autres types MMS) sont affichés en une ligne : `[PDU non décodé, N octets]`.
 
 ## Fichier SCL/ICD
 
@@ -83,12 +83,16 @@ Pour avoir des libellés lisibles (`[8] LogOut10`, `[9] A.phsA`, etc.), fournir 
 
 ## Structure du projet
 
+Tout le code MMS est regroupé dans le dossier `mms/` :
+
 | Fichier | Rôle |
 |---------|------|
-| `tpkt.py` | TPKT RFC 1006 (send/recv) |
-| `cotp.py` | COTP classe 0 (connexion, send_data, recv_data) |
-| `asn1_codec.py` | Encodage BER MMS (Initiate, GetRCBValues, SetRCBValues), décodage des reports (listOfAccessResult → MMSReport) |
-| `mms_reports_client.py` | Client : connexion TCP/COTP/MMS, Initiate, enable_reporting (Get + 8× SetRCBValues), loop_reports |
-| `scl_parser.py` | Parse SCL/ICD pour extraire DataSet et FCDA → mapping nom du data set → liste de libellés |
-| `test_client_reports.py` | Script de test : abonnement à une liste de RCB, affichage des reports (avec ou sans --scl), option --victoriametrics-url |
-| `victoriametrics_push.py` | Conversion report → format Prometheus (avec timestamp) et POST vers /api/v1/import/prometheus |
+| `mms/tpkt.py` | TPKT RFC 1006 (send/recv) |
+| `mms/cotp.py` | COTP classe 0 (connexion, send_data, recv_data) |
+| `mms/asn1_codec.py` | Encodage BER MMS (Initiate, GetRCBValues, SetRCBValues), décodage des reports |
+| `mms/mms_reports_client.py` | Client : connexion TCP/COTP/MMS, Initiate, enable_reporting, loop_reports |
+| `mms/scl_parser.py` | Parse SCL/ICD pour extraire DataSet et FCDA → mapping nom du data set → liste de libellés |
+| `mms/test_client_reports.py` | Script de test : abonnement à une liste de RCB, affichage des reports |
+| `mms/victoriametrics_push.py` | Conversion report → format Prometheus et POST vers /api/v1/import/prometheus |
+| `mms/discover_reports.py` | Découverte des reports MMS disponibles sur un IED |
+| `mms/mmsctl.py` | CLI pour piloter le service MMS HTTP (`python3 -m mms.mmsctl` ou `python3 mms/mmsctl.py`) |
