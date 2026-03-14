@@ -255,8 +255,11 @@
 
   <script>
     const API = { mms: '/api/mms', goose: '/api/goose', sv: '/api/sv', svview: '/api/svview' };
+    const SVVIEW_API = API.svview + '/api';
     let mmsRecentsCache = [];
+    let svLastRecents = [];
     let svviewRefreshTimer = null;
+    let svviewConfigCache = { interval: 2, window: 10 };
 
     function activateTab(tabId) {
       const id = ['mms','goose','sv','svview'].includes(tabId) ? tabId : 'mms';
@@ -560,7 +563,6 @@
     });
 
     // --- SV ---
-    let svLastRecents = [];
     function svDetailsHtml(f) {
       const smpLabels = {0: 'None', 1: 'Local', 2: 'Global'};
       const smpVal = f.smp_synch ?? 0;
@@ -669,9 +671,7 @@
     });
 
     // --- SV Listener ---
-    const SVVIEW_API = API.svview + '/api';
     const SVVIEW_COLORS = { u: '#7aa2f7', i: '#f7768e', uLight: ['#7aa2f7','#89b4fa','#b4d0ff'], iLight: ['#f7768e','#ff8a95','#ffb0b8'] };
-    let svviewConfigCache = { interval: 2, window: 10 };
 
     async function svviewFetchJson(path) {
       const r = await fetch(SVVIEW_API + path);
