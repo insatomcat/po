@@ -72,9 +72,17 @@ def _http_request(
         return 0, ""
 
 
+def _api_base(base: str, suffix: str, unified: bool) -> str:
+    """Préfixe /api/mms si service unifié."""
+    u = base.rstrip("/")
+    if unified:
+        return f"{u}/api/mms{suffix}"
+    return f"{u}{suffix}"
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     base = args.api_url.rstrip("/")
-    url = f"{base}/subscriptions"
+    url = _api_base(base, "/subscriptions", getattr(args, "unified", True))
     status, body = _http_request("GET", url)
     if status == 0:
         return 1
@@ -102,7 +110,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_get(args: argparse.Namespace) -> int:
     base = args.api_url.rstrip("/")
-    url = f"{base}/subscriptions/{urllib.parse.quote(args.id)}"
+    url = _api_base(base, f"/subscriptions/{urllib.parse.quote(args.id)}", getattr(args, "unified", True))
     status, body = _http_request("GET", url)
     if status == 0:
         return 1
@@ -123,7 +131,7 @@ def cmd_get(args: argparse.Namespace) -> int:
 
 def cmd_create(args: argparse.Namespace) -> int:
     base = args.api_url.rstrip("/")
-    url = f"{base}/subscriptions"
+    url = _api_base(base, "/subscriptions", getattr(args, "unified", True))
     payload: Dict[str, Any] = {
         "ied_host": args.ied_host,
         "ied_port": args.ied_port,
@@ -155,7 +163,7 @@ def cmd_create(args: argparse.Namespace) -> int:
 
 def cmd_update(args: argparse.Namespace) -> int:
     base = args.api_url.rstrip("/")
-    url = f"{base}/subscriptions/{urllib.parse.quote(args.id)}"
+    url = _api_base(base, f"/subscriptions/{urllib.parse.quote(args.id)}", getattr(args, "unified", True))
     payload: Dict[str, Any] = {}
     if args.ied_host:
         payload["ied_host"] = args.ied_host
@@ -193,7 +201,7 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 def cmd_delete(args: argparse.Namespace) -> int:
     base = args.api_url.rstrip("/")
-    url = f"{base}/subscriptions/{urllib.parse.quote(args.id)}"
+    url = _api_base(base, f"/subscriptions/{urllib.parse.quote(args.id)}", getattr(args, "unified", True))
     status, body = _http_request("DELETE", url)
     if status == 0:
         return 1
@@ -210,7 +218,7 @@ def cmd_delete(args: argparse.Namespace) -> int:
 def cmd_purge(args: argparse.Namespace) -> int:
     """Supprime tous les flux côté service (DELETE /subscriptions)."""
     base = args.api_url.rstrip("/")
-    url = f"{base}/subscriptions"
+    url = _api_base(base, "/subscriptions", getattr(args, "unified", True))
     status, body = _http_request("DELETE", url)
     if status == 0:
         return 1
@@ -229,6 +237,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--api-url",
         default=_default_api_url(),
         help=f"URL de base de l'API (défaut: {_default_api_url()}).",
+    )
+    parser.add_argument(
+        "--unified",
+        action="store_true",
+        default=True,
+        help="Utiliser le préfixe /api/mms (service unifié, défaut).",
+    )
+    parser.add_argument(
+        "--standalone",
+        dest="unified",
+        action="store_false",
+        help="Service MMS standalone (sans préfixe /api/mms).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

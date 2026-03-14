@@ -6,11 +6,20 @@ import sys
 import requests
 
 
-DEFAULT_BASE_URL = "http://127.0.0.1:7051"
+DEFAULT_BASE_URL = "http://127.0.0.1:7050"
+
+
+def _sv_api_path(base_url: str, path: str) -> str:
+    """Préfixe /api/sv si service unifié (port 7050)."""
+    u = base_url.rstrip("/")
+    if "/7050" in u or u.endswith(":7050"):
+        return f"/api/sv{path}"
+    return path
 
 
 def cmd_list(args: argparse.Namespace) -> None:
-    resp = requests.get(f"{args.base_url}/api/flows", timeout=5.0)
+    p = _sv_api_path(args.base_url, "/flows")
+    resp = requests.get(f"{args.base_url.rstrip('/')}{p}", timeout=5.0)
     if resp.status_code >= 400:
         print(f"Error: {resp.status_code} {resp.text}", file=sys.stderr)
         sys.exit(1)
@@ -94,7 +103,8 @@ def cmd_create(args: argparse.Namespace) -> None:
         payload["fault_phase_deg"] = args.fault_phase
     if args.fault_cycle is not None:
         payload["fault_cycle_s"] = args.fault_cycle
-    resp = requests.post(f"{args.base_url}/api/flows", json=payload, timeout=5.0)
+    p = _sv_api_path(args.base_url, "/flows")
+    resp = requests.post(f"{args.base_url.rstrip('/')}{p}", json=payload, timeout=5.0)
     if resp.status_code >= 400:
         print(f"Error: {resp.status_code} {resp.text}", file=sys.stderr)
         sys.exit(1)
@@ -136,7 +146,8 @@ def cmd_update(args: argparse.Namespace) -> None:
         payload["fault_phase_deg"] = args.fault_phase
     if args.fault_cycle is not None:
         payload["fault_cycle_s"] = args.fault_cycle
-    resp = requests.put(f"{args.base_url}/api/flows/{args.name}", json=payload, timeout=5.0)
+    p = _sv_api_path(args.base_url, f"/flows/{args.name}")
+    resp = requests.put(f"{args.base_url.rstrip('/')}{p}", json=payload, timeout=5.0)
     if resp.status_code >= 400:
         print(f"Error: {resp.status_code} {resp.text}", file=sys.stderr)
         sys.exit(1)
@@ -148,7 +159,8 @@ def cmd_update(args: argparse.Namespace) -> None:
 
 
 def cmd_delete(args: argparse.Namespace) -> None:
-    resp = requests.delete(f"{args.base_url}/api/flows/{args.name}", timeout=5.0)
+    p = _sv_api_path(args.base_url, f"/flows/{args.name}")
+    resp = requests.delete(f"{args.base_url.rstrip('/')}{p}", timeout=5.0)
     if resp.status_code >= 400:
         print(f"Error: {resp.status_code} {resp.text}", file=sys.stderr)
         sys.exit(1)
@@ -156,7 +168,8 @@ def cmd_delete(args: argparse.Namespace) -> None:
 
 
 def cmd_clear(args: argparse.Namespace) -> None:
-    resp = requests.delete(f"{args.base_url}/api/flows", timeout=5.0)
+    p = _sv_api_path(args.base_url, "/flows")
+    resp = requests.delete(f"{args.base_url.rstrip('/')}{p}", timeout=5.0)
     if resp.status_code >= 400:
         print(f"Error: {resp.status_code} {resp.text}", file=sys.stderr)
         sys.exit(1)
@@ -171,7 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--base-url",
         default=DEFAULT_BASE_URL,
-        help=f"Base URL of service (default {DEFAULT_BASE_URL})",
+        help=f"Base URL (unified: 7050, standalone SV: 7051)",
     )
 
     sub = parser.add_subparsers(dest="cmd", required=True)
