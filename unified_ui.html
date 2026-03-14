@@ -250,6 +250,7 @@
   <script>
     const API = { mms: '/api/mms', goose: '/api/goose', sv: '/api/sv', svview: '/api/svview' };
     let mmsRecentsCache = [];
+    let svviewRefreshTimer = null;
 
     function activateTab(tabId) {
       const id = ['mms','goose','sv','svview'].includes(tabId) ? tabId : 'mms';
@@ -541,18 +542,28 @@
     // --- SV ---
     let svLastRecents = [];
     function svDetailsHtml(f) {
+      const smpLabels = {0: 'None', 1: 'Local', 2: 'Global'};
+      const smpVal = f.smp_synch ?? 0;
+      const smpStr = smpLabels[smpVal] ? `${smpVal} (${smpLabels[smpVal]})` : smpVal;
+      const vlanStr = f.vlan_id != null ? `${f.vlan_id} / priorité ${f.vlan_priority ?? 0}` : '—';
+      const faultBlock = f.fault ? `<dt>fault_i_peak</dt><dd>${f.fault_i_peak ?? '—'} A</dd>
+        <dt>fault_v_peak</dt><dd>${f.fault_v_peak ?? '—'} V</dd>
+        <dt>fault_phase_deg</dt><dd>${f.fault_phase_deg ?? '—'}°</dd>
+        <dt>fault_cycle_s</dt><dd>${f.fault_cycle_s ?? 1} s</dd>` : '';
       return `<dl class="details-grid">
         <dt>Nom</dt><dd>${escapeHtml(f.name)}</dd>
         <dt>Interface</dt><dd>${escapeHtml(f.interface)}</dd>
         <dt>src_mac</dt><dd>${escapeHtml(f.src_mac)}</dd>
         <dt>dst_mac</dt><dd>${escapeHtml(f.dst_mac)}</dd>
         <dt>svID</dt><dd>${escapeHtml(f.svid)}</dd>
-        <dt>smpSynch</dt><dd>${f.smp_synch ?? 0}</dd>
-        <dt>VLAN</dt><dd>${f.vlan_id != null ? f.vlan_id : '—'} / priorité ${f.vlan_priority ?? 0}</dd>
+        <dt>smpSynch</dt><dd>${smpStr}</dd>
+        <dt>VLAN</dt><dd>${vlanStr}</dd>
         <dt>freq_hz</dt><dd>${f.freq_hz ?? 50}</dd>
-        <dt>i_peak / v_peak</dt><dd>${f.i_peak ?? 10} A / ${f.v_peak ?? 100} V</dd>
-        <dt>phase_deg</dt><dd>${f.phase_deg ?? 0}</dd>
+        <dt>i_peak</dt><dd>${f.i_peak ?? 10} A</dd>
+        <dt>v_peak</dt><dd>${f.v_peak ?? 100} V</dd>
+        <dt>phase_deg</dt><dd>${f.phase_deg ?? 0}°</dd>
         <dt>fault</dt><dd>${f.fault ? 'Oui' : 'Non'}</dd>
+        ${faultBlock}
       </dl>`;
     }
     async function svLoad() {
@@ -640,7 +651,6 @@
     // --- SV Listener ---
     const SVVIEW_API = API.svview + '/api';
     const SVVIEW_COLORS = { u: '#7aa2f7', i: '#f7768e', uLight: ['#7aa2f7','#89b4fa','#b4d0ff'], iLight: ['#f7768e','#ff8a95','#ffb0b8'] };
-    let svviewRefreshTimer = null;
     let svviewConfigCache = { interval: 2, window: 10 };
 
     async function svviewFetchJson(path) {
