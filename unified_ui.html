@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PO – MMS | GOOSE | SV</title>
+  <style>
+    :root {
+      --bg: #1a1b26;
+      --surface: #24283b;
+      --text: #c0caf5;
+      --muted: #565f89;
+      --accent: #7aa2f7;
+      --danger: #f7768e;
+      --success: #9ece6a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1rem 1.5rem;
+      line-height: 1.5;
+    }
+    .tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--surface);
+      padding-bottom: 0;
+    }
+    .tab {
+      padding: 0.6rem 1rem;
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 1rem 0; color: var(--accent); }
+    h2 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.5rem 0; color: var(--muted); }
+    .toolbar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .btn {
+      padding: 0.5rem 0.75rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--text);
+    }
+    .btn:hover { filter: brightness(1.15); }
+    .btn--accent { background: var(--accent); color: var(--bg); }
+    .btn--danger { background: var(--danger); color: #fff; }
+    .btn--small { padding: 0.35rem 0.6rem; font-size: 0.8rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td { padding: 0.6rem 0.75rem; text-align: left; }
+    th {
+      background: rgba(0,0,0,0.2);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+    }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .status { font-weight: 500; }
+    .status.running { color: var(--success); }
+    .status.error { color: var(--danger); }
+    .status.stopped { color: var(--muted); }
+    .empty { text-align: center; padding: 2rem; color: var(--muted); }
+    .error-msg { color: var(--danger); font-size: 0.85rem; }
+    .details-row td { background: #0f0f14; padding: 1rem; vertical-align: top; }
+    .details-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.85rem; }
+    .details-grid dt { color: var(--muted); margin: 0; }
+    .details-grid dd { margin: 0; }
+    .recents-section { margin-top: 2rem; border-top: 1px solid var(--surface); }
+    .recent-card {
+      background: var(--surface);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .recent-card .info { flex: 1; min-width: 120px; }
+    .logs-section { margin-top: 2rem; border-top: 1px solid var(--surface); }
+    #logs {
+      background: #0f0f14;
+      font-family: ui-monospace, monospace;
+      font-size: 0.75rem;
+      padding: 0.75rem;
+      border-radius: 6px;
+      max-height: 240px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    #msg { font-size: 0.85rem; margin-top: 0.5rem; }
+    #msg.err { color: var(--danger); }
+    #msg.ok { color: var(--success); }
+  </style>
+</head>
+<body>
+  <div class="tabs">
+    <button type="button" class="tab active" data-tab="mms">MMS</button>
+    <button type="button" class="tab" data-tab="goose">GOOSE</button>
+    <button type="button" class="tab" data-tab="sv">SV</button>
+  </div>
+
+  <div id="panel-mms" class="panel active">
+    <h1>Flux MMS</h1>
+    <div class="toolbar">
+      <button type="button" class="btn btn--accent" id="mms-refresh">Actualiser</button>
+      <button type="button" class="btn btn--danger" id="mms-purge">Tout supprimer</button>
+      <span id="mms-loading"></span>
+    </div>
+    <table><thead><tr><th>Id</th><th>Domaine</th><th>IED</th><th>Statut</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
+    <section class="recents-section"><h2>Récents</h2><div id="mms-recents"></div></section>
+    <section class="logs-section"><h2>Logs</h2><pre id="mms-logs"></pre></section>
+  </div>
+
+  <div id="panel-goose" class="panel">
+    <h1>Flux GOOSE</h1>
+    <div class="toolbar">
+      <button type="button" class="btn btn--accent" id="goose-refresh">Actualiser</button>
+      <span id="goose-loading"></span>
+    </div>
+    <table><thead><tr><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
+    <section class="recents-section"><h2>Récents</h2><table><thead><tr><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table></section>
+  </div>
+
+  <div id="panel-sv" class="panel">
+    <h1>SV Generator</h1>
+    <div class="toolbar">
+      <button type="button" class="btn btn--accent" id="sv-refresh">Actualiser</button>
+      <button type="button" class="btn btn--danger" id="sv-purge">Tout supprimer</button>
+      <span id="sv-msg"></span>
+    </div>
+    <h2>Flux en cours</h2>
+    <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th>État</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
+    <section class="recents-section"><h2>Récents</h2><table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table></section>
+  </div>
+
+  <script>
+    const API = { mms: '/api/mms', goose: '/api/goose', sv: '/api/sv' };
+
+    document.querySelectorAll('.tab').forEach(t => {
+      t.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+        if (t.dataset.tab === 'mms') mmsLoad();
+        if (t.dataset.tab === 'goose') gooseLoad();
+        if (t.dataset.tab === 'sv') svLoad();
+      });
+    });
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // --- MMS ---
+    async function mmsSubs() {
+      const r = await fetch(API.mms + '/subscriptions');
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      return r.json();
+    }
+    async function mmsRecents() {
+      const r = await fetch(API.mms + '/recents');
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      return r.json();
+    }
+    function mmsDetailsHtml(s) {
+      const items = s.rcb_items || [];
+      const rcbList = items.length ? '<ul style="margin:0;padding-left:1.2rem">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>' : '<span style="color:var(--muted)">(chargement…)</span>';
+      return `<dl class="details-grid"><dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd><dt>Domaine</dt><dd>${escapeHtml(s.domain)}</dd><dt>RCB (${items.length})</dt><dd>${rcbList}</dd></dl>`;
+    }
+    function mmsRender(rows) {
+      const tbody = document.getElementById('mms-list');
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>'; return; }
+      tbody.innerHTML = rows.map(s => {
+        const sc = (s.status || '').toLowerCase();
+        const err = s.last_error ? `<div class="error-msg">${escapeHtml(s.last_error)}</div>` : '';
+        return `<tr><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td><span class="status ${sc}">${escapeHtml(s.status)}</span>${err}</td><td>${s.debug ? 'Oui' : 'Non'}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>`;
+      }).join('');
+      tbody.querySelectorAll('[data-action="debug"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          try {
+            await fetch(API.mms + '/subscriptions/' + encodeURIComponent(btn.dataset.id), { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ debug: btn.dataset.debug === 'true' }) });
+            mmsLoad();
+          } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
+        });
+      });
+      tbody.querySelectorAll('[data-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Supprimer ?')) return;
+          try {
+            await fetch(API.mms + '/subscriptions/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
+            mmsLoad();
+          } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
+        });
+      });
+    }
+    let mmsRecentsCache = [];
+    function mmsRenderRecents(recentsData, runningIds) {
+      const el = document.getElementById('mms-recents');
+      mmsRecentsCache = recentsData || [];
+      if (!mmsRecentsCache.length) { el.innerHTML = '<p class="empty">Aucun flux récent.</p>'; return; }
+      el.innerHTML = mmsRecentsCache.map((r, idx) => {
+        const run = runningIds.has(r.id);
+        const p = { id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl || null, rcb_list: r.rcb_list || null, debug: r.debug };
+        return `<div class="recent-card"><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">(en cours)</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">Relancer</button>` : ''}</div>`;
+      }).join('');
+      el.querySelectorAll('[data-idx]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const r = mmsRecentsCache[parseInt(btn.dataset.idx, 10)];
+          if (!r) return;
+          try {
+            await fetch(API.mms + '/subscriptions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl, rcb_list: r.rcb_list, debug: r.debug }) });
+            mmsLoad();
+          } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
+        });
+      });
+    }
+    async function mmsLoad() {
+      document.getElementById('mms-loading').textContent = 'Chargement…';
+      try {
+        const [subs, rec] = await Promise.all([mmsSubs(), mmsRecents()]);
+        mmsRender(subs);
+        mmsRenderRecents(rec, new Set(subs.map(s => s.id)));
+        document.getElementById('mms-loading').textContent = '';
+      } catch (e) {
+        document.getElementById('mms-loading').textContent = 'Erreur: ' + e.message;
+        document.getElementById('mms-loading').style.color = 'var(--danger)';
+      }
+    }
+    document.getElementById('mms-refresh').addEventListener('click', mmsLoad);
+    document.getElementById('mms-purge').addEventListener('click', async () => {
+      if (!confirm('Supprimer tous les flux ?')) return;
+      try {
+        await fetch(API.mms + '/subscriptions', { method: 'DELETE' });
+        mmsLoad();
+      } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
+    });
+    const mmsLogsEl = document.getElementById('mms-logs');
+    const es = new EventSource(API.mms + '/logs');
+    const mmsLogLines = [];
+    es.onmessage = e => {
+      mmsLogLines.push(e.data);
+      if (mmsLogLines.length > 500) mmsLogLines.shift();
+      mmsLogsEl.textContent = mmsLogLines.join('\n');
+      mmsLogsEl.scrollTop = mmsLogsEl.scrollHeight;
+    };
+
+    // --- GOOSE ---
+    async function gooseStreams() {
+      const r = await fetch(API.goose + '/streams');
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      return (await r.json()).streams || [];
+    }
+    async function gooseRecent() {
+      const r = await fetch(API.goose + '/recent');
+      if (!r.ok) return [];
+      return (await r.json()).recent || [];
+    }
+    function gooseLoad() {
+      document.getElementById('goose-loading').textContent = 'Chargement…';
+      Promise.all([gooseStreams(), gooseRecent()]).then(([streams, recent]) => {
+        const activeGrefs = new Set(streams.map(s => s.gocb_ref));
+        document.getElementById('goose-list').innerHTML = streams.length
+          ? streams.map(s => `<tr><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small btn--danger" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>`).join('')
+          : '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
+        document.getElementById('goose-list').querySelectorAll('[data-id]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (!confirm('Supprimer ce flux ?')) return;
+            await fetch(API.goose + '/streams/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
+            gooseLoad();
+          });
+        });
+        document.getElementById('goose-recents').innerHTML = recent.length
+          ? recent.map(r => {
+              const canRestart = !activeGrefs.has(r.gocb_ref);
+              return `<tr><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-id="${escapeHtml(r.id)}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>`;
+            }).join('')
+          : '<tr><td colspan="4" class="empty">Aucun flux récent.</td></tr>';
+        document.getElementById('goose-recents').querySelectorAll('[data-id]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            await fetch(API.goose + '/recent/' + encodeURIComponent(btn.dataset.id) + '/restart', { method: 'POST' });
+            gooseLoad();
+          });
+        });
+        document.getElementById('goose-loading').textContent = '';
+      }).catch(e => { document.getElementById('goose-loading').textContent = 'Erreur: ' + e.message; });
+    }
+    document.getElementById('goose-refresh').addEventListener('click', gooseLoad);
+
+    // --- SV ---
+    let svLastRecents = [];
+    async function svLoad() {
+      try {
+        const flows = await (await fetch(API.sv + '/flows')).json();
+        const recents = await (await fetch(API.sv + '/flows/recents')).json();
+        svLastRecents = recents;
+        const runningNames = new Set(flows.filter(f => f.running).map(f => f.name));
+        document.getElementById('sv-list').innerHTML = flows.length
+          ? flows.map(f => `<tr><td></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><span class="status ${f.running?'running':'stopped'}">${f.running?'En cours':'Arrêté'}</span></td><td><button type="button" class="btn btn--small btn--danger" data-name="${escapeHtml(f.name)}">Supprimer</button></td></tr>`).join('')
+          : '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>';
+        document.getElementById('sv-list').querySelectorAll('[data-name]').forEach(btn => {
+          btn.addEventListener('click', () => svDelete(btn.dataset.name));
+        });
+        document.getElementById('sv-recents').innerHTML = recents.length
+          ? recents.map((c, i) => {
+              const canRestart = !runningNames.has(c.name);
+              return `<tr><td></td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.interface)}</td><td>${escapeHtml(c.svid)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-idx="${i}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>`;
+            }).join('')
+          : '<tr><td colspan="5" class="empty">Aucun flux récent.</td></tr>';
+        document.getElementById('sv-recents').querySelectorAll('[data-idx]').forEach(btn => {
+          btn.addEventListener('click', () => svRestart(svLastRecents[parseInt(btn.dataset.idx, 10)]));
+        });
+        document.getElementById('sv-msg').textContent = '';
+        document.getElementById('sv-msg').className = '';
+      } catch (e) {
+        document.getElementById('sv-msg').textContent = 'Erreur: ' + e.message;
+        document.getElementById('sv-msg').className = 'err';
+      }
+    }
+    async function svDelete(name) {
+      if (!confirm('Supprimer le flux "' + name + '" ?')) return;
+      const r = await fetch(API.sv + '/flows/' + encodeURIComponent(name), { method: 'DELETE' });
+      if (!r.ok) throw new Error(await r.text());
+      document.getElementById('sv-msg').textContent = 'Flux supprimé.';
+      document.getElementById('sv-msg').className = 'ok';
+      svLoad();
+    }
+    async function svRestart(cfg) {
+      const r = await fetch(API.sv + '/flows', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
+      if (!r.ok) throw new Error(await r.text());
+      document.getElementById('sv-msg').textContent = 'Flux relancé.';
+      document.getElementById('sv-msg').className = 'ok';
+      svLoad();
+    }
+    document.getElementById('sv-refresh').addEventListener('click', () => { document.getElementById('sv-msg').textContent = ''; svLoad(); });
+    document.getElementById('sv-purge').addEventListener('click', async () => {
+      if (!confirm('Supprimer tous les flux ?')) return;
+      await fetch(API.sv + '/flows', { method: 'DELETE' });
+      document.getElementById('sv-msg').textContent = 'Tous les flux supprimés.';
+      document.getElementById('sv-msg').className = 'ok';
+      svLoad();
+    });
+
+    mmsLoad();
+  </script>
+</body>
+</html>

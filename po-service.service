@@ -1,12 +1,12 @@
 [Unit]
-Description=Service MMS IEC61850 vers VictoriaMetrics
+Description=Service unifié PO (MMS, GOOSE, SV) sur port 7050
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/root/po
-ExecStart=/usr/bin/python3 /root/po/mms_service.py --victoriametrics-url=http://192.168.165.3:8428
+ExecStart=/usr/bin/python3 /root/po/po_service.py --victoriametrics-url=http://192.168.165.3:8428
 Restart=always
 RestartSec=5
 User=root
@@ -17,4 +17,3 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-

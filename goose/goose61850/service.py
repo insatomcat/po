@@ -406,10 +406,7 @@ class GooseService:
         sendp(raw, iface=s.iface, count=1, inter=0.0, verbose=False)
 
     def start(self) -> None:
-        self._stop.clear()
-        self._sender_thread = threading.Thread(target=self._sender_loop, daemon=True)
-        self._sender_thread.start()
-
+        self.start_sender_only()
         handler = make_unified_handler(self)
         self._http_server = HTTPServer((self.host, self.port), handler)
 
@@ -419,6 +416,12 @@ class GooseService:
 
         t = threading.Thread(target=run_server, daemon=True)
         t.start()
+
+    def start_sender_only(self) -> None:
+        """Démarre uniquement le thread d'envoi GOOSE (sans serveur HTTP)."""
+        self._stop.clear()
+        self._sender_thread = threading.Thread(target=self._sender_loop, daemon=True)
+        self._sender_thread.start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -462,6 +465,20 @@ def _handle_api(service: GooseService, path: str, method: str, body: Optional[by
     if path == "/streams" and method == "GET":
         streams = service.list_streams()
         return 200, {"streams": [_stream_to_dict(s) for s in streams]}
+
+    if path == "/recent" and method == "GET":
+        recent = service.list_recent()
+        return 200, {"recent": recent}
+
+    if path.startswith("/recent/") and path.endswith("/restart") and method == "POST":
+        parts = path.split("/")
+        if len(parts) >= 3 and parts[2]:
+            hist_id = parts[2]
+            ok = service.restart_from_recent(hist_id)
+            if not ok:
+                return 404, {"error": "Not found or already running"}
+            return 200, {"status": "ok"}
+        return 404, {"error": "Not found"}
 
     return 404, {"error": "Not found"}
 
