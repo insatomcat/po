@@ -543,24 +543,23 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
         pass
 
 
-def _build_flask_app_from_env() -> "Flask":
+def create_svview_app(
+    interface: str,
+    *,
+    window: float | None = None,
+    scale: float | None = None,
+    aspect: float | None = None,
+    svid: str | None = None,
+) -> "Flask":
     """
-    Construire l'app Flask + démarrer la capture à partir des variables d'env.
-    Utilisé à la fois pour l'exécution directe et sous uvicorn (via WSGI).
+    Construire l'app Flask + démarrer la capture.
+    Peut être appelé depuis po_service (avec interface explicite) ou depuis
+    l'exécution directe/uvicorn (paramètres optionnels lus dans l'env).
     """
-
-    # IMPORTANT : avec uvicorn, sys.argv[1] vaut souvent "sv_listener_view:app",
-    # donc on NE se base pas sur les arguments de ligne de commande ici.
-    # L'interface doit être fournie via la variable d'environnement SVVIEW_INTERFACE.
-    iface = os.environ.get("SVVIEW_INTERFACE")
-    if not iface:
-        print("SVVIEW_INTERFACE non défini (interface réseau requise)", file=sys.stderr)
-        sys.exit(1)
-
-    window = float(os.environ.get("SVVIEW_WINDOW", "10"))
-    scale = float(os.environ.get("SVVIEW_SCALE", "100"))
-    aspect = float(os.environ.get("SVVIEW_ASPECT", str(24 / 10)))
-    svid = os.environ.get("SVVIEW_SVID") or None
+    window = float(window or os.environ.get("SVVIEW_WINDOW", "10"))
+    scale = float(scale if scale is not None else os.environ.get("SVVIEW_SCALE", "100"))
+    aspect = float(aspect if aspect is not None else os.environ.get("SVVIEW_ASPECT", str(24 / 10)))
+    svid = svid if svid is not None else os.environ.get("SVVIEW_SVID") or None
 
     config = {
         "interval": 1.0,
@@ -590,7 +589,7 @@ def _build_flask_app_from_env() -> "Flask":
 
     t_cap = threading.Thread(
         target=capture_loop,
-        args=(iface, samples, samples_lock, stats, stats_lock, config, seen_svids, seen_svids_lock),
+        args=(interface, samples, samples_lock, stats, stats_lock, config, seen_svids, seen_svids_lock),
         daemon=True,
     )
     t_cap.start()
@@ -605,23 +604,29 @@ def _build_flask_app_from_env() -> "Flask":
     return app_flask
 
 
-# Application ASGI pour uvicorn : Flask + WSGI middleware.
-_flask_app = _build_flask_app_from_env()
-if HAS_UVICORN_MIDDLEWARE:
+# Application pour uvicorn / exécution directe (si SVVIEW_INTERFACE défini)
+_flask_app: "Flask | None" = None
+if os.environ.get("SVVIEW_INTERFACE"):
+    _flask_app = create_svview_app(os.environ["SVVIEW_INTERFACE"])
+if HAS_UVICORN_MIDDLEWARE and _flask_app:
     app = WSGIMiddleware(_flask_app)
 else:
-    # Fallback : permet quand même d'appeler app.run() si lancé en direct.
     app = _flask_app
 
 
 def main() -> None:
     """
     Lancement direct (sans uvicorn), utile pour debug local.
+    SVVIEW_INTERFACE doit être défini.
     """
-
+    iface = os.environ.get("SVVIEW_INTERFACE")
+    if not iface:
+        print("SVVIEW_INTERFACE non défini (interface réseau requise)", file=sys.stderr)
+        sys.exit(1)
+    flask_app = _flask_app or create_svview_app(iface)
     port = int(os.environ.get("SVVIEW_PORT", "7052"))
     print(f"[+] Interface web: http://0.0.0.0:{port}", file=sys.stderr)
-    _flask_app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
+    flask_app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
 
 
 if __name__ == "__main__":

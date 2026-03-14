@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
 """
-Service PO unifié : MMS, GOOSE, SV Generator sur un seul port 7050.
+Service PO unifié : MMS, GOOSE, SV Generator, SV Listener sur un seul port 7050.
 
 Routes:
   - /healthz           -> health check
-  - /                  -> Web UI unifiée (onglets MMS | GOOSE | SV)
+  - /                  -> Web UI unifiée (onglets MMS | GOOSE | SV | SV Listener)
   - /api/mms/*         -> API MMS (subscriptions, recents, logs SSE)
   - /api/goose/*       -> API GOOSE (streams, recent, restart)
   - /api/sv/*          -> API SV (flows, recents)
+  - /api/svview/*      -> proxy vers SV Listener (si --svview-interface)
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import socket
 import sys
+import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http import HTTPStatus
 from pathlib import Path
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -44,10 +49,45 @@ def _send_json(handler: BaseHTTPRequestHandler, status: int, payload: object) ->
 class UnifiedHandler(BaseHTTPRequestHandler):
     manager: SubscriptionManager
     goose_service: GooseService
-    ui_html: str
+    svview_port: int | None = None
+
+    def _proxy_to_svview(self, method: str, path: str, body: bytes | None) -> bool:
+        """Proxy vers le SV Listener Flask. Retourne True si la requête a été traitée."""
+        if not path.startswith("/api/svview"):
+            return False
+        port = getattr(UnifiedHandler, "svview_port", None)
+        if port is None:
+            _send_json(self, HTTPStatus.SERVICE_UNAVAILABLE, {"error": "SV Listener non configuré (--svview-interface)"})
+            return True
+        backend_path = path[len("/api/svview"):] or "/"
+        url = f"http://127.0.0.1:{port}{backend_path}"
+        if "?" in self.path:
+            url = f"http://127.0.0.1:{port}{backend_path}?" + self.path.split("?", 1)[1]
+        try:
+            req = Request(url, data=body, method=method)
+            for h in ("Content-Type", "Accept"):
+                v = self.headers.get(h)
+                if v:
+                    req.add_header(h, v)
+            with urlopen(req, timeout=10) as resp:
+                self.send_response(resp.status)
+                for k, v in resp.headers.items():
+                    if k.lower() not in ("transfer-encoding", "connection"):
+                        self.send_header(k, v)
+                self.end_headers()
+                self.wfile.write(resp.read())
+        except HTTPError as e:
+            self.send_response(e.code)
+            self.end_headers()
+            self.wfile.write(e.read() if e.fp else b"")
+        except (URLError, OSError) as e:
+            self.send_error(HTTPStatus.BAD_GATEWAY, str(e))
+        return True
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path.startswith("/api/svview") and self._proxy_to_svview("GET", path, None):
+            return
         if path == "/healthz":
             _send_json(self, HTTPStatus.OK, {"status": "ok"})
             return
@@ -93,7 +133,8 @@ class UnifiedHandler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         length = int(self.headers.get("Content-Length", "0") or "0")
         body = self.rfile.read(length) if length else None
-
+        if path.startswith("/api/svview") and self._proxy_to_svview("POST", path, body):
+            return
         if path.startswith("/api/mms/"):
             sub = path[len("/api/mms"):] or "/"
             status, resp = handle_mms(self.manager, sub, "POST", body)
@@ -248,7 +289,32 @@ def main() -> int:
         default=5000,
         help="Intervalle batch VM en ms (défaut: 5000).",
     )
+    parser.add_argument(
+        "--svview-interface",
+        metavar="IFACE",
+        help="Interface réseau pour SV Listener (capture 0x88ba, onglet phasors).",
+    )
     args = parser.parse_args()
+
+    svview_port: int | None = None
+    if args.svview_interface:
+        sys.path.insert(0, str(ROOT))
+        from svlistener_view.sv_listener_view import create_svview_app
+
+        svview_app = create_svview_app(args.svview_interface)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", 0))
+        svview_port = sock.getsockname()[1]
+        sock.close()
+
+        def run_svview() -> None:
+            svview_app.run(host="127.0.0.1", port=svview_port, use_reloader=False, threaded=True)
+
+        t = threading.Thread(target=run_svview, daemon=True)
+        t.start()
+        UnifiedHandler.svview_port = svview_port
+        print(f"[+] SV Listener sur http://127.0.0.1:{svview_port} (proxy /api/svview)", file=sys.stderr)
 
     manager = SubscriptionManager(
         vm_url=args.victoriametrics_url,
