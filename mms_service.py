@@ -90,7 +90,7 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Optional, Any, Tuple
@@ -158,6 +158,7 @@ class SubscriptionRuntime:
     total_reports: int = 0
     reports_since_log: int = 0
     last_log_ts: float = 0.0
+    rcb_items: list = field(default_factory=list)  # liste des RCB souscrits (remplie par le worker)
 
 
 class SubscriptionManager:
@@ -329,6 +330,7 @@ class SubscriptionManager:
                 print(f"[SCL] Erreur lors du chargement de {cfg.scl}: {e}")
 
         item_ids = load_item_ids_from_file(cfg.rcb_list)
+        runtime.rcb_items = list(item_ids)
         print(
             f"[RCB] Flux {cfg.id}: {len(item_ids)} RCB à activer "
             f"(source: {'fichier' if cfg.rcb_list else 'liste intégrée'})"
@@ -634,6 +636,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             "debug": cfg.debug,
             "status": rt.status,
             "last_error": rt.last_error,
+            "rcb_items": list(rt.rcb_items),
         }
 
 

@@ -77,6 +77,28 @@
     }
     .error-msg { color: var(--danger); font-size: 0.85rem; }
     #loading { color: var(--muted); }
+    .details-row td {
+      background: #0f0f14;
+      padding: 1rem 0.75rem;
+      border-top: none;
+      vertical-align: top;
+    }
+    .details-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.25rem 1rem;
+      font-size: 0.85rem;
+    }
+    .details-grid dt { color: var(--muted); margin: 0; }
+    .details-grid dd { margin: 0; }
+    .rcb-list {
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      max-height: 180px;
+      overflow-y: auto;
+      margin-top: 0.5rem;
+    }
+    .rcb-list li { margin: 0.15rem 0; }
     .logs-section {
       margin-top: 2rem;
       border-top: 1px solid var(--surface);
@@ -156,28 +178,65 @@
       if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
     }
 
+    function detailsHtml(s) {
+      const items = s.rcb_items || [];
+      const rcbList = items.length
+        ? '<ul class="rcb-list">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>'
+        : '<span style="color:var(--muted)">(chargement en cours ou flux arrêté)</span>';
+      return `<dl class="details-grid">
+        <dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd>
+        <dt>Domaine</dt><dd>${escapeHtml(s.domain)}</dd>
+        <dt>SCL</dt><dd>${escapeHtml(s.scl) || '—'}</dd>
+        <dt>RCB list</dt><dd>${escapeHtml(s.rcb_list) || 'liste intégrée'}</dd>
+        <dt>Debug</dt><dd>${s.debug ? 'Oui' : 'Non'}</dd>
+        <dt>Reports souscrits (${items.length})</dt><dd>${rcbList}</dd>
+      </dl>`;
+    }
+
     function render(rows) {
       const tbody = document.getElementById('list');
+      const expanded = new Set();
+      tbody.querySelectorAll('.details-row').forEach(r => {
+        if (r.style.display !== 'none') expanded.add(r.dataset.id);
+      });
       if (!rows.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
         return;
       }
-      tbody.innerHTML = rows.map(s => {
+      tbody.innerHTML = rows.map((s, idx) => {
         const statusClass = (s.status || '').toLowerCase();
         const err = s.last_error ? `<div class="error-msg">${escapeHtml(s.last_error)}</div>` : '';
-        return `<tr>
+        const rowId = 'row-' + idx;
+        const isExp = expanded.has(s.id);
+        return `<tr data-id="${escapeHtml(s.id)}">
           <td><strong>${escapeHtml(s.id)}</strong></td>
           <td>${escapeHtml(s.domain)}</td>
           <td>${escapeHtml(s.ied_host)}:${s.ied_port}</td>
           <td><span class="status ${statusClass}">${escapeHtml(s.status)}</span>${err}</td>
           <td>${s.debug ? 'Oui' : 'Non'}</td>
           <td class="actions">
+            <button type="button" class="btn btn--small" data-action="expand" data-id="${escapeHtml(s.id)}" data-rowid="${rowId}">${isExp ? 'Réduire' : 'Détails'}</button>
             <button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button>
             <button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button>
           </td>
-        </tr>`;
+        </tr>
+        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${detailsHtml(s)}</td></tr>`;
       }).join('');
 
+      tbody.querySelectorAll('[data-action="expand"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const rowId = btn.dataset.rowid;
+          const detailRow = document.getElementById(rowId);
+          const id = btn.dataset.id;
+          if (detailRow.style.display === 'none') {
+            detailRow.style.display = 'table-row';
+            btn.textContent = 'Réduire';
+          } else {
+            detailRow.style.display = 'none';
+            btn.textContent = 'Détails';
+          }
+        });
+      });
       tbody.querySelectorAll('[data-action="debug"]').forEach(btn => {
         btn.addEventListener('click', async () => {
           const id = btn.dataset.id;
