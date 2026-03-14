@@ -206,17 +206,21 @@
   <script>
     const API = { mms: '/api/mms', goose: '/api/goose', sv: '/api/sv' };
 
+    function activateTab(tabId) {
+      const id = ['mms','goose','sv'].includes(tabId) ? tabId : 'mms';
+      document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === id));
+      document.querySelectorAll('.panel').forEach(x => x.classList.toggle('active', x.id === 'panel-' + id));
+      if (location.hash !== '#' + id) location.hash = id;
+      if (id === 'mms') mmsLoad();
+      if (id === 'goose') gooseLoad();
+      if (id === 'sv') svLoad();
+    }
     document.querySelectorAll('.tab').forEach(t => {
-      t.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
-        t.classList.add('active');
-        document.getElementById('panel-' + t.dataset.tab).classList.add('active');
-        if (t.dataset.tab === 'mms') mmsLoad();
-        if (t.dataset.tab === 'goose') gooseLoad();
-        if (t.dataset.tab === 'sv') svLoad();
-      });
+      t.addEventListener('click', () => activateTab(t.dataset.tab));
     });
+    const initialTab = (location.hash || '#mms').slice(1);
+    activateTab(initialTab);
+    window.addEventListener('hashchange', () => activateTab(location.hash.slice(1)));
 
     function escapeHtml(s) {
       if (s == null) return '';
@@ -587,7 +591,6 @@
       svLoad();
     });
 
-    mmsLoad();
   </script>
 </body>
 </html>
