@@ -158,7 +158,7 @@
       <button type="button" class="btn btn--danger" id="mms-purge">Tout supprimer</button>
       <span id="mms-loading"></span>
     </div>
-    <table><thead><tr><th>Id</th><th>Domaine</th><th>IED</th><th>Statut</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
+    <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Statut</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
     <section class="recents-section"><h2>Récents</h2><div id="mms-recents"></div></section>
     <section class="logs-section"><h2>Logs</h2><pre id="mms-logs"></pre></section>
   </div>
@@ -169,8 +169,8 @@
       <button type="button" class="btn btn--accent" id="goose-refresh">Actualiser</button>
       <span id="goose-loading"></span>
     </div>
-    <table><thead><tr><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
-    <section class="recents-section"><h2>Récents</h2><table><thead><tr><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table></section>
+    <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
+    <section class="recents-section"><h2>Récents</h2><table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table></section>
 
     <div id="goose-edit-modal" class="modal" style="display:none">
       <div class="modal-content">
@@ -252,20 +252,20 @@
       const tbody = document.getElementById('mms-list');
       const expanded = new Set();
       tbody.querySelectorAll('.details-row').forEach(r => { if (r.style.display !== 'none') expanded.add(r.dataset.id); });
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>'; return; }
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>'; return; }
       tbody.innerHTML = rows.map((s, idx) => {
         const sc = (s.status || '').toLowerCase();
         const err = s.last_error ? `<div class="error-msg">${escapeHtml(s.last_error)}</div>` : '';
         const rowId = 'mms-row-' + idx;
         const isExp = expanded.has(s.id);
-        return `<tr data-id="${escapeHtml(s.id)}"><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td><span class="status ${sc}">${escapeHtml(s.status)}</span>${err}</td><td>${s.debug ? 'Oui' : 'Non'}</td><td><button type="button" class="btn btn--small" data-action="expand" data-rowid="${rowId}" data-id="${escapeHtml(s.id)}">${isExp ? 'Réduire' : 'Détails'}</button><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
-        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${mmsDetailsHtml(s)}</td></tr>`;
+        return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td><span class="status ${sc}">${escapeHtml(s.status)}</span>${err}</td><td>${s.debug ? 'Oui' : 'Non'}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
+        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="7">${mmsDetailsHtml(s)}</td></tr>`;
       }).join('');
       tbody.querySelectorAll('[data-action="expand"]').forEach(btn => {
         btn.addEventListener('click', () => {
           const r = document.getElementById(btn.dataset.rowid);
-          if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = 'Réduire'; }
-          else { r.style.display = 'none'; btn.textContent = 'Détails'; }
+          if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = '▼'; }
+          else { r.style.display = 'none'; btn.textContent = '▶'; }
         });
       });
       tbody.querySelectorAll('[data-action="debug"]').forEach(btn => {
@@ -298,13 +298,13 @@
         const detailId = 'mms-recent-' + idx;
         const isExp = expanded.has(r.id);
         const payload = { ...r, rcb_items: r.rcb_items || [] };
-        return `<div class="recent-card"><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">(en cours)</span>' : ''}</div><button type="button" class="btn btn--small" data-action="mms-recent-expand" data-detailid="${detailId}" data-id="${escapeHtml(r.id)}">${isExp ? 'Réduire' : 'Détails'}</button>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">Relancer</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
+        return `<div class="recent-card"><button type="button" class="btn btn--small expand-btn" data-action="mms-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">(en cours)</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">Relancer</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
       }).join('');
       el.querySelectorAll('[data-action="mms-recent-expand"]').forEach(btn => {
         btn.addEventListener('click', () => {
           const d = document.getElementById(btn.dataset.detailid);
           d.classList.toggle('visible');
-          btn.textContent = d.classList.contains('visible') ? 'Réduire' : 'Détails';
+          btn.textContent = d.classList.contains('visible') ? '▼' : '▶';
         });
       });
       el.querySelectorAll('[data-idx]').forEach(btn => {
@@ -390,15 +390,15 @@
           ? streams.map((s, idx) => {
               const rowId = 'goose-row-' + idx;
               const isExp = expanded.has(s.id);
-              return `<tr data-id="${escapeHtml(s.id)}"><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small" data-action="goose-expand" data-rowid="${rowId}" data-id="${escapeHtml(s.id)}">${isExp ? 'Réduire' : 'Détails'}</button> <button type="button" class="btn btn--small btn--accent goose-edit" data-id="${escapeHtml(s.id)}">Modifier</button> <button type="button" class="btn btn--small btn--danger goose-delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
-              <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${gooseDetailsHtml(s)}</td></tr>`;
+              return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="goose-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small btn--accent goose-edit" data-id="${escapeHtml(s.id)}">Modifier</button> <button type="button" class="btn btn--small btn--danger goose-delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
+              <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="7">${gooseDetailsHtml(s)}</td></tr>`;
             }).join('')
-          : '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
+          : '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>';
         document.getElementById('goose-list').querySelectorAll('[data-action="goose-expand"]').forEach(btn => {
           btn.addEventListener('click', () => {
             const r = document.getElementById(btn.dataset.rowid);
-            if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = 'Réduire'; }
-            else { r.style.display = 'none'; btn.textContent = 'Détails'; }
+            if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = '▼'; }
+            else { r.style.display = 'none'; btn.textContent = '▶'; }
           });
         });
         document.getElementById('goose-list').querySelectorAll('.goose-edit').forEach(btn => {
@@ -418,15 +418,15 @@
               const canRestart = !activeGrefs.has(r.gocb_ref);
               const detailId = 'goose-recent-' + idx;
               const isExp = gooseRecentsExpanded.has(r.id);
-              return `<tr data-id="${escapeHtml(r.id)}"><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td><button type="button" class="btn btn--small" data-action="goose-recent-expand" data-detailid="${detailId}">${isExp ? 'Réduire' : 'Détails'}</button> ${canRestart ? `<button type="button" class="btn btn--small btn--accent goose-relancer" data-id="${escapeHtml(r.id)}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>
-              <tr class="details-row goose-recent-details" id="${detailId}" data-id="${escapeHtml(r.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="4">${gooseDetailsHtml(r)}</td></tr>`;
+              return `<tr data-id="${escapeHtml(r.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="goose-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent goose-relancer" data-id="${escapeHtml(r.id)}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>
+              <tr class="details-row goose-recent-details" id="${detailId}" data-id="${escapeHtml(r.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="5">${gooseDetailsHtml(r)}</td></tr>`;
             }).join('')
-          : '<tr><td colspan="4" class="empty">Aucun flux récent.</td></tr>';
+          : '<tr><td colspan="5" class="empty">Aucun flux récent.</td></tr>';
         document.getElementById('goose-recents').querySelectorAll('[data-action="goose-recent-expand"]').forEach(btn => {
           btn.addEventListener('click', () => {
             const r = document.getElementById(btn.dataset.detailid);
-            if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = 'Réduire'; }
-            else { r.style.display = 'none'; btn.textContent = 'Détails'; }
+            if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = '▼'; }
+            else { r.style.display = 'none'; btn.textContent = '▶'; }
           });
         });
         document.getElementById('goose-recents').querySelectorAll('.goose-relancer').forEach(btn => {
@@ -518,7 +518,7 @@
           ? flows.map((f, idx) => {
               const rowId = 'sv-row-' + idx;
               const isExp = svExpanded.has(f.name);
-              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small" data-action="sv-expand" data-rowid="${rowId}" data-name="${escapeHtml(f.name)}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><span class="status ${f.running?'running':'stopped'}">${f.running?'En cours':'Arrêté'}</span></td><td><button type="button" class="btn btn--small btn--danger" data-name="${escapeHtml(f.name)}">Supprimer</button></td></tr>
+              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><span class="status ${f.running?'running':'stopped'}">${f.running?'En cours':'Arrêté'}</span></td><td><button type="button" class="btn btn--small btn--danger sv-delete" data-name="${escapeHtml(f.name)}">Supprimer</button></td></tr>
               <tr class="details-row" id="${rowId}" data-name="${escapeHtml(f.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="7">${svDetailsHtml(f)}</td></tr>`;
             }).join('')
           : '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>';
@@ -529,7 +529,7 @@
             else { r.style.display = 'none'; btn.textContent = '▶'; }
           });
         });
-        document.getElementById('sv-list').querySelectorAll('[data-name]').forEach(btn => {
+        document.getElementById('sv-list').querySelectorAll('.sv-delete').forEach(btn => {
           btn.addEventListener('click', () => svDelete(btn.dataset.name));
         });
         const svRecTbody = document.getElementById('sv-recents');
@@ -540,7 +540,7 @@
               const canRestart = !runningNames.has(c.name);
               const rowId = 'sv-recent-' + i;
               const isExp = svRecExpanded.has(c.name);
-              return `<tr data-name="${escapeHtml(c.name)}"><td><button type="button" class="btn btn--small icon-only" data-action="sv-recent-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.interface)}</td><td>${escapeHtml(c.svid)}</td><td><button type="button" class="btn btn--small" data-action="sv-recent-expand" data-rowid="${rowId}">${isExp ? 'Réduire' : 'Détails'}</button> ${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-idx="${i}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>
+              return `<tr data-name="${escapeHtml(c.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-recent-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.interface)}</td><td>${escapeHtml(c.svid)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-idx="${i}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>
               <tr class="details-row sv-recent-details" id="${rowId}" data-name="${escapeHtml(c.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="5">${svDetailsHtml(c)}</td></tr>`;
             }).join('')
           : '<tr><td colspan="5" class="empty">Aucun flux récent.</td></tr>';
@@ -550,9 +550,7 @@
             const r = document.getElementById(rowId);
             const isNowExp = r.style.display === 'none';
             r.style.display = isNowExp ? 'table-row' : 'none';
-            svRecTbody.querySelectorAll(`[data-action="sv-recent-expand"][data-rowid="${rowId}"]`).forEach(b => {
-              b.textContent = isNowExp ? (b.classList.contains('icon-only') ? '▼' : 'Réduire') : (b.classList.contains('icon-only') ? '▶' : 'Détails');
-            });
+            btn.textContent = isNowExp ? '▼' : '▶';
           });
         });
         document.getElementById('sv-recents').querySelectorAll('[data-idx]').forEach(btn => {
