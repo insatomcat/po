@@ -338,9 +338,10 @@
         });
       });
     }
-    function mmsRenderRecents(recentsData, runningIds) {
+    function mmsRenderRecents(recentsData, runningIds, subs) {
       const el = document.getElementById('mms-recents');
       mmsRecentsCache = recentsData || [];
+      const subsById = new Map((subs || []).map(s => [s.id, s]));
       const expanded = new Set();
       el.querySelectorAll('.recent-details.visible').forEach(d => expanded.add(d.dataset.id));
       if (!mmsRecentsCache.length) { el.innerHTML = '<p class="empty">Aucun flux récent.</p>'; return; }
@@ -348,7 +349,8 @@
         const run = runningIds.has(r.id);
         const detailId = 'mms-recent-' + idx;
         const isExp = expanded.has(r.id);
-        const payload = { ...r, rcb_items: r.rcb_items || [] };
+        const live = subsById.get(r.id);
+        const payload = { ...r, rcb_items: (run && live?.rcb_items) ? live.rcb_items : (r.rcb_items || []) };
         return `<div class="recent-card"><button type="button" class="btn btn--small expand-btn" data-action="mms-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">(en cours)</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">Relancer</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
       }).join('');
       el.querySelectorAll('[data-action="mms-recent-expand"]').forEach(btn => {
@@ -375,7 +377,7 @@
         const [subs, rec] = await Promise.all([mmsSubs(), mmsRecents()]);
         mmsRender(subs);
         const runningIds = new Set(subs.filter(s => (s.status || '').toLowerCase() === 'running').map(s => s.id));
-        mmsRenderRecents(rec, runningIds);
+        mmsRenderRecents(rec, runningIds, subs);
         document.getElementById('mms-loading').textContent = '';
       } catch (e) {
         document.getElementById('mms-loading').textContent = 'Erreur: ' + e.message;
