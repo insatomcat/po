@@ -161,7 +161,13 @@
     </div>
     <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Statut</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
     <section class="recents-section"><h2>Récents</h2><div id="mms-recents"></div></section>
-    <section class="logs-section"><h2>Logs</h2><pre id="mms-logs"></pre></section>
+    <section class="logs-section">
+      <h2 style="display:flex;align-items:center;gap:0.75rem">
+        Logs
+        <button type="button" class="btn btn--small" id="mms-logs-pause">Pause</button>
+      </h2>
+      <pre id="mms-logs"></pre>
+    </section>
   </div>
 
   <div id="panel-goose" class="panel">
@@ -393,14 +399,26 @@
       } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
     });
     const mmsLogsEl = document.getElementById('mms-logs');
+    const mmsLogsPauseBtn = document.getElementById('mms-logs-pause');
+    let mmsLogsPaused = false;
     const es = new EventSource(API.mms + '/logs');
     const mmsLogLines = [];
     es.onmessage = e => {
       mmsLogLines.push(e.data);
       if (mmsLogLines.length > 500) mmsLogLines.shift();
-      mmsLogsEl.textContent = mmsLogLines.join('\n');
-      mmsLogsEl.scrollTop = mmsLogsEl.scrollHeight;
+      if (!mmsLogsPaused) {
+        mmsLogsEl.textContent = mmsLogLines.join('\n');
+        mmsLogsEl.scrollTop = mmsLogsEl.scrollHeight;
+      }
     };
+    mmsLogsPauseBtn.addEventListener('click', () => {
+      mmsLogsPaused = !mmsLogsPaused;
+      mmsLogsPauseBtn.textContent = mmsLogsPaused ? 'Reprendre' : 'Pause';
+      if (!mmsLogsPaused) {
+        mmsLogsEl.textContent = mmsLogLines.join('\n');
+        mmsLogsEl.scrollTop = mmsLogsEl.scrollHeight;
+      }
+    });
 
     // --- GOOSE ---
     async function gooseStreams() {
