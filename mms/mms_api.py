@@ -107,7 +107,7 @@ def handle_mms(
 
     # PUT /subscriptions/<id>
     if path.startswith("/subscriptions/") and method == "PUT":
-        sub_id = path.split("/", 2)[2]
+        sub_id = path.split("/", 2)[2].rstrip("/")
         data, ok = _read_json()
         if not ok or data is None:
             return HTTPStatus.BAD_REQUEST, {"error": "invalid JSON body"}

@@ -291,7 +291,8 @@
       try {
         const [subs, rec] = await Promise.all([mmsSubs(), mmsRecents()]);
         mmsRender(subs);
-        mmsRenderRecents(rec, new Set(subs.map(s => s.id)));
+        const runningIds = new Set(subs.filter(s => (s.status || '').toLowerCase() === 'running').map(s => s.id));
+        mmsRenderRecents(rec, runningIds);
         document.getElementById('mms-loading').textContent = '';
       } catch (e) {
         document.getElementById('mms-loading').textContent = 'Erreur: ' + e.message;
