@@ -21,6 +21,7 @@ env/
 *.cid
 *.scl
 *.icd
+*.scd
 
 # IDE
 .idea/
