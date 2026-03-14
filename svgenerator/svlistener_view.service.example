@@ -1,0 +1,29 @@
+[Unit]
+Description=SV Listener View (Web UI only)
+After=network.target
+
+[Service]
+Type=simple
+User=svgenerator
+Group=svgenerator
+WorkingDirectory=/opt/svgenerator
+
+# Configuration de la capture et du flux suivi
+# Interface obligatoire :
+# Environment=SVVIEW_INTERFACE=processbus
+# svID optionnel (sinon la page permettra de choisir) :
+# Environment=SVVIEW_SVID=LDTM1_SVI_DEP6
+# Optionnel : fenêtre/échelle/aspect/port
+# Environment=SVVIEW_WINDOW=10
+# Environment=SVVIEW_SCALE=100
+# Environment=SVVIEW_ASPECT=2.4
+# Environment=SVVIEW_PORT=7052
+
+ExecStart=/usr/bin/env uvicorn sv_listener_view:app --host 0.0.0.0 --port 7052
+
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

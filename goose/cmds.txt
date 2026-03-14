@@ -1,0 +1,56 @@
+python3 /root/goose/goose_cli.py add \
+  processbus 02:00:00:00:00:01 01:0C:CD:01:01:60 \
+  --appid 0x1600 \
+  --vlan-id 306 \
+  --vlan-priority 4 \
+  --ttl 2000 \
+  --conf-rev 10000 \
+  --gocb-ref 'DEP6SCU1LDDJ/LLN0$GO$CB_LDDJ_GSI_DEP6' \
+  --dat-set  'DEP6SCU1LDDJ/LLN0$DS_LDDJ_GSI_DEP6' \
+  --go-id    'LDDJ_GSI_DEP6' \
+  --value s:'\\x00' \
+  --value raw:4:030000 \
+  --value raw:17:69b2c27cb51d153f \
+  --value s:'\\x00' \
+  --value raw:4:030000 \
+  --value raw:17:69b2c27cb52d803f \
+  --value s:'\\x00' \
+  --value raw:4:030000 \
+  --value raw:17:69b2c27cb534f43f \
+  --value raw:5:08 \
+  --value raw:9: \
+  --value raw:4:0680 \
+  --value raw:4:030000 \
+  --value raw:17:69b2c27cb555143f
+
+python3 /root/goose/goose_cli.py add \
+  processbus 02:00:00:00:00:01 01:0C:CD:01:01:61 \
+  --appid 0x1601 \
+  --vlan-id 306 \
+  --vlan-priority 4 \
+  --ttl 2000 \
+  --conf-rev 10000 \
+  --gocb-ref 'DEP6SCU1LDSA1/LLN0$GO$CB_LDSA1_GSI_DEP6' \
+  --dat-set  'DEP6SCU1LDSA1/LLN0$DS_LDSA1_GSI_DEP6' \
+  --go-id    'LDSA1_GSI_DEP6' \
+  --value raw:5:08 \
+  --value raw:9: \
+  --value raw:4:0680 \
+  --value raw:4:030000 \
+  --value raw:17:69b2c27cb555143f
+
+python3 /root/goose/goose_cli.py add \
+  processbus 02:00:00:00:00:01 01:0C:CD:01:01:62 \
+  --appid 0x1602 \
+  --vlan-id 306 \
+  --vlan-priority 4 \
+  --ttl 2000 \
+  --conf-rev 10000 \
+  --gocb-ref 'DEP6SCU1LDST/LLN0$GO$CB_LDST_GSI_DEP6' \
+  --dat-set  'DEP6SCU1LDST/LLN0$DS_LDST_GSI_DEP6' \
+  --go-id    'LDST_GSI_DEP6' \
+  --value raw:5:08 \
+  --value raw:9: \
+  --value raw:4:0680 \
+  --value raw:4:030000 \
+  --value raw:17:69b2c27cb555143f

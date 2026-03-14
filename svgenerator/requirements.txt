@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pydantic
+requests
+
+pcapy>=0.11.0
+flask>=3.0.0
