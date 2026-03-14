@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import signal
 import threading
+import time
 from subprocess import Popen
 from typing import Dict, Optional
 
@@ -17,6 +19,7 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "flows.json"
 RECENTS_PATH = BASE_DIR / "recents.json"
 RT_SENDER_PATH = BASE_DIR / "rt_sender"
+PIDS_DIR = BASE_DIR / "pids"
 
 
 class FlowConfig(BaseModel):
@@ -91,11 +94,19 @@ class FlowState(BaseModel):
 class FlowRuntime:
     """
     Conteneur interne: configuration + process rt_sender associé.
+    proc: handle du processus si lancé par nous; None si adopté (processus déjà vivant).
+    pid: PID pour les flux adoptés (proc=None) ou pour arrêter un flux lancé par nous.
     """
 
-    def __init__(self, config: FlowConfig, proc: Optional[Popen] = None) -> None:
+    def __init__(
+        self,
+        config: FlowConfig,
+        proc: Optional[Popen] = None,
+        pid: Optional[int] = None,
+    ) -> None:
         self.config = config
         self.proc: Optional[Popen] = proc
+        self.pid: Optional[int] = pid
 
 
 app = FastAPI(title="SV Generator Service")
@@ -208,48 +219,116 @@ def build_rt_sender_cmd(cfg: FlowConfig) -> list[str]:
     return cmd
 
 
+def _pidfile_path(name: str) -> pathlib.Path:
+    PIDS_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
+    return PIDS_DIR / f"{safe_name}.pid"
+
+
+def _is_pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def _write_pidfile(name: str, pid: int) -> None:
+    _pidfile_path(name).write_text(str(pid), encoding="utf-8")
+
+
+def _remove_pidfile(name: str) -> None:
+    pf = _pidfile_path(name)
+    if pf.exists():
+        try:
+            pf.unlink()
+        except OSError:
+            pass
+
+
+def _try_adopt_flow(cfg: FlowConfig) -> Optional[FlowRuntime]:
+    """Adopte un flux si son processus rt_sender est déjà vivant (survit au restart du service)."""
+    pf = _pidfile_path(cfg.name)
+    if not pf.exists():
+        return None
+    try:
+        pid = int(pf.read_text(encoding="utf-8").strip())
+    except (ValueError, OSError):
+        return None
+    if not _is_pid_alive(pid):
+        _remove_pidfile(cfg.name)
+        return None
+    return FlowRuntime(config=cfg, proc=None, pid=pid)
+
+
 def start_flow_process(cfg: FlowConfig) -> Popen:
     cmd = build_rt_sender_cmd(cfg)
-    # Les capacités temps réel (SCHED_FIFO, mlockall, etc.) sont gérées
-    # dans le binaire C lui-même et via systemd (CAP_SYS_NICE).
-    proc = Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # start_new_session=True: le processus survit au redémarrage du service po.
+    # Les capacités temps réel (SCHED_FIFO, mlockall) sont dans le binaire C.
+    proc = Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    _write_pidfile(cfg.name, proc.pid)
     return proc
 
 
 def stop_flow_process(fr: FlowRuntime) -> None:
-    if fr.proc is None:
-        return
-    if fr.proc.poll() is not None:
+    pid = fr.pid
+    if fr.proc is not None:
+        if fr.proc.poll() is not None:
+            pid = None
+        else:
+            pid = fr.proc.pid
         fr.proc = None
+    fr.pid = None
+    if pid is None:
+        _remove_pidfile(fr.config.name)
         return
     try:
-        fr.proc.send_signal(signal.SIGTERM)
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        _remove_pidfile(fr.config.name)
+        return
     except Exception:
         pass
-    try:
-        fr.proc.wait(timeout=5.0)
-    except Exception:
+    for _ in range(50):  # 5 s
         try:
-            fr.proc.kill()
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            break
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
         except Exception:
             pass
-    fr.proc = None
+    _remove_pidfile(fr.config.name)
 
 
 def rebuild_from_config() -> None:
+    """Charge flows.json. Adopte les processus déjà vivants (PID) ou en démarre de nouveaux.
+    Les flux SV survivent au redémarrage du service po (start_new_session)."""
     cfgs = load_config()
     with flows_lock:
-        for fr in flows.values():
-            stop_flow_process(fr)
         flows.clear()
         for name, cfg in cfgs.items():
+            adopted = _try_adopt_flow(cfg)
+            if adopted is not None:
+                flows[name] = adopted
+                continue
             try:
                 proc = start_flow_process(cfg)
+                flows[name] = FlowRuntime(config=cfg, proc=proc, pid=proc.pid)
             except Exception as exc:
-                # On continue même si un flux ne démarre pas, l'erreur sera visible
                 print(f"Failed to start flow {name}: {exc}")
-                proc = None
-            flows[name] = FlowRuntime(config=cfg, proc=proc)
+                flows[name] = FlowRuntime(config=cfg, proc=None, pid=None)
 
 
 @app.on_event("startup")
@@ -260,9 +339,9 @@ def on_startup() -> None:
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
-    with flows_lock:
-        for fr in flows.values():
-            stop_flow_process(fr)
+    # Ne pas arrêter les flux SV : ils survivent au service (start_new_session).
+    # L'utilisateur les arrête explicitement via l'API si besoin.
+    pass
 
 
 def _webui_html() -> str:
@@ -568,7 +647,10 @@ def list_flows() -> list[FlowState]:
     result: list[FlowState] = []
     with flows_lock:
         for fr in flows.values():
-            running = fr.proc is not None and fr.proc.poll() is None
+            running = (
+                (fr.proc is not None and fr.proc.poll() is None)
+                or (fr.pid is not None and _is_pid_alive(fr.pid))
+            )
             result.append(
                 FlowState(
                     name=fr.config.name,

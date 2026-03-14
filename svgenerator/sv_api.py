@@ -26,6 +26,7 @@ from sv_service import (
     save_config,
     _add_to_recents,
     _load_recents,
+    _is_pid_alive,
     rebuild_from_config,
 )
 
@@ -59,7 +60,10 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
         result = []
         with flows_lock:
             for fr in flows.values():
-                running = fr.proc is not None and fr.proc.poll() is None
+                running = (
+                    (fr.proc is not None and fr.proc.poll() is None)
+                    or (fr.pid is not None and _is_pid_alive(fr.pid))
+                )
                 result.append(
                     FlowState(
                         name=fr.config.name,
