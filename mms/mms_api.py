@@ -13,7 +13,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 if TYPE_CHECKING:
-    from mms_service import SubscriptionManager, SubscriptionRuntime
+    from .mms_service import SubscriptionManager, SubscriptionRuntime
 
 
 def handle_mms(
@@ -29,7 +29,7 @@ def handle_mms(
     body: corps brut (JSON pour POST/PUT)
     Retourne (status_code, body) où body est dict/list (sérialisable JSON) ou None pour 204.
     """
-    from mms_service import SubscriptionConfig
+    from .mms_service import SubscriptionConfig
 
     path = (path or "/").rstrip("/") or "/"
 
@@ -152,7 +152,7 @@ def serve_logs_sse(handler: Any) -> None:
     Sert le flux SSE des logs.
     handler doit avoir: send_response, send_header, end_headers, wfile, et accès à LOG_LINES, LOG_LOCK, LOG_CONDITION.
     """
-    from mms_service import LOG_LINES, LOG_LOCK, LOG_CONDITION
+    from mms.mms_service import LOG_LINES, LOG_LOCK, LOG_CONDITION
 
     def escape_sse(s: str) -> str:
         return s.replace("\r", "").replace("\n", " ").replace("\x00", "")

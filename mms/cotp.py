@@ -16,7 +16,7 @@ from __future__ import annotations
 import socket
 from typing import Optional
 
-from tpkt import send_tpkt, recv_tpkt, TPKTError
+from .tpkt import send_tpkt, recv_tpkt, TPKTError
 
 
 class COTPError(RuntimeError):
