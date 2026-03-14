@@ -45,8 +45,8 @@
       color: var(--accent);
       border-bottom-color: var(--accent);
     }
-    .panel { display: none; }
-    .panel.active { display: block; }
+    [id^="panel-"] { display: none; }
+    [id^="panel-"].active { display: block; }
     h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 1rem 0; color: var(--accent); }
     h2 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.5rem 0; color: var(--muted); }
     .toolbar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; }
@@ -149,6 +149,7 @@
     <button type="button" class="tab active" data-tab="mms">MMS</button>
     <button type="button" class="tab" data-tab="goose">GOOSE</button>
     <button type="button" class="tab" data-tab="sv">SV</button>
+    <button type="button" class="tab" data-tab="svview">SV Listener</button>
   </div>
 
   <div id="panel-mms" class="panel active">
@@ -203,17 +204,61 @@
     <section class="recents-section"><h2>Récents</h2><table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table></section>
   </div>
 
+  <div id="panel-svview" class="panel">
+    <h1>SV Listener – Phasors U & I</h1>
+    <div id="svview-unconfigured" class="panel" style="display:none;max-width:500px">
+      <p class="status">SV Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> pour capturer les flux SV (0x88ba).</p>
+    </div>
+    <div id="svview-modal" class="modal" style="display:none">
+      <div class="modal-content">
+        <h2>Choisir un svID</h2>
+        <ul class="svview-modal-svids" id="svview-modal-svids" style="list-style:none;padding:0;margin:0;max-height:300px;overflow-y:auto"></ul>
+        <button type="button" class="btn modal-close" id="svview-modal-close">Fermer</button>
+      </div>
+    </div>
+    <div id="svview-root">
+      <div class="panel"><p class="status">Chargement...</p></div>
+    </div>
+  </div>
+
+  <style>
+    .svview-layout { display: grid; grid-template-columns: 1fr minmax(320px, 380px); gap: 1rem; margin-top: 1rem; }
+    @media (max-width: 900px) { .svview-layout { grid-template-columns: 1fr; } }
+    .svview-phasors { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
+    .svview-phasor-svg { background: var(--bg); border-radius: 8px; padding: 8px; }
+    .svview-phasor-svg svg { display: block; }
+    .svview-sinusoids { display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap; }
+    .svview-sinusoids .panel { flex: 1; min-width: 0; }
+    .svview-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .svview-stat { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; }
+    .svview-stat .stat-label { color: var(--muted); }
+    .svview-svid-badge { display: inline-block; background: var(--accent); color: var(--bg); padding: 4px 10px; border-radius: 4px; font-weight: 600; cursor: pointer; margin-bottom: 0.75rem; }
+    .svview-svids-list { list-style: none; padding: 0; margin: 0; }
+    .svview-svids-list li { padding: 6px 0; border-bottom: 1px solid var(--surface); cursor: pointer; }
+    .svview-svids-list li:hover { background: rgba(255,255,255,0.05); }
+    .svview-modal-svids li { padding: 8px 12px; border-bottom: 1px solid var(--surface); cursor: pointer; }
+    .svview-modal-svids li:hover { background: var(--bg); }
+    .svview-modal-svids li.selected { background: var(--accent); color: var(--bg); }
+    #svview-unconfigured, #svview-root .panel, .svview-layout .panel, .svview-sinusoids .panel {
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+  </style>
+
   <script>
-    const API = { mms: '/api/mms', goose: '/api/goose', sv: '/api/sv' };
+    const API = { mms: '/api/mms', goose: '/api/goose', sv: '/api/sv', svview: '/api/svview' };
 
     function activateTab(tabId) {
-      const id = ['mms','goose','sv'].includes(tabId) ? tabId : 'mms';
+      const id = ['mms','goose','sv','svview'].includes(tabId) ? tabId : 'mms';
       document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === id));
       document.querySelectorAll('.panel').forEach(x => x.classList.toggle('active', x.id === 'panel-' + id));
       if (location.hash !== '#' + id) location.hash = id;
       if (id === 'mms') mmsLoad();
       if (id === 'goose') gooseLoad();
       if (id === 'sv') svLoad();
+      if (id === 'svview') svviewLoad();
     }
     document.querySelectorAll('.tab').forEach(t => {
       t.addEventListener('click', () => activateTab(t.dataset.tab));
@@ -590,6 +635,305 @@
       document.getElementById('sv-msg').className = 'ok';
       svLoad();
     });
+
+    // --- SV Listener ---
+    const SVVIEW_API = API.svview + '/api';
+    const SVVIEW_COLORS = { u: '#7aa2f7', i: '#f7768e', uLight: ['#7aa2f7','#89b4fa','#b4d0ff'], iLight: ['#f7768e','#ff8a95','#ffb0b8'] };
+    let svviewRefreshTimer = null;
+    let svviewConfigCache = { interval: 1, window: 10 };
+
+    async function svviewFetchJson(path) {
+      const r = await fetch(SVVIEW_API + path);
+      if (r.status === 503) throw new Error('unconfigured');
+      if (!r.ok) throw new Error(r.statusText);
+      return r.json();
+    }
+
+    function svviewDrawPhasorCircle(svgId, phasors, label, color) {
+      const R = 120, cx = R + 20, cy = R + 20;
+      const maxMag = Math.max(...phasors.map(p => p[0]), 1);
+      const scale = (R - 15) / maxMag;
+      const strokeGrid = 'var(--muted)';
+      const parts = [];
+      parts.push(`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${strokeGrid}" stroke-width="1"/>`);
+      for (let i = 0; i < 3; i++) {
+        const a = -i * 120 * Math.PI / 180;
+        parts.push(`<line x1="${cx}" y1="${cy}" x2="${cx + R * Math.cos(a)}" y2="${cy - R * Math.sin(a)}" stroke="${strokeGrid}" stroke-width="0.5"/>`);
+      }
+      const labels = ['A','B','C'];
+      phasors.forEach((p, i) => {
+        const [mag, phaseRad] = p;
+        const len = mag * scale;
+        const ex = cx + len * Math.cos(phaseRad), ey = cy - len * Math.sin(phaseRad);
+        const angle = Math.atan2(cy - ey, ex - cx);
+        const arrLen = 8;
+        const ax = ex - arrLen * Math.cos(angle), ay = ey + arrLen * Math.sin(angle);
+        parts.push(`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" stroke="${color}" stroke-width="3"/>`);
+        parts.push(`<polygon points="${ex},${ey} ${ax+arrLen*0.5*Math.cos(angle-Math.PI/2)},${ay-arrLen*0.5*Math.sin(angle-Math.PI/2)} ${ax+arrLen*0.5*Math.cos(angle+Math.PI/2)},${ay-arrLen*0.5*Math.sin(angle+Math.PI/2)}" fill="${color}"/>`);
+        const tx = cx + (R + 12) * Math.cos(-i * 120 * Math.PI / 180);
+        const ty = cy - (R + 12) * Math.sin(-i * 120 * Math.PI / 180);
+        parts.push(`<text x="${tx}" y="${ty}" fill="${color}" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="bold">${labels[i]}</text>`);
+      });
+      parts.push(`<text x="${cx}" y="${cy - R - 8}" fill="var(--muted)" text-anchor="middle" font-size="11">${label}</text>`);
+      const svg = document.getElementById(svgId);
+      if (svg) { svg.innerHTML = parts.join(''); svg.setAttribute('viewBox', `0 0 ${2*(R+20)} ${2*(R+20)}`); }
+    }
+
+    function svviewDrawSinusoids(svgId, phasors, colors) {
+      const w = 280, h = 130, padding = { top: 8, right: 36, bottom: 22, left: 42 };
+      const graphW = w - padding.left - padding.right, graphH = h - padding.top - padding.bottom;
+      const cy = padding.top + graphH / 2;
+      const maxMag = Math.max(...phasors.map(p => p[0]), 1);
+      const ampScale = (graphH / 2 - 2) / maxMag;
+      const cycles = 2, pts = 200;
+      const fmt = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : (Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(2));
+      const strokeMuted = 'var(--muted)';
+      const parts = [];
+      parts.push(`<line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${h - padding.bottom}" stroke="${strokeMuted}" stroke-width="1"/>`);
+      parts.push(`<line x1="${padding.left}" y1="${h - padding.bottom}" x2="${w - padding.right}" y2="${h - padding.bottom}" stroke="${strokeMuted}" stroke-width="1"/>`);
+      parts.push(`<line x1="${padding.left}" y1="${cy}" x2="${w - padding.right}" y2="${cy}" stroke="${strokeMuted}" stroke-width="0.5"/>`);
+      parts.push(`<text x="${padding.left - 6}" y="${padding.top + 4}" fill="${strokeMuted}" font-size="9" text-anchor="end">${fmt(maxMag)}</text>`);
+      parts.push(`<text x="${padding.left - 6}" y="${cy + 4}" fill="${strokeMuted}" font-size="9" text-anchor="end">0</text>`);
+      for (let i = 0; i <= cycles * 4; i++) {
+        const tx = padding.left + (i / (cycles * 4)) * graphW;
+        const deg = Math.round((i / (cycles * 4)) * cycles * 360);
+        parts.push(`<line x1="${tx}" y1="${cy}" x2="${tx}" y2="${h - padding.bottom}" stroke="${strokeMuted}" stroke-width="0.3"/>`);
+        if (i % 2 === 0) parts.push(`<text x="${tx}" y="${h - padding.bottom + 14}" fill="${strokeMuted}" font-size="8" text-anchor="middle">${deg}°</text>`);
+      }
+      const labels = ['A','B','C'];
+      phasors.forEach((p, idx) => {
+        const [mag, phaseRad] = p;
+        const path = [];
+        for (let i = 0; i <= pts; i++) {
+          const theta = (i / pts) * cycles * 2 * Math.PI;
+          const y = mag * Math.cos(theta + phaseRad);
+          const x = padding.left + (i / pts) * graphW;
+          path.push(`${i === 0 ? 'M' : 'L'} ${x} ${cy - y * ampScale}`);
+        }
+        parts.push(`<path d="${path.join(' ')}" fill="none" stroke="${colors[idx]}" stroke-width="1.5"/>`);
+        parts.push(`<text x="${w - padding.right - 4}" y="${padding.top + 10 + idx * 11}" fill="${colors[idx]}" font-size="9">${labels[idx]}</text>`);
+      });
+      const svg = document.getElementById(svgId);
+      if (svg) { svg.innerHTML = parts.join(''); svg.setAttribute('viewBox', `0 0 ${w} ${h}`); }
+    }
+
+    function svviewUpdateDataValues(data) {
+      const badge = document.getElementById('svview-svid-badge');
+      if (badge) badge.textContent = 'svID: ' + (data.svid || '');
+      const hasPhasors = data.u_arrows && data.u_arrows.length === 3;
+      const uArrows = hasPhasors ? data.u_arrows : [[0,0],[0,0],[0,0]];
+      const iArrows = hasPhasors ? data.i_arrows : [[0,0],[0,0],[0,0]];
+      svviewDrawPhasorCircle('svview-svg-u', uArrows, 'U (V)', SVVIEW_COLORS.u);
+      svviewDrawPhasorCircle('svview-svg-i', iArrows, 'I (A)', SVVIEW_COLORS.i);
+      svviewDrawSinusoids('svview-svg-sinus-u', uArrows, SVVIEW_COLORS.uLight);
+      svviewDrawSinusoids('svview-svg-sinus-i', iArrows, SVVIEW_COLORS.iLight);
+      const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+      set('svview-stat-va', (data.u_mags?.[0] ?? 0).toFixed(0) + ' V');
+      set('svview-stat-vb', (data.u_mags?.[1] ?? 0).toFixed(0) + ' V');
+      set('svview-stat-vc', (data.u_mags?.[2] ?? 0).toFixed(0) + ' V');
+      set('svview-stat-ia', (data.i_mags?.[0] ?? 0).toFixed(2) + ' A');
+      set('svview-stat-ib', (data.i_mags?.[1] ?? 0).toFixed(2) + ' A');
+      set('svview-stat-ic', (data.i_mags?.[2] ?? 0).toFixed(2) + ' A');
+      set('svview-stat-pha', data.phase_shifts ? data.phase_shifts[0].toFixed(1) + '°' : '-');
+      set('svview-stat-phb', data.phase_shifts ? data.phase_shifts[1].toFixed(1) + '°' : '-');
+      set('svview-stat-phc', data.phase_shifts ? data.phase_shifts[2].toFixed(1) + '°' : '-');
+      set('svview-stat-delay-all', data.delay_all ?? '-');
+      set('svview-stat-delay-win', data.delay_win ?? '-');
+      set('svview-stat-sync-all', data.sync_all ?? '-');
+      set('svview-stat-sync-win', data.sync_win ?? '-');
+      set('svview-stat-misses-all', String(data.misses_all ?? 0));
+      set('svview-stat-misses-win', String(data.misses_win ?? 0));
+      const n = data.samples_count ?? 0;
+      set('svview-stat-samples', n >= 96 ? `${n} échantillons (DFT OK)` : `${n} échantillons (attente 96+)`);
+      const w = data.window ?? 10;
+      ['svview-label-delay-win','svview-label-sync-win','svview-label-misses-win'].forEach(id => set(id, `Dernières ${w}s`));
+    }
+
+    function svviewRender(data) {
+      const root = document.getElementById('svview-root');
+      const unconfigured = document.getElementById('svview-unconfigured');
+      if (!data.svid) {
+        unconfigured.style.display = 'none';
+        root.innerHTML = `
+          <div class="panel">
+            <h2>svIDs vus</h2>
+            ${data.svids && data.svids.length ? `
+              <ul class="svview-svids-list" id="svview-svids-list">
+                ${data.svids.map(s => '<li data-svid="' + escapeHtml(s) + '">' + escapeHtml(s) + '</li>').join('')}
+              </ul>
+              <p class="status">Cliquez sur un svID pour l'afficher.</p>
+            ` : '<p class="status">Aucun svID pour l\'instant.</p>'}
+          </div>
+        `;
+        document.querySelectorAll('#svview-svids-list li[data-svid]').forEach(li => {
+          li.style.cursor = 'pointer';
+          li.addEventListener('click', async () => {
+            const svid = li.getAttribute('data-svid');
+            await fetch(SVVIEW_API + '/svid', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ svid }) });
+            svviewPoll();
+          });
+        });
+        return;
+      }
+
+      if (document.getElementById('svview-data-container')) {
+        svviewUpdateDataValues(data);
+        return;
+      }
+
+      unconfigured.style.display = 'none';
+      const hasPhasors = data.u_arrows && data.u_arrows.length === 3;
+      const uArrows = hasPhasors ? data.u_arrows : [[0,0],[0,0],[0,0]];
+      const iArrows = hasPhasors ? data.i_arrows : [[0,0],[0,0],[0,0]];
+      const w = data.window ?? 10;
+      const nc = data.samples_count ?? 0;
+      const samplesStr = nc >= 96 ? nc + ' échantillons (DFT OK)' : nc + ' échantillons (attente 96+)';
+      root.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div class="svview-svid-badge" id="svview-svid-badge" title="Cliquer pour changer">svID: ${escapeHtml(data.svid)}</div>
+          <button type="button" class="btn" id="svview-btn-stop" title="Revenir à la liste">Arrêter</button>
+        </div>
+        <div class="svview-layout" id="svview-data-container">
+          <div>
+            <div class="panel">
+              <h2>Phasors</h2>
+              <div class="svview-phasors">
+                <div class="svview-phasor-svg"><svg id="svview-svg-u" width="280" height="280"></svg></div>
+                <div class="svview-phasor-svg"><svg id="svview-svg-i" width="280" height="280"></svg></div>
+              </div>
+            </div>
+            <div class="svview-sinusoids">
+              <div class="panel"><h2>U (V) – sinusoïdes</h2><svg id="svview-svg-sinus-u" viewBox="0 0 280 130"></svg></div>
+              <div class="panel"><h2>I (A) – sinusoïdes</h2><svg id="svview-svg-sinus-i" viewBox="0 0 280 130"></svg></div>
+            </div>
+          </div>
+          <div>
+            <div class="panel">
+              <h2>Tensions & Courants</h2>
+              <div class="svview-stats-grid" style="grid-auto-flow:column;grid-template-rows:auto auto auto">
+                <div class="svview-stat"><span class="stat-label">Va</span><span id="svview-stat-va">0 V</span></div>
+                <div class="svview-stat"><span class="stat-label">Vb</span><span id="svview-stat-vb">0 V</span></div>
+                <div class="svview-stat"><span class="stat-label">Vc</span><span id="svview-stat-vc">0 V</span></div>
+                <div class="svview-stat"><span class="stat-label">Ia</span><span id="svview-stat-ia">0 A</span></div>
+                <div class="svview-stat"><span class="stat-label">Ib</span><span id="svview-stat-ib">0 A</span></div>
+                <div class="svview-stat"><span class="stat-label">Ic</span><span id="svview-stat-ic">0 A</span></div>
+              </div>
+              <h2 style="margin-top:12px">Déphasage U/I</h2>
+              <div class="svview-stats-grid">
+                <div class="svview-stat"><span class="stat-label">φa</span><span id="svview-stat-pha">-</span></div>
+                <div class="svview-stat"><span class="stat-label">φb</span><span id="svview-stat-phb">-</span></div>
+                <div class="svview-stat"><span class="stat-label">φc</span><span id="svview-stat-phc">-</span></div>
+              </div>
+            </div>
+            <div class="panel">
+              <h2>Délai inter-paquets (µs)</h2>
+              <div class="svview-stats-grid">
+                <div class="svview-stat"><span class="stat-label">Depuis lancement</span><span id="svview-stat-delay-all">-</span></div>
+                <div class="svview-stat"><span class="stat-label" id="svview-label-delay-win">Dernières ${w}s</span><span id="svview-stat-delay-win">-</span></div>
+              </div>
+              <h2 style="margin-top:12px">Délai seconde pile → smpCnt0 (µs)</h2>
+              <div class="svview-stats-grid">
+                <div class="svview-stat"><span class="stat-label">Depuis lancement</span><span id="svview-stat-sync-all">-</span></div>
+                <div class="svview-stat"><span class="stat-label" id="svview-label-sync-win">Dernières ${w}s</span><span id="svview-stat-sync-win">-</span></div>
+              </div>
+              <h2 style="margin-top:12px">Misses</h2>
+              <div class="svview-stats-grid">
+                <div class="svview-stat"><span class="stat-label">Depuis lancement</span><span id="svview-stat-misses-all">0</span></div>
+                <div class="svview-stat"><span class="stat-label" id="svview-label-misses-win">Dernières ${w}s</span><span id="svview-stat-misses-win">0</span></div>
+              </div>
+            </div>
+            <div class="panel">
+              <h2>Paramètres</h2>
+              <form id="svview-config-form" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <label style="display:flex;flex-direction:column;gap:4px">
+                  <span>Rafraîchissement (s)</span>
+                  <input type="number" name="interval" min="0.1" step="0.1" value="${svviewConfigCache.interval}" style="padding:6px;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text)">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px">
+                  <span>Fenêtre stats (s)</span>
+                  <input type="number" name="window" min="1" step="1" value="${svviewConfigCache.window}" style="padding:6px;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text)">
+                </label>
+                <button type="submit" class="btn btn--accent" style="grid-column:1/-1">Appliquer</button>
+              </form>
+            </div>
+          </div>
+        </div>
+        <p class="status ok" style="margin-top:12px"><span id="svview-stat-samples" title="96+ échantillons requis pour DFT">${samplesStr}</span></p>
+      `;
+      svviewDrawPhasorCircle('svview-svg-u', uArrows, 'U (V)', SVVIEW_COLORS.u);
+      svviewDrawPhasorCircle('svview-svg-i', iArrows, 'I (A)', SVVIEW_COLORS.i);
+      svviewDrawSinusoids('svview-svg-sinus-u', uArrows, SVVIEW_COLORS.uLight);
+      svviewDrawSinusoids('svview-svg-sinus-i', iArrows, SVVIEW_COLORS.iLight);
+      document.getElementById('svview-config-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const cfg = { interval: parseFloat(fd.get('interval')) || 1, window: parseFloat(fd.get('window')) || 10 };
+        await fetch(SVVIEW_API + '/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
+        svviewConfigCache = cfg;
+        if (svviewRefreshTimer) clearInterval(svviewRefreshTimer);
+        svviewRefreshTimer = setInterval(svviewPoll, cfg.interval * 1000);
+      });
+      document.getElementById('svview-svid-badge')?.addEventListener('click', svviewOpenModal);
+      document.getElementById('svview-btn-stop')?.addEventListener('click', async () => {
+        await fetch(SVVIEW_API + '/svid', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ svid: null }) });
+        document.getElementById('svview-data-container')?.remove();
+        svviewPoll();
+      });
+    }
+
+    function svviewOpenModal() {
+      fetch(SVVIEW_API + '/data').then(r => r.json()).then(data => {
+        const svids = data.svids || [];
+        const modal = document.getElementById('svview-modal');
+        const list = document.getElementById('svview-modal-svids');
+        const current = data.svid;
+        list.innerHTML = svids.length ? svids.map(s =>
+          `<li class="${s === current ? 'selected' : ''}" data-svid="${escapeHtml(s)}">${escapeHtml(s)}</li>`
+        ).join('') : '<li style="color:var(--muted);cursor:default">Aucun svID vu</li>';
+        list.querySelectorAll('li[data-svid]').forEach(li => {
+          li.addEventListener('click', async () => {
+            const svid = li.getAttribute('data-svid');
+            await fetch(SVVIEW_API + '/svid', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ svid }) });
+            modal.style.display = 'none';
+            document.getElementById('svview-data-container')?.remove();
+            svviewPoll();
+          });
+        });
+        document.getElementById('svview-modal-close').onclick = () => { modal.style.display = 'none'; };
+        modal.style.display = 'flex';
+      });
+    }
+    document.getElementById('svview-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'svview-modal') e.target.style.display = 'none';
+    });
+
+    async function svviewPoll() {
+      try {
+        const data = await svviewFetchJson('/data');
+        if (data.svid && document.getElementById('svview-data-container')) {
+          svviewUpdateDataValues(data);
+        } else {
+          if (data.svid) svviewConfigCache = await svviewFetchJson('/config');
+          svviewRender(data);
+        }
+      } catch (e) {
+        const root = document.getElementById('svview-root');
+        const unconf = document.getElementById('svview-unconfigured');
+        if (e.message === 'unconfigured') {
+          unconf.style.display = 'block';
+          root.innerHTML = '';
+        } else {
+          unconf.style.display = 'none';
+          root.innerHTML = `<div class="panel"><p class="status error-msg">Erreur: ${escapeHtml(e.message)}</p></div>`;
+        }
+      }
+    }
+
+    function svviewLoad() {
+      if (svviewRefreshTimer) clearInterval(svviewRefreshTimer);
+      svviewPoll();
+      svviewRefreshTimer = setInterval(svviewPoll, (svviewConfigCache.interval || 1) * 1000);
+    }
 
   </script>
 </body>
