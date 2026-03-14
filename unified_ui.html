@@ -102,6 +102,8 @@
       flex-wrap: wrap;
     }
     .recent-card .info { flex: 1; min-width: 120px; }
+    .recent-card > .recent-details { flex-basis: 100%; display: none; padding: 1rem; margin-top: 0.5rem; background: #0f0f14; border-radius: 6px; }
+    .recent-card > .recent-details.visible { display: block; }
     .logs-section { margin-top: 2rem; border-top: 1px solid var(--surface); }
     #mms-logs, #logs {
       background: #0f0f14;
@@ -236,17 +238,36 @@
     }
     function mmsDetailsHtml(s) {
       const items = s.rcb_items || [];
-      const rcbList = items.length ? '<ul style="margin:0;padding-left:1.2rem">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>' : '<span style="color:var(--muted)">(chargement…)</span>';
-      return `<dl class="details-grid"><dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd><dt>Domaine</dt><dd>${escapeHtml(s.domain)}</dd><dt>RCB (${items.length})</dt><dd>${rcbList}</dd></dl>`;
+      const rcbList = items.length ? '<ul style="margin:0;padding-left:1.2rem;max-height:12rem;overflow-y:auto">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>' : '<span style="color:var(--muted)">(chargement…)</span>';
+      return `<dl class="details-grid">
+        <dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd>
+        <dt>Domaine</dt><dd>${escapeHtml(s.domain)}</dd>
+        <dt>SCL</dt><dd>${escapeHtml(s.scl) || '—'}</dd>
+        <dt>RCB list</dt><dd>${escapeHtml(s.rcb_list) || 'liste intégrée'}</dd>
+        <dt>Debug</dt><dd>${s.debug ? 'Oui' : 'Non'}</dd>
+        <dt>Reports (${items.length})</dt><dd>${rcbList}</dd>
+      </dl>`;
     }
     function mmsRender(rows) {
       const tbody = document.getElementById('mms-list');
+      const expanded = new Set();
+      tbody.querySelectorAll('.details-row').forEach(r => { if (r.style.display !== 'none') expanded.add(r.dataset.id); });
       if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>'; return; }
-      tbody.innerHTML = rows.map(s => {
+      tbody.innerHTML = rows.map((s, idx) => {
         const sc = (s.status || '').toLowerCase();
         const err = s.last_error ? `<div class="error-msg">${escapeHtml(s.last_error)}</div>` : '';
-        return `<tr><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td><span class="status ${sc}">${escapeHtml(s.status)}</span>${err}</td><td>${s.debug ? 'Oui' : 'Non'}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>`;
+        const rowId = 'mms-row-' + idx;
+        const isExp = expanded.has(s.id);
+        return `<tr data-id="${escapeHtml(s.id)}"><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td><span class="status ${sc}">${escapeHtml(s.status)}</span>${err}</td><td>${s.debug ? 'Oui' : 'Non'}</td><td><button type="button" class="btn btn--small" data-action="expand" data-rowid="${rowId}" data-id="${escapeHtml(s.id)}">${isExp ? 'Réduire' : 'Détails'}</button><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
+        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${mmsDetailsHtml(s)}</td></tr>`;
       }).join('');
+      tbody.querySelectorAll('[data-action="expand"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const r = document.getElementById(btn.dataset.rowid);
+          if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = 'Réduire'; }
+          else { r.style.display = 'none'; btn.textContent = 'Détails'; }
+        });
+      });
       tbody.querySelectorAll('[data-action="debug"]').forEach(btn => {
         btn.addEventListener('click', async () => {
           try {
@@ -269,12 +290,23 @@
     function mmsRenderRecents(recentsData, runningIds) {
       const el = document.getElementById('mms-recents');
       mmsRecentsCache = recentsData || [];
+      const expanded = new Set();
+      el.querySelectorAll('.recent-details.visible').forEach(d => expanded.add(d.dataset.id));
       if (!mmsRecentsCache.length) { el.innerHTML = '<p class="empty">Aucun flux récent.</p>'; return; }
       el.innerHTML = mmsRecentsCache.map((r, idx) => {
         const run = runningIds.has(r.id);
-        const p = { id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl || null, rcb_list: r.rcb_list || null, debug: r.debug };
-        return `<div class="recent-card"><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">(en cours)</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">Relancer</button>` : ''}</div>`;
+        const detailId = 'mms-recent-' + idx;
+        const isExp = expanded.has(r.id);
+        const payload = { ...r, rcb_items: r.rcb_items || [] };
+        return `<div class="recent-card"><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">(en cours)</span>' : ''}</div><button type="button" class="btn btn--small" data-action="mms-recent-expand" data-detailid="${detailId}" data-id="${escapeHtml(r.id)}">${isExp ? 'Réduire' : 'Détails'}</button>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">Relancer</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
       }).join('');
+      el.querySelectorAll('[data-action="mms-recent-expand"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const d = document.getElementById(btn.dataset.detailid);
+          d.classList.toggle('visible');
+          btn.textContent = d.classList.contains('visible') ? 'Réduire' : 'Détails';
+        });
+      });
       el.querySelectorAll('[data-idx]').forEach(btn => {
         btn.addEventListener('click', async () => {
           const r = mmsRecentsCache[parseInt(btn.dataset.idx, 10)];
@@ -328,13 +360,47 @@
       if (!r.ok) return [];
       return (await r.json()).recent || [];
     }
+    function gooseDetailsHtml(s) {
+      const allData = s.all_data ? JSON.stringify(s.all_data).slice(0, 500) + (JSON.stringify(s.all_data).length > 500 ? '…' : '') : '—';
+      return `<dl class="details-grid">
+        <dt>Interface</dt><dd>${escapeHtml(s.iface)}</dd>
+        <dt>src_mac</dt><dd>${escapeHtml(s.src_mac)}</dd>
+        <dt>dst_mac</dt><dd>${escapeHtml(s.dst_mac)}</dd>
+        <dt>app_id</dt><dd>${escapeHtml(String(s.app_id ?? ''))}</dd>
+        <dt>VLAN</dt><dd>${s.vlan_id != null ? s.vlan_id : '—'} / priorité ${s.vlan_priority ?? '—'}</dd>
+        <dt>gocbRef</dt><dd>${escapeHtml(s.gocb_ref)}</dd>
+        <dt>datSet</dt><dd>${escapeHtml(s.dat_set)}</dd>
+        <dt>goID</dt><dd>${escapeHtml(s.go_id)}</dd>
+        <dt>TTL (ms)</dt><dd>${escapeHtml(String(s.ttl ?? ''))}</dd>
+        <dt>confRev</dt><dd>${escapeHtml(String(s.conf_rev ?? ''))}</dd>
+        <dt>stNum / sqNum</dt><dd>${escapeHtml(String(s.st_num ?? ''))} / ${escapeHtml(String(s.sq_num ?? ''))}</dd>
+        <dt>simulation</dt><dd>${s.simulation ? 'Oui' : 'Non'}</dd>
+        <dt>ndsCom</dt><dd>${s.nds_com ? 'Oui' : 'Non'}</dd>
+        <dt>allData</dt><dd><pre style="margin:0;font-size:0.75rem;max-height:10rem;overflow:auto;white-space:pre-wrap">${escapeHtml(allData)}</pre></dd>
+      </dl>`;
+    }
     function gooseLoad() {
       document.getElementById('goose-loading').textContent = 'Chargement…';
       Promise.all([gooseStreams(), gooseRecent()]).then(([streams, recent]) => {
         const activeGrefs = new Set(streams.map(s => s.gocb_ref));
+        const tbody = document.getElementById('goose-list');
+        const expanded = new Set();
+        tbody.querySelectorAll('.details-row').forEach(r => { if (r.style.display !== 'none') expanded.add(r.dataset.id); });
         document.getElementById('goose-list').innerHTML = streams.length
-          ? streams.map(s => `<tr><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small btn--accent goose-edit" data-id="${escapeHtml(s.id)}">Modifier</button> <button type="button" class="btn btn--small btn--danger goose-delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>`).join('')
+          ? streams.map((s, idx) => {
+              const rowId = 'goose-row-' + idx;
+              const isExp = expanded.has(s.id);
+              return `<tr data-id="${escapeHtml(s.id)}"><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small" data-action="goose-expand" data-rowid="${rowId}" data-id="${escapeHtml(s.id)}">${isExp ? 'Réduire' : 'Détails'}</button> <button type="button" class="btn btn--small btn--accent goose-edit" data-id="${escapeHtml(s.id)}">Modifier</button> <button type="button" class="btn btn--small btn--danger goose-delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
+              <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${gooseDetailsHtml(s)}</td></tr>`;
+            }).join('')
           : '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
+        document.getElementById('goose-list').querySelectorAll('[data-action="goose-expand"]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const r = document.getElementById(btn.dataset.rowid);
+            if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = 'Réduire'; }
+            else { r.style.display = 'none'; btn.textContent = 'Détails'; }
+          });
+        });
         document.getElementById('goose-list').querySelectorAll('.goose-edit').forEach(btn => {
           btn.addEventListener('click', () => gooseEdit(btn.dataset.id));
         });
@@ -345,13 +411,25 @@
             gooseLoad();
           });
         });
+        const gooseRecentsExpanded = new Set();
+        document.getElementById('goose-recents').querySelectorAll('.goose-recent-details').forEach(d => { if (d.style.display !== 'none') gooseRecentsExpanded.add(d.dataset.id); });
         document.getElementById('goose-recents').innerHTML = recent.length
-          ? recent.map(r => {
+          ? recent.map((r, idx) => {
               const canRestart = !activeGrefs.has(r.gocb_ref);
-              return `<tr><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-id="${escapeHtml(r.id)}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>`;
+              const detailId = 'goose-recent-' + idx;
+              const isExp = gooseRecentsExpanded.has(r.id);
+              return `<tr data-id="${escapeHtml(r.id)}"><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td><button type="button" class="btn btn--small" data-action="goose-recent-expand" data-detailid="${detailId}">${isExp ? 'Réduire' : 'Détails'}</button> ${canRestart ? `<button type="button" class="btn btn--small btn--accent goose-relancer" data-id="${escapeHtml(r.id)}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>
+              <tr class="details-row goose-recent-details" id="${detailId}" data-id="${escapeHtml(r.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="4">${gooseDetailsHtml(r)}</td></tr>`;
             }).join('')
           : '<tr><td colspan="4" class="empty">Aucun flux récent.</td></tr>';
-        document.getElementById('goose-recents').querySelectorAll('[data-id]').forEach(btn => {
+        document.getElementById('goose-recents').querySelectorAll('[data-action="goose-recent-expand"]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const r = document.getElementById(btn.dataset.detailid);
+            if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = 'Réduire'; }
+            else { r.style.display = 'none'; btn.textContent = 'Détails'; }
+          });
+        });
+        document.getElementById('goose-recents').querySelectorAll('.goose-relancer').forEach(btn => {
           btn.addEventListener('click', async () => {
             await fetch(API.goose + '/recent/' + encodeURIComponent(btn.dataset.id) + '/restart', { method: 'POST' });
             gooseLoad();
@@ -412,24 +490,71 @@
 
     // --- SV ---
     let svLastRecents = [];
+    function svDetailsHtml(f) {
+      return `<dl class="details-grid">
+        <dt>Nom</dt><dd>${escapeHtml(f.name)}</dd>
+        <dt>Interface</dt><dd>${escapeHtml(f.interface)}</dd>
+        <dt>src_mac</dt><dd>${escapeHtml(f.src_mac)}</dd>
+        <dt>dst_mac</dt><dd>${escapeHtml(f.dst_mac)}</dd>
+        <dt>svID</dt><dd>${escapeHtml(f.svid)}</dd>
+        <dt>smpSynch</dt><dd>${f.smp_synch ?? 0}</dd>
+        <dt>VLAN</dt><dd>${f.vlan_id != null ? f.vlan_id : '—'} / priorité ${f.vlan_priority ?? 0}</dd>
+        <dt>freq_hz</dt><dd>${f.freq_hz ?? 50}</dd>
+        <dt>i_peak / v_peak</dt><dd>${f.i_peak ?? 10} A / ${f.v_peak ?? 100} V</dd>
+        <dt>phase_deg</dt><dd>${f.phase_deg ?? 0}</dd>
+        <dt>fault</dt><dd>${f.fault ? 'Oui' : 'Non'}</dd>
+      </dl>`;
+    }
     async function svLoad() {
       try {
         const flows = await (await fetch(API.sv + '/flows')).json();
         const recents = await (await fetch(API.sv + '/flows/recents')).json();
         svLastRecents = recents;
         const runningNames = new Set(flows.filter(f => f.running).map(f => f.name));
+        const svTbody = document.getElementById('sv-list');
+        const svExpanded = new Set();
+        svTbody.querySelectorAll('.details-row').forEach(r => { if (r.style.display !== 'none') svExpanded.add(r.dataset.name); });
         document.getElementById('sv-list').innerHTML = flows.length
-          ? flows.map(f => `<tr><td></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><span class="status ${f.running?'running':'stopped'}">${f.running?'En cours':'Arrêté'}</span></td><td><button type="button" class="btn btn--small btn--danger" data-name="${escapeHtml(f.name)}">Supprimer</button></td></tr>`).join('')
+          ? flows.map((f, idx) => {
+              const rowId = 'sv-row-' + idx;
+              const isExp = svExpanded.has(f.name);
+              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small" data-action="sv-expand" data-rowid="${rowId}" data-name="${escapeHtml(f.name)}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><span class="status ${f.running?'running':'stopped'}">${f.running?'En cours':'Arrêté'}</span></td><td><button type="button" class="btn btn--small btn--danger" data-name="${escapeHtml(f.name)}">Supprimer</button></td></tr>
+              <tr class="details-row" id="${rowId}" data-name="${escapeHtml(f.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="7">${svDetailsHtml(f)}</td></tr>`;
+            }).join('')
           : '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>';
+        svTbody.querySelectorAll('[data-action="sv-expand"]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const r = document.getElementById(btn.dataset.rowid);
+            if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = '▼'; }
+            else { r.style.display = 'none'; btn.textContent = '▶'; }
+          });
+        });
         document.getElementById('sv-list').querySelectorAll('[data-name]').forEach(btn => {
           btn.addEventListener('click', () => svDelete(btn.dataset.name));
         });
+        const svRecTbody = document.getElementById('sv-recents');
+        const svRecExpanded = new Set();
+        svRecTbody.querySelectorAll('.sv-recent-details').forEach(r => { if (r.style.display !== 'none') svRecExpanded.add(r.dataset.name); });
         document.getElementById('sv-recents').innerHTML = recents.length
           ? recents.map((c, i) => {
               const canRestart = !runningNames.has(c.name);
-              return `<tr><td></td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.interface)}</td><td>${escapeHtml(c.svid)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-idx="${i}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>`;
+              const rowId = 'sv-recent-' + i;
+              const isExp = svRecExpanded.has(c.name);
+              return `<tr data-name="${escapeHtml(c.name)}"><td><button type="button" class="btn btn--small icon-only" data-action="sv-recent-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.interface)}</td><td>${escapeHtml(c.svid)}</td><td><button type="button" class="btn btn--small" data-action="sv-recent-expand" data-rowid="${rowId}">${isExp ? 'Réduire' : 'Détails'}</button> ${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-idx="${i}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>
+              <tr class="details-row sv-recent-details" id="${rowId}" data-name="${escapeHtml(c.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="5">${svDetailsHtml(c)}</td></tr>`;
             }).join('')
           : '<tr><td colspan="5" class="empty">Aucun flux récent.</td></tr>';
+        svRecTbody.querySelectorAll('[data-action="sv-recent-expand"]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const rowId = btn.dataset.rowid;
+            const r = document.getElementById(rowId);
+            const isNowExp = r.style.display === 'none';
+            r.style.display = isNowExp ? 'table-row' : 'none';
+            svRecTbody.querySelectorAll(`[data-action="sv-recent-expand"][data-rowid="${rowId}"]`).forEach(b => {
+              b.textContent = isNowExp ? (b.classList.contains('icon-only') ? '▼' : 'Réduire') : (b.classList.contains('icon-only') ? '▶' : 'Détails');
+            });
+          });
+        });
         document.getElementById('sv-recents').querySelectorAll('[data-idx]').forEach(btn => {
           btn.addEventListener('click', () => svRestart(svLastRecents[parseInt(btn.dataset.idx, 10)]));
         });
