@@ -99,6 +99,30 @@
       margin-top: 0.5rem;
     }
     .rcb-list li { margin: 0.15rem 0; }
+    .recents-section {
+      margin-top: 2rem;
+      border-top: 1px solid var(--surface);
+    }
+    .recents-section h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0.75rem 0 0.5rem 0;
+      color: var(--muted);
+    }
+    .recent-card {
+      background: var(--surface);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .recent-card > .recent-details { flex-basis: 100%; }
+    .recent-card .info { flex: 1; min-width: 120px; }
+    .recent-card .actions { display: flex; gap: 0.5rem; }
+    .recent-details { display: none; padding: 1rem; margin-top: 0.5rem; background: #0f0f14; border-radius: 6px; }
     .logs-section {
       margin-top: 2rem;
       border-top: 1px solid var(--surface);
@@ -144,6 +168,11 @@
     <tbody id="list"></tbody>
   </table>
 
+  <section class="recents-section">
+    <h2>Récents</h2>
+    <div id="recents-list"></div>
+  </section>
+
   <section class="logs-section">
     <h2>Logs (temps réel)</h2>
     <pre id="logs"></pre>
@@ -156,6 +185,21 @@
       const r = await fetch(api + '/subscriptions');
       if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
       return r.json();
+    }
+
+    async function recents() {
+      const r = await fetch(api + '/recents');
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      return r.json();
+    }
+
+    async function createSub(payload) {
+      const r = await fetch(api + '/subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
     }
 
     async function setDebug(id, debug) {
@@ -264,6 +308,65 @@
       });
     }
 
+    let _recentsCache = [];
+
+    function renderRecents(recentsData, runningIds) {
+      const el = document.getElementById('recents-list');
+      _recentsCache = recentsData || [];
+      if (!_recentsCache.length) {
+        el.innerHTML = '<p class="empty">Aucun flux récent.</p>';
+        return;
+      }
+      const expanded = new Set();
+      el.querySelectorAll('.recent-details').forEach(d => {
+        if (d.style.display !== 'none') expanded.add(d.dataset.id);
+      });
+      el.innerHTML = _recentsCache.map((r, idx) => {
+        const isRunning = runningIds.has(r.id);
+        const detailId = 'recent-detail-' + idx;
+        const isExp = expanded.has(r.id);
+        return `<div class="recent-card" data-id="${escapeHtml(r.id)}">
+          <div class="info">
+            <strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port}
+            ${isRunning ? ' <span class="status running">(en cours)</span>' : ''}
+          </div>
+          <div class="actions">
+            <button type="button" class="btn btn--small" data-action="recent-expand" data-id="${escapeHtml(r.id)}" data-detailid="${detailId}">${isExp ? 'Réduire' : 'Détails'}</button>
+            ${!isRunning ? `<button type="button" class="btn btn--small btn--accent" data-action="relancer" data-idx="${idx}">Relancer</button>` : ''}
+          </div>
+          <div class="recent-details" id="${detailId}" data-id="${escapeHtml(r.id)}" style="display:${isExp ? 'block' : 'none'};width:100%">${detailsHtml(r)}</div>
+        </div>`;
+      }).join('');
+
+      el.querySelectorAll('[data-action="recent-expand"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const d = document.getElementById(btn.dataset.detailid);
+          if (d.style.display === 'none') {
+            d.style.display = 'block';
+            btn.textContent = 'Réduire';
+          } else {
+            d.style.display = 'none';
+            btn.textContent = 'Détails';
+          }
+        });
+      });
+      el.querySelectorAll('[data-action="relancer"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const idx = parseInt(btn.dataset.idx, 10);
+          const r = _recentsCache[idx];
+          if (!r) return;
+          const p = { id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl || null, rcb_list: r.rcb_list || null, debug: r.debug };
+          setLoading('Relance…');
+          try {
+            await createSub(p);
+            await load();
+          } catch (e) {
+            setLoading(e.message, true);
+          }
+        });
+      });
+    }
+
     function escapeHtml(s) {
       if (s == null) return '';
       const div = document.createElement('div');
@@ -280,8 +383,10 @@
     async function load() {
       setLoading('Chargement…');
       try {
-        const data = await subs();
-        render(data);
+        const [subsData, recentsData] = await Promise.all([subs(), recents()]);
+        render(subsData);
+        const runningIds = new Set(subsData.map(s => s.id));
+        renderRecents(recentsData, runningIds);
         setLoading('');
       } catch (e) {
         setLoading('Erreur: ' + e.message, true);

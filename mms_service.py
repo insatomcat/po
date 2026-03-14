@@ -161,18 +161,25 @@ class SubscriptionRuntime:
     rcb_items: list = field(default_factory=list)  # liste des RCB souscrits (remplie par le worker)
 
 
+RECENTS_MAX = 20
+
+
 class SubscriptionManager:
     """Gestion centralisée des flux (in‑memory avec persistance sur disque)."""
 
     _STATE_FILE = "mms_subscriptions.json"
+    _RECENTS_FILE = "mms_recents.json"
 
     def __init__(self, vm_url: Optional[str], vm_batch_ms: int) -> None:
         self._subs: Dict[str, SubscriptionRuntime] = {}
+        self._recents: list[Dict[str, Any]] = []
         self._lock = threading.Lock()
         self._vm_url = vm_url
         self._vm_batch_ms = vm_batch_ms
         self._state_path = os.path.join(os.getcwd(), self._STATE_FILE)
+        self._recents_path = os.path.join(os.getcwd(), self._RECENTS_FILE)
         self._load_state()
+        self._load_recents()
 
     def list_subscriptions(self) -> Dict[str, SubscriptionRuntime]:
         with self._lock:
@@ -190,6 +197,7 @@ class SubscriptionManager:
             self._subs[cfg.id] = runtime
             self._save_state_locked()
         self._start_subscription_thread(runtime)
+        self._add_to_recents(runtime)
         return runtime
 
     def update_subscription(self, sub_id: str, new_fields: Dict[str, Any]) -> SubscriptionRuntime:
@@ -225,6 +233,7 @@ class SubscriptionManager:
             runtime = self._subs.pop(sub_id, None)
             self._save_state_locked()
         if runtime:
+            self._add_to_recents(runtime)
             self._stop_runtime(runtime)
 
     def purge_all(self) -> None:
@@ -234,7 +243,50 @@ class SubscriptionManager:
             self._subs.clear()
             self._save_state_locked()
         for rt in runtimes:
+            self._add_to_recents(rt)
             self._stop_runtime(rt)
+
+    def get_recents(self) -> list[Dict[str, Any]]:
+        with self._lock:
+            return list(self._recents)
+
+    def _add_to_recents(self, runtime: SubscriptionRuntime) -> None:
+        """Ajoute un flux aux récents (20 derniers uniques par id)."""
+        cfg = runtime.config
+        entry = {
+            "id": cfg.id,
+            "ied_host": cfg.ied_host,
+            "ied_port": cfg.ied_port,
+            "domain": cfg.domain,
+            "scl": cfg.scl,
+            "rcb_list": cfg.rcb_list,
+            "debug": cfg.debug,
+            "rcb_items": list(runtime.rcb_items),
+        }
+        with self._lock:
+            self._recents = [e for e in self._recents if e.get("id") != cfg.id]
+            self._recents.insert(0, entry)
+            self._recents = self._recents[:RECENTS_MAX]
+            self._save_recents_locked()
+
+    def _load_recents(self) -> None:
+        try:
+            with open(self._recents_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except FileNotFoundError:
+            return
+        except Exception as e:
+            print(f"[Recents] Impossible de charger {self._recents_path}: {e}")
+            return
+        if isinstance(raw, list):
+            self._recents = raw[:RECENTS_MAX]
+
+    def _save_recents_locked(self) -> None:
+        try:
+            with open(self._recents_path, "w", encoding="utf-8") as f:
+                json.dump(self._recents, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[Recents] Erreur sauvegarde {self._recents_path}: {e}")
 
     # --- gestion des threads ---
 
@@ -518,6 +570,10 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             return
         if path == "/logs":
             self._serve_logs_sse()
+            return
+        if path == "/recents":
+            recents = self.manager.get_recents()
+            self._send_json(HTTPStatus.OK, recents)
             return
         if path == "/subscriptions":
             subs = [
