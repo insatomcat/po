@@ -33,7 +33,7 @@ Concepts:
   - Chaque flux tourne dans un thread dédié qui ouvre la connexion MMS,
     active les RCB, boucle sur les reports et les pousse vers VictoriaMetrics.
 
-API HTTP (JSON, état persistant dans mms_subscriptions.json):
+API HTTP (JSON, état persistant dans mms/subscriptions.json) :
 
   POST /subscriptions
       Body:
@@ -96,6 +96,7 @@ import json
 import os
 import sys
 import threading
+from pathlib import Path
 import time
 import uuid
 from dataclasses import dataclass, asdict, field
@@ -171,12 +172,14 @@ class SubscriptionRuntime:
 
 RECENTS_MAX = 20
 
+# Chemins des fichiers de persistance (dans mms/)
+_MMS_DIR = Path(__file__).resolve().parent
+SUBSCRIPTIONS_PATH = _MMS_DIR / "subscriptions.json"
+RECENTS_PATH = _MMS_DIR / "recents.json"
+
 
 class SubscriptionManager:
     """Gestion centralisée des flux (in‑memory avec persistance sur disque)."""
-
-    _STATE_FILE = "mms_subscriptions.json"
-    _RECENTS_FILE = "mms_recents.json"
 
     def __init__(self, vm_url: Optional[str], vm_batch_ms: int) -> None:
         self._subs: Dict[str, SubscriptionRuntime] = {}
@@ -184,8 +187,8 @@ class SubscriptionManager:
         self._lock = threading.Lock()
         self._vm_url = vm_url
         self._vm_batch_ms = vm_batch_ms
-        self._state_path = os.path.join(os.getcwd(), self._STATE_FILE)
-        self._recents_path = os.path.join(os.getcwd(), self._RECENTS_FILE)
+        self._state_path = SUBSCRIPTIONS_PATH
+        self._recents_path = RECENTS_PATH
         self._load_state()
         self._load_recents()
 
@@ -287,12 +290,18 @@ class SubscriptionManager:
             print(f"[Recents] Impossible de charger {self._recents_path}: {e}")
             return
         if isinstance(raw, list):
-            self._recents = raw[:RECENTS_MAX]
+            items = raw
+        else:
+            items = raw.get("recents", raw.get("recent", []))
+        self._recents = (items or [])[:RECENTS_MAX]
 
     def _save_recents_locked(self) -> None:
         try:
-            with open(self._recents_path, "w", encoding="utf-8") as f:
-                json.dump(self._recents, f, indent=2, ensure_ascii=False)
+            payload = {"recents": self._recents}
+            tmp_path = self._recents_path.with_suffix(".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, self._recents_path)
         except Exception as e:
             print(f"[Recents] Erreur sauvegarde {self._recents_path}: {e}")
 
@@ -348,7 +357,7 @@ class SubscriptionManager:
         """Sauvegarde la configuration des flux dans un fichier JSON (lock déjà tenu)."""
         try:
             data = [asdict(rt.config) for rt in self._subs.values()]
-            tmp_path = self._state_path + ".tmp"
+            tmp_path = self._state_path.with_suffix(self._state_path.suffix + ".tmp")
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             os.replace(tmp_path, self._state_path)

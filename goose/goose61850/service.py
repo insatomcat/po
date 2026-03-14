@@ -11,6 +11,11 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Chemins des fichiers de persistance (dans goose/)
+_GOOSE_DIR = Path(__file__).resolve().parent.parent
+STREAMS_PATH = _GOOSE_DIR / "streams.json"
+RECENTS_PATH = _GOOSE_DIR / "recents.json"
 from urllib.parse import parse_qs, urlparse
 
 from .transport import _build_frame
@@ -102,11 +107,11 @@ class GooseService:
         self,
         host: str = "localhost",
         port: int = 7053,
-        state_file: str | Path = "goose_streams.json",
     ) -> None:
         self.host = host
         self.port = port
-        self._state_path = Path(state_file)
+        self._streams_path = STREAMS_PATH
+        self._recents_path = RECENTS_PATH
         self._streams: Dict[str, GooseStream] = {}
         # Historique des flux récemment configurés (max 10 éléments).
         self._recent: List[Dict[str, Any]] = []
@@ -297,38 +302,44 @@ class GooseService:
     # ------------------------------------------------------------------
 
     def _save_state(self) -> None:
-        """Sauvegarde la liste des flux dans un fichier JSON.
+        """Sauvegarde les flux et les récents dans streams.json et recents.json.
 
         Attention : cette fonction est appelée depuis des sections déjà
-        protégées par `_streams_lock`. On évite donc toute ré‑entrée sur
-        `list_streams()` et on manipule directement le dict interne.
+        protégées par `_streams_lock`.
         """
         try:
             with self._streams_lock:
                 streams = [_stream_to_dict(s) for s in self._streams.values()]
                 recent = list(self._recent)
-            payload = {"streams": streams, "recent": recent}
-            tmp_path = self._state_path.with_suffix(self._state_path.suffix + ".tmp")
-            tmp_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            tmp_path.replace(self._state_path)
+            for path, payload in [
+                (self._streams_path, {"streams": streams}),
+                (self._recents_path, {"recents": recent}),
+            ]:
+                tmp_path = path.with_suffix(path.suffix + ".tmp")
+                tmp_path.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                tmp_path.replace(path)
         except Exception:
-            # On ne fait pas échouer le service si la persistance casse.
             pass
 
     def _load_state(self) -> None:
-        """Recharge les flux depuis le fichier JSON, si présent."""
-        if not self._state_path.exists():
-            return
-        try:
-            raw = json.loads(self._state_path.read_text(encoding="utf-8"))
-        except Exception:
-            return
-
-        streams_data = raw.get("streams") or []
-        recent_data = raw.get("recent") or []
+        """Recharge les flux depuis streams.json et recents.json."""
+        streams_data: List[Any] = []
+        recent_data: List[Any] = []
+        if self._streams_path.exists():
+            try:
+                raw = json.loads(self._streams_path.read_text(encoding="utf-8"))
+                streams_data = raw.get("streams") or []
+            except Exception:
+                pass
+        if self._recents_path.exists():
+            try:
+                raw = json.loads(self._recents_path.read_text(encoding="utf-8"))
+                recent_data = raw.get("recents") or raw.get("recent") or []
+            except Exception:
+                pass
         now = time.monotonic()
 
         with self._streams_lock:
