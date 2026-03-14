@@ -12,6 +12,7 @@ RestartSec=5
 User=root
 Group=root
 NoNewPrivileges=true
+KillMode=process
 StandardOutput=journal
 StandardError=journal
 
