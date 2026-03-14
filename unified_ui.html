@@ -117,6 +117,29 @@
     #msg { font-size: 0.85rem; margin-top: 0.5rem; }
     #msg.err { color: var(--danger); }
     #msg.ok { color: var(--success); }
+    .modal {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 1.5rem;
+      max-width: 600px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-content h2 { margin-top: 0; }
+    .modal-details { color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
+    .modal-content label { display: block; margin-top: 0.75rem; font-weight: 600; }
+    .modal-content input, .modal-content textarea {
+      width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--muted);
+      border-radius: 4px; color: var(--text); font-family: inherit;
+    }
+    .modal-content textarea { min-height: 12rem; }
+    .modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
   </style>
 </head>
 <body>
@@ -146,6 +169,24 @@
     </div>
     <table><thead><tr><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
     <section class="recents-section"><h2>Récents</h2><table><thead><tr><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table></section>
+
+    <div id="goose-edit-modal" class="modal" style="display:none">
+      <div class="modal-content">
+        <h2>Modifier le flux GOOSE</h2>
+        <div class="modal-details" id="goose-edit-details"></div>
+        <form id="goose-edit-form">
+          <input type="hidden" id="goose-edit-id" name="id">
+          <label>TTL (ms)</label>
+          <input type="number" id="goose-edit-ttl" name="ttl" min="1">
+          <label>allData (JSON)</label>
+          <textarea id="goose-edit-alldata" name="all_data" rows="12" style="font-family:monospace;font-size:0.85rem"></textarea>
+          <div class="modal-actions">
+            <button type="submit" class="btn btn--accent">Enregistrer</button>
+            <button type="button" class="btn goose-edit-cancel">Annuler</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 
   <div id="panel-sv" class="panel">
@@ -291,9 +332,12 @@
       Promise.all([gooseStreams(), gooseRecent()]).then(([streams, recent]) => {
         const activeGrefs = new Set(streams.map(s => s.gocb_ref));
         document.getElementById('goose-list').innerHTML = streams.length
-          ? streams.map(s => `<tr><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small btn--danger" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>`).join('')
+          ? streams.map(s => `<tr><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small btn--accent goose-edit" data-id="${escapeHtml(s.id)}">Modifier</button> <button type="button" class="btn btn--small btn--danger goose-delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>`).join('')
           : '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
-        document.getElementById('goose-list').querySelectorAll('[data-id]').forEach(btn => {
+        document.getElementById('goose-list').querySelectorAll('.goose-edit').forEach(btn => {
+          btn.addEventListener('click', () => gooseEdit(btn.dataset.id));
+        });
+        document.getElementById('goose-list').querySelectorAll('.goose-delete').forEach(btn => {
           btn.addEventListener('click', async () => {
             if (!confirm('Supprimer ce flux ?')) return;
             await fetch(API.goose + '/streams/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
@@ -316,6 +360,54 @@
       }).catch(e => { document.getElementById('goose-loading').textContent = 'Erreur: ' + e.message; });
     }
     document.getElementById('goose-refresh').addEventListener('click', gooseLoad);
+
+    async function gooseEdit(streamId) {
+      const modal = document.getElementById('goose-edit-modal');
+      const details = document.getElementById('goose-edit-details');
+      const form = document.getElementById('goose-edit-form');
+      try {
+        const r = await fetch(API.goose + '/streams/' + encodeURIComponent(streamId));
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        const s = await r.json();
+        document.getElementById('goose-edit-id').value = s.id;
+        document.getElementById('goose-edit-ttl').value = s.ttl;
+        document.getElementById('goose-edit-alldata').value = JSON.stringify(s.all_data || [], null, 2);
+        details.innerHTML = `<p><strong>ID:</strong> ${escapeHtml(s.id)} &nbsp; <strong>gocbRef:</strong> ${escapeHtml(s.gocb_ref)}</p><p><strong>Interface:</strong> ${escapeHtml(s.iface)} &nbsp; <strong>src_mac:</strong> ${escapeHtml(s.src_mac)} &nbsp; <strong>dst_mac:</strong> ${escapeHtml(s.dst_mac)}</p>`;
+        modal.style.display = 'flex';
+      } catch (e) {
+        document.getElementById('goose-loading').textContent = 'Erreur: ' + e.message;
+      }
+    }
+    document.getElementById('goose-edit-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('goose-edit-id').value;
+      const ttl = parseInt(document.getElementById('goose-edit-ttl').value, 10);
+      let all_data;
+      try {
+        all_data = JSON.parse(document.getElementById('goose-edit-alldata').value);
+      } catch (err) {
+        alert('JSON invalide dans allData');
+        return;
+      }
+      try {
+        const r = await fetch(API.goose + '/streams/' + encodeURIComponent(id), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ttl, all_data })
+        });
+        if (!r.ok) throw new Error(await r.text());
+        document.getElementById('goose-edit-modal').style.display = 'none';
+        gooseLoad();
+      } catch (e) {
+        alert('Erreur: ' + e.message);
+      }
+    });
+    document.querySelector('.goose-edit-cancel').addEventListener('click', () => {
+      document.getElementById('goose-edit-modal').style.display = 'none';
+    });
+    document.getElementById('goose-edit-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'goose-edit-modal') e.target.style.display = 'none';
+    });
 
     // --- SV ---
     let svLastRecents = [];
