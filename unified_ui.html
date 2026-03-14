@@ -45,8 +45,8 @@
       color: var(--accent);
       border-bottom-color: var(--accent);
     }
-    [id^="panel-"] { display: none; }
-    [id^="panel-"].active { display: block; }
+    .panel { display: none; }
+    .panel.active { display: block; }
     h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 1rem 0; color: var(--accent); }
     h2 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.5rem 0; color: var(--muted); }
     .toolbar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; }
@@ -206,7 +206,7 @@
 
   <div id="panel-svview" class="panel">
     <h1>SV Listener – Phasors U & I</h1>
-    <div id="svview-unconfigured" class="panel" style="display:none;max-width:500px">
+    <div id="svview-unconfigured" class="svview-card" style="display:none;max-width:500px">
       <p class="status">SV Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> pour capturer les flux SV (0x88ba).</p>
     </div>
     <div id="svview-modal" class="modal" style="display:none">
@@ -217,7 +217,7 @@
       </div>
     </div>
     <div id="svview-root">
-      <div class="panel"><p class="status">Chargement...</p></div>
+      <div class="svview-card"><p class="status">Chargement...</p></div>
     </div>
   </div>
 
@@ -228,7 +228,7 @@
     .svview-phasor-svg { background: var(--bg); border-radius: 8px; padding: 8px; }
     .svview-phasor-svg svg { display: block; }
     .svview-sinusoids { display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap; }
-    .svview-sinusoids .panel { flex: 1; min-width: 0; }
+    .svview-sinusoids .svview-card { flex: 1; min-width: 0; }
     .svview-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
     .svview-stat { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; }
     .svview-stat .stat-label { color: var(--muted); }
@@ -239,7 +239,7 @@
     .svview-modal-svids li { padding: 8px 12px; border-bottom: 1px solid var(--surface); cursor: pointer; }
     .svview-modal-svids li:hover { background: var(--bg); }
     .svview-modal-svids li.selected { background: var(--accent); color: var(--bg); }
-    #svview-unconfigured, #svview-root .panel, .svview-layout .panel, .svview-sinusoids .panel {
+    .svview-card, #svview-unconfigured, .svview-layout .svview-card, .svview-sinusoids .svview-card {
       background: var(--surface);
       border-radius: 8px;
       padding: 1rem;
@@ -255,6 +255,7 @@
       const id = ['mms','goose','sv','svview'].includes(tabId) ? tabId : 'mms';
       document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === id));
       document.querySelectorAll('.panel').forEach(x => x.classList.toggle('active', x.id === 'panel-' + id));
+      if (id !== 'svview') { if (svviewRefreshTimer) { clearInterval(svviewRefreshTimer); svviewRefreshTimer = null; } }
       if (location.hash !== '#' + id) location.hash = id;
       if (id === 'mms') mmsLoad();
       if (id === 'goose') gooseLoad();
@@ -640,7 +641,7 @@
     const SVVIEW_API = API.svview + '/api';
     const SVVIEW_COLORS = { u: '#7aa2f7', i: '#f7768e', uLight: ['#7aa2f7','#89b4fa','#b4d0ff'], iLight: ['#f7768e','#ff8a95','#ffb0b8'] };
     let svviewRefreshTimer = null;
-    let svviewConfigCache = { interval: 1, window: 10 };
+    let svviewConfigCache = { interval: 2, window: 10 };
 
     async function svviewFetchJson(path) {
       const r = await fetch(SVVIEW_API + path);
@@ -755,7 +756,7 @@
       if (!data.svid) {
         unconfigured.style.display = 'none';
         root.innerHTML = `
-          <div class="panel">
+          <div class="svview-card">
             <h2>svIDs vus</h2>
             ${data.svids && data.svids.length ? `
               <ul class="svview-svids-list" id="svview-svids-list">
@@ -795,7 +796,7 @@
         </div>
         <div class="svview-layout" id="svview-data-container">
           <div>
-            <div class="panel">
+            <div class="svview-card">
               <h2>Phasors</h2>
               <div class="svview-phasors">
                 <div class="svview-phasor-svg"><svg id="svview-svg-u" width="280" height="280"></svg></div>
@@ -803,12 +804,12 @@
               </div>
             </div>
             <div class="svview-sinusoids">
-              <div class="panel"><h2>U (V) – sinusoïdes</h2><svg id="svview-svg-sinus-u" viewBox="0 0 280 130"></svg></div>
-              <div class="panel"><h2>I (A) – sinusoïdes</h2><svg id="svview-svg-sinus-i" viewBox="0 0 280 130"></svg></div>
+              <div class="svview-card"><h2>U (V) – sinusoïdes</h2><svg id="svview-svg-sinus-u" viewBox="0 0 280 130"></svg></div>
+              <div class="svview-card"><h2>I (A) – sinusoïdes</h2><svg id="svview-svg-sinus-i" viewBox="0 0 280 130"></svg></div>
             </div>
           </div>
           <div>
-            <div class="panel">
+            <div class="svview-card">
               <h2>Tensions & Courants</h2>
               <div class="svview-stats-grid" style="grid-auto-flow:column;grid-template-rows:auto auto auto">
                 <div class="svview-stat"><span class="stat-label">Va</span><span id="svview-stat-va">0 V</span></div>
@@ -825,7 +826,7 @@
                 <div class="svview-stat"><span class="stat-label">φc</span><span id="svview-stat-phc">-</span></div>
               </div>
             </div>
-            <div class="panel">
+            <div class="svview-card">
               <h2>Délai inter-paquets (µs)</h2>
               <div class="svview-stats-grid">
                 <div class="svview-stat"><span class="stat-label">Depuis lancement</span><span id="svview-stat-delay-all">-</span></div>
@@ -842,7 +843,7 @@
                 <div class="svview-stat"><span class="stat-label" id="svview-label-misses-win">Dernières ${w}s</span><span id="svview-stat-misses-win">0</span></div>
               </div>
             </div>
-            <div class="panel">
+            <div class="svview-card">
               <h2>Paramètres</h2>
               <form id="svview-config-form" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                 <label style="display:flex;flex-direction:column;gap:4px">
@@ -924,7 +925,7 @@
           root.innerHTML = '';
         } else {
           unconf.style.display = 'none';
-          root.innerHTML = `<div class="panel"><p class="status error-msg">Erreur: ${escapeHtml(e.message)}</p></div>`;
+          root.innerHTML = `<div class="svview-card"><p class="status error-msg">Erreur: ${escapeHtml(e.message)}</p></div>`;
         }
       }
     }
@@ -932,7 +933,13 @@
     function svviewLoad() {
       if (svviewRefreshTimer) clearInterval(svviewRefreshTimer);
       svviewPoll();
-      svviewRefreshTimer = setInterval(svviewPoll, (svviewConfigCache.interval || 1) * 1000);
+      svviewRefreshTimer = setInterval(svviewPoll, (svviewConfigCache.interval || 2) * 1000);
+    }
+    function svviewStopPolling() {
+      if (svviewRefreshTimer) {
+        clearInterval(svviewRefreshTimer);
+        svviewRefreshTimer = null;
+      }
     }
 
   </script>
