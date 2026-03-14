@@ -1,0 +1,15 @@
+[Unit]
+Description=Service GOOSE IEC 61850
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/goose
+ExecStart=/usr/bin/python3 /root/goose/goose_service.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

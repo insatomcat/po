@@ -1,0 +1,22 @@
+[Unit]
+Description=SV Generator REST Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/svgenerator
+
+ExecStart=/usr/bin/env uvicorn sv_service:app --host 0.0.0.0 --port 7051
+
+Restart=always
+RestartSec=2
+
+# Pour laisser rt_sender utiliser le RT
+AmbientCapabilities=CAP_SYS_NICE
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target
