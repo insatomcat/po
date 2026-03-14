@@ -249,6 +249,7 @@
 
   <script>
     const API = { mms: '/api/mms', goose: '/api/goose', sv: '/api/sv', svview: '/api/svview' };
+    let mmsRecentsCache = [];
 
     function activateTab(tabId) {
       const id = ['mms','goose','sv','svview'].includes(tabId) ? tabId : 'mms';
@@ -335,7 +336,6 @@
         });
       });
     }
-    let mmsRecentsCache = [];
     function mmsRenderRecents(recentsData, runningIds) {
       const el = document.getElementById('mms-recents');
       mmsRecentsCache = recentsData || [];
