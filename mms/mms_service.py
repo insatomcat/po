@@ -131,6 +131,7 @@ class _TeeStdout:
     def write(self, s: str) -> None:
         global LOG_NEXT_SEQ
         self._real.write(s)
+        self._real.flush()  # journalctl immédiat (stdout en pipe = buffer par bloc)
         with LOG_LOCK:
             self._buf += s
             while "\n" in self._buf:
@@ -168,9 +169,14 @@ class SubscriptionRuntime:
     reports_since_log: int = 0
     last_log_ts: float = 0.0
     rcb_items: list = field(default_factory=list)  # liste des RCB souscrits (remplie par le worker)
+    # Conteneur mutable pour que le thread worker voie le toggle debug sans restart
+    debug_console: list = field(default_factory=lambda: [False])
 
 
 RECENTS_MAX = 20
+
+# Drapeau debug par flux (in-memory, pas de persistance)
+_DEBUG_CONSOLE: Dict[str, bool] = {}
 
 # Chemins des fichiers de persistance (dans mms/)
 _MMS_DIR = Path(__file__).resolve().parent
@@ -204,8 +210,9 @@ class SubscriptionManager:
         with self._lock:
             if cfg.id in self._subs:
                 raise ValueError(f"subscription {cfg.id!r} already exists")
-            runtime = SubscriptionRuntime(config=cfg)
+            runtime = SubscriptionRuntime(config=cfg, debug_console=[cfg.debug])
             self._subs[cfg.id] = runtime
+            _DEBUG_CONSOLE[cfg.id] = cfg.debug
             self._save_state_locked()
         self._start_subscription_thread(runtime)
         self._add_to_recents(runtime)
@@ -216,32 +223,42 @@ class SubscriptionManager:
             runtime = self._subs.get(sub_id)
             if not runtime:
                 raise KeyError(sub_id)
-            # Cas 1 : mise à jour uniquement du flag debug → pas besoin de redémarrer le flux
+            # Cas 1 : mise à jour uniquement du flag debug → pas de redémarrage
             only_debug = all(
                 (k == "debug") or (v is None)
                 for k, v in new_fields.items()
             )
             if only_debug and "debug" in new_fields and new_fields["debug"] is not None:
-                runtime.config.debug = bool(new_fields["debug"])
+                new_val = bool(new_fields["debug"])
+                runtime.config.debug = new_val
+                runtime.debug_console[0] = new_val
+                _DEBUG_CONSOLE[sub_id] = new_val
                 self._save_state_locked()
+                print(f"[MMS] Flux {sub_id}: debug={new_val} (sans restart)", flush=True)
                 return runtime
 
-            # Cas 2 : modification de la connectivité (host, port, domain, scl, rcb_list, etc.)
-            # → reconstruire la config et redémarrer le thread.
+            # Cas 2 : modification host/port/domain/scl/rcb_list → redémarrer le flux
             data = asdict(runtime.config)
             data.update({k: v for k, v in new_fields.items() if v is not None})
+            if "debug" in new_fields:
+                data["debug"] = bool(new_fields["debug"])
             cfg = SubscriptionConfig(**data)
             runtime.config = cfg
-            # Arrêter le thread courant
+            runtime.debug_console[0] = cfg.debug
+            _DEBUG_CONSOLE[cfg.id] = cfg.debug
             self._stop_runtime_locked(runtime)
             self._save_state_locked()
-        # (re)lancer en dehors du lock
+        t = runtime.thread
+        if t and t.is_alive():
+            t.join(timeout=5.0)
+        runtime.status = "stopped"
         self._start_subscription_thread(runtime)
         return runtime
 
     def delete_subscription(self, sub_id: str) -> None:
         with self._lock:
             runtime = self._subs.pop(sub_id, None)
+            _DEBUG_CONSOLE.pop(sub_id, None)
             self._save_state_locked()
         if runtime:
             self._add_to_recents(runtime)
@@ -252,6 +269,7 @@ class SubscriptionManager:
         with self._lock:
             runtimes = list(self._subs.values())
             self._subs.clear()
+            _DEBUG_CONSOLE.clear()
             self._save_state_locked()
         for rt in runtimes:
             self._add_to_recents(rt)
@@ -345,8 +363,9 @@ class SubscriptionManager:
             except TypeError as e:
                 print(f"[State] Config invalide ignorée: {e}")
                 continue
-            rt = SubscriptionRuntime(config=cfg)
+            rt = SubscriptionRuntime(config=cfg, debug_console=[cfg.debug])
             self._subs[cfg.id] = rt
+            _DEBUG_CONSOLE[cfg.id] = cfg.debug
         if self._subs:
             print(f"[State] {len(self._subs)} flux rechargés depuis {self._state_path}.")
             # Démarrer les threads après reconstruction des runtimes
@@ -417,28 +436,60 @@ class SubscriptionManager:
                 client.connect()
                 print("[MMS] Connexion établie. Activation des RCB...")
 
+                def _log(msg: str) -> None:
+                    """Écrit vers journalctl (stdout) + LOG_LINES (fenêtre logs web UI)."""
+                    sys.__stdout__.write(msg + "\n")
+                    sys.__stdout__.flush()
+                    with LOG_LOCK:
+                        global LOG_NEXT_SEQ
+                        LOG_NEXT_SEQ += 1
+                        LOG_LINES.append((LOG_NEXT_SEQ, msg))
+                        if len(LOG_LINES) > LOG_MAX:
+                            LOG_LINES.pop(0)
+                        LOG_CONDITION.notify_all()
+
+                class _LogStream:
+                    """Stream qui écrit vers stdout + LOG_LINES (pour reports debug dans web UI)."""
+
+                    def __init__(self) -> None:
+                        self._buf = ""
+
+                    def write(self, s: str) -> None:
+                        self._buf += s
+                        while "\n" in self._buf:
+                            line, self._buf = self._buf.split("\n", 1)
+                            _log(line)
+
+                    def flush(self) -> None:
+                        if self._buf:
+                            _log(self._buf)
+                            self._buf = ""
+                        sys.__stdout__.flush()
+
+                _log_stream = _LogStream()
+
                 def callback(report: Any) -> None:
                     now = time.time()
                     runtime.total_reports += 1
                     runtime.reports_since_log += 1
-                    # Log périodique (~1 min) du statut du flux
                     if now - runtime.last_log_ts >= 60.0:
-                        print(
+                        _log(
                             f"[Flux {cfg.id}] Statut: {len(item_ids)} RCB abonnés, "
                             f"{runtime.reports_since_log} report(s) reçu(s) sur les "
-                            f"{int(now - runtime.last_log_ts)} dernières secondes.",
-                            flush=True,
+                            f"{int(now - runtime.last_log_ts)} dernières secondes."
                         )
                         runtime.reports_since_log = 0
                         runtime.last_log_ts = now
+                    show_console = _DEBUG_CONSOLE.get(cfg.id, False)
                     process_mms_report(
                         report,
                         vm_url=vm_url,
-                        show_in_console=cfg.debug,
+                        show_in_console=show_console,
                         verbose=False,
                         batch_interval_sec=batch_interval_sec,
                         batch_max_lines=500,
                         member_components=DATA_SET_MEMBER_COMPONENTS or None,
+                        console_out=_log_stream,
                     )
 
                 for i, item_id in enumerate(item_ids, 1):

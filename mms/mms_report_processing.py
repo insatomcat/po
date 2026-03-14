@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 """
 Logique commune de traitement des reports MMS :
   - formatage texte pour la console
@@ -194,23 +196,31 @@ def _is_undecoded_raw(report: MMSReport) -> bool:
     return isinstance(e, dict) and "raw_hex" in e
 
 
-def _print_report(report: MMSReport, verbose: bool = False) -> None:
-    """Affiche le détail d'un report dans la console."""
-    print("REPORT reçu :", flush=True)
+def _print_report(report: MMSReport, verbose: bool = False, out: Any = None) -> None:
+    """Affiche le détail d'un report dans la console.
+    out: stream de sortie (sys.__stdout__ pour contourner TeeStdout), ou None pour print().
+    """
+    def w(s: str = "") -> None:
+        if out is not None:
+            out.write(s + "\n")
+            out.flush()
+        else:
+            print(s, flush=True)
+    w("REPORT reçu :")
     if verbose and getattr(report, "raw_pdu", None):
         pdu = report.raw_pdu
-        print(f"  [verbose] PDU brut ({len(pdu)} octets) :")
-        print(f"      {_hex_block(pdu)}")
-        print()
-    print(f"  RptId       : {report.rpt_id}")
-    print(f"  DataSet     : {report.data_set_name}")
-    print(f"  SeqNum      : {report.seq_num}")
+        w(f"  [verbose] PDU brut ({len(pdu)} octets) :")
+        w(f"      {_hex_block(pdu)}")
+        w()
+    w(f"  RptId       : {report.rpt_id}")
+    w(f"  DataSet     : {report.data_set_name}")
+    w(f"  SeqNum      : {report.seq_num}")
     toe = report.time_of_entry
     toe_note = ""
     if isinstance(toe, str) and len(toe) >= 4 and toe[:4].isdigit() and int(toe[:4]) < 2000:
         toe_note = "  (epoch IEC 61850 1984, souvent = horloge IED non synchronisée)"
-    print(f"  TimeOfEntry : {toe}{toe_note}")
-    print(f"  BufOvfl     : {report.buf_ovfl}")
+    w(f"  TimeOfEntry : {toe}{toe_note}")
+    w(f"  BufOvfl     : {report.buf_ovfl}")
     if report.entries:
         ds_name = report.data_set_name or ""
         member_labels = DATA_SET_MEMBER_LABELS.get(ds_name, [])
@@ -221,10 +231,10 @@ def _print_report(report: MMSReport, verbose: bool = False) -> None:
                 if k.endswith(suffix):
                     member_labels = labels
                     break
-        print(f"  Entries ({len(report.entries)}) :")
+        w(f"  Entries ({len(report.entries)}) :")
         if len(report.entries) > len(ENTRY_LABELS):
-            print("  (à partir de [8] : 1er, 2e, … membre du data set)")
-            print("  (chaque membre = valeur mesurée + qualité IEC 61850 + horodatage)")
+            w("  (à partir de [8] : 1er, 2e, … membre du data set)")
+            w("  (chaque membre = valeur mesurée + qualité IEC 61850 + horodatage)")
         for i, e in enumerate(report.entries):
             val = e.get("success", e) if isinstance(e, dict) else e
             if i < len(ENTRY_LABELS):
@@ -240,11 +250,11 @@ def _print_report(report: MMSReport, verbose: bool = False) -> None:
                     label = ""
             disp = _format_entry_value(val)
             if label:
-                print(f"    [{i}] {label}: {disp}")
+                w(f"    [{i}] {label}: {disp}")
             else:
-                print(f"    [{i}] {disp}")
+                w(f"    [{i}] {disp}")
             if verbose:
-                print(f"         raw= {val!r}")
+                w(f"         raw= {val!r}")
 
 
 def process_mms_report(  # noqa: PLR0913
@@ -256,13 +266,21 @@ def process_mms_report(  # noqa: PLR0913
     batch_interval_sec: float = 0.2,
     batch_max_lines: int = 500,
     member_components: dict[str, dict[str, list[str]]] | None = None,
+    console_out: Any = None,
 ) -> None:
     """Traitement standard d'un report MMS : push VM + affichage console."""
+    def _out(s: str) -> None:
+        if console_out is not None:
+            console_out.write(s + "\n")
+            console_out.flush()
+        else:
+            print(s, flush=True)
+
     if _is_undecoded_raw(report):
         n = len(report.entries[0].get("raw_hex", "")) // 2 if report.entries else 0
-        print(f"  [PDU non décodé, {n} octets] (autre type de message MMS)")
+        _out(f"  [PDU non décodé, {n} octets] (autre type de message MMS)")
         if verbose and report.entries:
-            print(f"      {report.entries[0].get('raw_hex', '')[:120]}...")
+            _out(f"      {report.entries[0].get('raw_hex', '')[:120]}...")
         return
 
     if vm_url:
@@ -277,9 +295,9 @@ def process_mms_report(  # noqa: PLR0913
                 batch_max_lines=batch_max_lines,
             )
         except Exception as e:  # pragma: no cover - log simple
-            print(f"[VictoriaMetrics] {e}", flush=True)
+            _out(f"[VictoriaMetrics] {e}")
         if not show_in_console:
             return
 
-    _print_report(report, verbose=verbose)
+    _print_report(report, verbose=verbose, out=console_out)
 
