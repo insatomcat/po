@@ -39,3 +39,4 @@ goose/streams.json
 goose/recents.json
 svgenerator/flows.json
 svgenerator/recents.json
+svgenerator/pids/
