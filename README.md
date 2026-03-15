@@ -1,98 +1,67 @@
-# Client MMS IEC 61850 – Reports
+# PO – Plateforme IEC 61850
 
-Client MMS en Python pour **s’abonner aux reports** IEC 61850 et recevoir les données en push. Implémentation **sans bibliothèque GPL** : TPKT/COTP et encodage/décodage MMS en BER (ASN.1) dans le projet.
+Plateforme logicielle pour **MMS** (reports), **GOOSE** et **Sampled Values (SV)** selon les normes IEC 61850. Implémentations en Python, sans dépendance GPL pour le cœur MMS (TPKT/COTP/MMS en BER).
 
-## Fonctionnalités
+## Vue d’ensemble
 
-- Connexion TCP → TPKT (RFC 1006) → COTP classe 0 → MMS
-- Initiate MMS, puis **GetRCBValues** + **SetRCBValues** (RptEna, options) pour chaque RCB
-- Réception des **reports** (unconfirmed PDU [RPT] / informationReport)
-- Décodage des entrées : en-tête (RptId, DataSet, SeqNum, TimeOfEntry, BufOvfl, …) et **membres du Data Set** (valeur, qualité, horodatage)
-- Option **SCL/ICD** : chargement d’un fichier CID/SCL pour afficher les noms des membres (ex. `[8] LogOut10`, `[9] A.phsA`, `[12] Hz`)
+| Composant | Rôle | Dossier |
+|-----------|------|---------|
+| **Service unifié** | HTTP sur un seul port (7050) : Web UI, API MMS/GOOSE/SV, proxy SV Listener | Racine (`po_service.py`, `unified_ui.html`) |
+| **MMS** | Client reports IEC 61850, service HTTP, API, CLI | [mms/](mms/README.md) |
+| **GOOSE** | Envoi/réception GOOSE, service HTTP, API, CLI, bibliothèque | [goose/](goose/README.md) |
+| **SV Generator** | Générateur de flux SV (IEC 61869-9), service FastAPI, API, CLI | [svgenerator/](svgenerator/README.md) |
+| **SV Listener View** | Capture et visualisation SV (phasors U/I), interface web | [svlistener_view/](svlistener_view/README.md) |
 
 ## Prérequis
 
 - **Python 3.10+**
-- Aucune dépendance externe : tout tourne avec la stdlib, sans conteneur ni `pip install`
+- Pour MMS : stdlib uniquement (pas de `pip install`)
+- Pour GOOSE : stdlib
+- Pour SV Generator : voir [svgenerator/requirements.txt](svgenerator/requirements.txt) (FastAPI, Pydantic, etc.)
+- Pour SV Listener View : `pcapy`, Flask (voir [svlistener_view/](svlistener_view/README.md))
 
-## Utilisation
+## Démarrage rapide – Service unifié
 
-Script principal : **`mms/test_client_reports.py`**
+Tout démarrer sur le port **7050** (Web UI + APIs) :
 
 ```bash
-# Connexion à l’IED par défaut (host/port dans le script)
-python3 -m mms.test_client_reports
-
-# Host et port explicites
-python3 -m mms.test_client_reports 10.132.159.191 102
-
-# Avec domain ID (défaut : VMC7_1LD0)
-python3 -m mms.test_client_reports --domain MON_IED_1LD0 10.132.159.191 102
-
-# Avec fichier SCL/ICD pour les libellés des membres du data set
-python3 -m mms.test_client_reports --scl ./IECS.cid 10.132.159.191 102
-
-# Envoyer les valeurs des reports vers VictoriaMetrics (pour Grafana)
-python3 -m mms.test_client_reports --victoriametrics-url http://localhost:8428 --scl ./IECS.cid
-
-# Debug (PDU envoyés/reçus) et verbose (PDU brut + valeur brute des entrées)
-python3 -m mms.test_client_reports --debug --verbose --scl ./IECS.cid
+python3 po_service.py --port 7050
 ```
 
-**Grafana : afficher un point toutes les 2–4 s**  
-Par défaut Grafana utilise un « step » d’environ 15 s, donc un seul point par tranche. Pour voir tous les points poussés (toutes les 2–4 s) : dans le panneau, onglet **Query** → options de la requête (icône engrenage ou « Query options ») → **Min step** = `2s` ou `1s`. Vous pouvez aussi réduire l’intervalle dans « Resolution » si disponible.
+Puis ouvrir **http://localhost:7050** : interface avec onglets MMS | GOOSE | SV | SV Listener.
 
-### Options
+Options utiles :
 
-| Option | Description |
+- `--victoriametrics-url http://localhost:8428` : push des reports MMS vers VictoriaMetrics (Grafana)
+- `--svview-interface eth0` : active le proxy vers le SV Listener (capture SV sur `eth0`) et l’onglet SV Listener
+
+### Endpoints principaux
+
+| Chemin | Description |
 |--------|-------------|
-| `--debug` | Affiche les PDUs MMS envoyés et reçus (hex) |
-| `--verbose` | Affiche le PDU brut et la valeur brute de chaque entrée de report |
-| `--scl FICHIER` | Fichier SCL ou ICD (ex. IECS.cid) pour afficher les noms des membres (Beh, A.phsA, Hz, …) |
-| `--domain ID` | Domain ID MMS (défaut : VMC7_1LD0) |
-| `--victoriametrics-url URL` | Envoyer les valeurs des reports vers VictoriaMetrics (ex. http://localhost:8428) |
-| `--vm-batch-ms MS` | Intervalle de batch VM en ms (défaut : 200). Une requête HTTP par intervalle ou dès 500 lignes. |
-| `--vm-no-batch` | Désactiver le batching : une requête HTTP par report (comportement legacy). |
-| `host` | Adresse IP de l’IED (défaut : 10.132.159.191) |
-| `port` | Port MMS (défaut : 102) |
+| `/` | Web UI unifiée |
+| `/healthz` | Health check |
+| `/api/mms/*` | API MMS (abonnements, recents, logs SSE) |
+| `/api/goose/*` | API GOOSE (streams, recent, restart) |
+| `/api/sv/*` | API SV (flux, recents) |
+| `/api/svview/*` | Proxy vers SV Listener (si `--svview-interface` configuré) |
 
-### Exemple de sortie (avec --scl)
+## Structure du dépôt
 
 ```
-REPORT reçu :
-  RptId       : LDPHAS1_CYPO_DEP1
-  DataSet     : VMC7_1LD0/LLN0$DS_LDPHAS1_CYPO
-  SeqNum      : 1
-  TimeOfEntry : 1984-12-04T04:08:33.234970+00:00
-  BufOvfl     : False
-  Entries (24) :
-    [0] RptId: LDPHAS1_CYPO_DEP1
-    ...
-    [8] LogOut10: value=False  quality=030000
-    [9] A.phsA: value=[[0.0], [0.0]]  quality=030000
-    [12] Hz: value=[50.0]  quality=034000  time=2040-02-27T22:07:25+00:00
-    [16] qualité(LogOut10): 0208 (good)
-    [17] qualité(A.phsA): 0208 (good)
+po/
+├── README.md              # Ce fichier
+├── po_service.py          # Service HTTP unifié (port 7050)
+├── unified_ui.html        # Interface web (onglets MMS/GOOSE/SV/SV Listener)
+├── mms/                   # Client MMS, service, API, CLI → mms/README.md
+├── goose/                 # GOOSE service, lib, CLI → goose/README.md
+├── svgenerator/           # Générateur SV, API, CLI → svgenerator/README.md
+└── svlistener_view/       # Listener + vue SV → svlistener_view/README.md
 ```
 
-Les RCB abonnés sont définis dans `mms/test_client_reports.py` (liste `ITEM_IDS`). Les PDU qui ne sont pas des reports (ex. autres types MMS) sont affichés en une ligne : `[PDU non décodé, N octets]`.
+Chaque sous-dossier contient son propre **README** (applications, services, clients CLI, API).
 
-## Fichier SCL/ICD
+## Licence et contraintes
 
-Pour avoir des libellés lisibles (`[8] LogOut10`, `[9] A.phsA`, etc.), fournir le **fichier CID** (Configured IED Description) de l’IED, en général dans la config de l’appareil (ex. `/etc/cap/ied-1/config/IECS.cid`). Le script parse les DataSet et leurs FCDA pour faire correspondre l’index d’entrée au nom du membre.
-
-## Structure du projet
-
-Tout le code MMS est regroupé dans le dossier `mms/` :
-
-| Fichier | Rôle |
-|---------|------|
-| `mms/tpkt.py` | TPKT RFC 1006 (send/recv) |
-| `mms/cotp.py` | COTP classe 0 (connexion, send_data, recv_data) |
-| `mms/asn1_codec.py` | Encodage BER MMS (Initiate, GetRCBValues, SetRCBValues), décodage des reports |
-| `mms/mms_reports_client.py` | Client : connexion TCP/COTP/MMS, Initiate, enable_reporting, loop_reports |
-| `mms/scl_parser.py` | Parse SCL/ICD pour extraire DataSet et FCDA → mapping nom du data set → liste de libellés |
-| `mms/test_client_reports.py` | Script de test : abonnement à une liste de RCB, affichage des reports |
-| `mms/victoriametrics_push.py` | Conversion report → format Prometheus et POST vers /api/v1/import/prometheus |
-| `mms/discover_reports.py` | Découverte des reports MMS disponibles sur un IED |
-| `mms/mmsctl.py` | CLI pour piloter le service MMS HTTP (`python3 -m mms.mmsctl` ou `python3 mms/mmsctl.py`) |
+- Cœur MMS : implémentation maison TPKT/COTP/MMS en BER, **sans bibliothèque GPL**.
+- Autres composants : voir les fichiers sources et README des sous-dossiers.
