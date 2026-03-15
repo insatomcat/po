@@ -160,7 +160,6 @@ class SubscriptionConfig:
 @dataclass
 class SubscriptionRuntime:
     config: SubscriptionConfig
-    status: str = "stopped"  # "running" | "stopped" | "error"
     last_error: Optional[str] = None
     thread: Optional[threading.Thread] = None
     stop_event: threading.Event = threading.Event()
@@ -251,7 +250,6 @@ class SubscriptionManager:
         t = runtime.thread
         if t and t.is_alive():
             t.join(timeout=5.0)
-        runtime.status = "stopped"
         self._start_subscription_thread(runtime)
         return runtime
 
@@ -327,7 +325,6 @@ class SubscriptionManager:
 
     def _start_subscription_thread(self, runtime: SubscriptionRuntime) -> None:
         runtime.stop_event = threading.Event()
-        runtime.status = "running"
         runtime.last_error = None
         runtime.total_reports = 0
         runtime.reports_since_log = 0
@@ -397,7 +394,6 @@ class SubscriptionManager:
         t = runtime.thread
         if t and t.is_alive():
             t.join(timeout=5.0)
-        runtime.status = "stopped"
 
     def _subscription_worker(self, runtime: SubscriptionRuntime) -> None:
         """Boucle de (re)connexion pour un flux, très proche de test_client_reports.main()."""
@@ -516,7 +512,6 @@ class SubscriptionManager:
                 if runtime.stop_event.is_set():
                     # Arrêt demandé pendant une opération MMS : on sort proprement.
                     break
-                runtime.status = "error"
                 runtime.last_error = str(e)
                 print(f"[MMS] Flux {cfg.id}: erreur de connexion ou de protocole : {e}")
                 print(f"[MMS] Flux {cfg.id}: nouvelle tentative dans {reconnect_delay_sec} s...")
@@ -527,7 +522,6 @@ class SubscriptionManager:
                 if runtime.stop_event.is_set():
                     # Erreur liée probablement à la fermeture du socket lors d'un arrêt demandé
                     break
-                runtime.status = "error"
                 runtime.last_error = str(e)
                 print(f"[Flux {cfg.id}] Erreur inattendue: {e}")
             finally:
@@ -546,7 +540,6 @@ class SubscriptionManager:
                     break
                 time.sleep(0.1)
 
-        runtime.status = "stopped"
         print(f"[Flux {cfg.id}] Arrêt du thread de subscription.")
 
 
