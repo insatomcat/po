@@ -412,12 +412,13 @@
     const mmsLogsEl = document.getElementById('mms-logs');
     const mmsLogsPauseBtn = document.getElementById('mms-logs-pause');
     let mmsLogsPaused = false;
-    const es = new EventSource(API.mms + '/logs');
     const mmsLogLines = [];
-    es.onmessage = e => {
+    // Un seul flux SSE = journalctl -f : le serveur envoie d’abord le buffer (500 lignes), puis le temps réel
+    const mmsLogsEs = new EventSource(API.mms + '/logs');
+    mmsLogsEs.onmessage = e => {
       mmsLogLines.push(e.data);
       if (mmsLogLines.length > 500) mmsLogLines.shift();
-      if (!mmsLogsPaused) {
+      if (!mmsLogsPaused && mmsLogsEl) {
         mmsLogsEl.textContent = mmsLogLines.join('\n');
         mmsLogsEl.scrollTop = mmsLogsEl.scrollHeight;
       }

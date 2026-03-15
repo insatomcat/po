@@ -145,8 +145,7 @@ def handle_mms(
 
 def serve_logs_sse(handler: Any) -> None:
     """
-    Sert le flux SSE des logs.
-    handler doit avoir: send_response, send_header, end_headers, wfile, et accès à LOG_LINES, LOG_LOCK, LOG_CONDITION.
+    Flux SSE = équivalent journalctl -f : envoie d'abord le buffer (500 lignes), puis le temps réel.
     """
     from mms.mms_service import LOG_LINES, LOG_LOCK, LOG_CONDITION
 
@@ -162,16 +161,23 @@ def serve_logs_sse(handler: Any) -> None:
     last_sent_seq = 0
     while True:
         try:
+            # Copier les lignes à envoyer sous le lock, sans faire d’I/O (évite bloquer le worker)
             with LOG_LOCK:
-                for seq, line in LOG_LINES:
-                    if seq > last_sent_seq:
-                        handler.wfile.write(
-                            f"data: {escape_sse(line)}\n\n".encode("utf-8")
-                        )
-                        handler.wfile.flush()
-                        last_sent_seq = seq
-                LOG_CONDITION.wait(timeout=2.0)
-            handler.wfile.write(b": \n\n")
-            handler.wfile.flush()
+                to_send = [
+                    (seq, line)
+                    for seq, line in LOG_LINES
+                    if seq > last_sent_seq
+                ]
+                if to_send:
+                    last_sent_seq = to_send[-1][0]
+                else:
+                    LOG_CONDITION.wait(timeout=0.5)
+            # Envoi hors lock pour ne pas bloquer _log()
+            for _seq, line in to_send:
+                handler.wfile.write(f"data: {escape_sse(line)}\n\n".encode("utf-8"))
+                handler.wfile.flush()
+            if not to_send:
+                handler.wfile.write(b": \n\n")
+                handler.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             break
