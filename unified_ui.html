@@ -253,7 +253,8 @@
   </style>
 
   <script>
-    const API = { mms: '/api/mms', goose: '/api/goose', sv: '/api/sv', svview: '/api/svview' };
+    // URLs relatives : le navigateur les résout par rapport à l'URL de la page (ex. /po/ → /po/api/...).
+    const API = { mms: 'api/mms', goose: 'api/goose', sv: 'api/sv', svview: 'api/svview' };
     const SVVIEW_API = API.svview + '/api';
     let mmsRecentsCache = [];
     let svLastRecents = [];
