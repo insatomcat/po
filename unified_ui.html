@@ -13,7 +13,9 @@
       --accent: #7aa2f7;
       --danger: #f7768e;
       --success: #9ece6a;
+      --svview-chart-h: 17vw;
     }
+    html { font-size: 70%; }
     * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -228,12 +230,14 @@
 
   <style>
     .svview-layout { display: grid; grid-template-columns: 1fr minmax(320px, 380px); gap: 1rem; margin-top: 1rem; }
+    .svview-layout > div:first-child { min-width: 0; }
     @media (max-width: 900px) { .svview-layout { grid-template-columns: 1fr; } }
-    .svview-phasors { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
-    .svview-phasor-svg { background: var(--bg); border-radius: 8px; padding: 8px; }
-    .svview-phasor-svg svg { display: block; }
+    .svview-phasors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; justify-items: center; }
+    .svview-phasor-svg { min-width: 0; width: 100%; max-width: var(--svview-chart-h); aspect-ratio: 1; height: auto; background: var(--bg); border-radius: 8px; padding: 8px; box-sizing: border-box; }
+    .svview-phasor-svg svg { display: block; width: 100%; height: 100%; }
     .svview-sinusoids { display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap; }
     .svview-sinusoids .svview-card { flex: 1; min-width: 0; }
+    .svview-sinusoids .svview-card svg { display: block; width: 100%; height: var(--svview-chart-h); }
     .svview-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
     .svview-stat { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; }
     .svview-stat .stat-label { color: var(--muted); }
@@ -829,8 +833,8 @@
             <div class="svview-card">
               <h2>Phasors</h2>
               <div class="svview-phasors">
-                <div class="svview-phasor-svg"><svg id="svview-svg-u" width="280" height="280"></svg></div>
-                <div class="svview-phasor-svg"><svg id="svview-svg-i" width="280" height="280"></svg></div>
+                <div class="svview-phasor-svg"><svg id="svview-svg-u" viewBox="0 0 280 280"></svg></div>
+                <div class="svview-phasor-svg"><svg id="svview-svg-i" viewBox="0 0 280 280"></svg></div>
               </div>
             </div>
             <div class="svview-sinusoids">
