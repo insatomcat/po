@@ -102,9 +102,8 @@ def cmd_list(args: argparse.Namespace) -> int:
         domain = sub.get("domain")
         host = sub.get("ied_host")
         port = sub.get("ied_port")
-        status_txt = sub.get("status")
         debug = sub.get("debug")
-        print(f"- {sid}: {domain} @ {host}:{port}  status={status_txt}  debug={debug}")
+        print(f"- {sid}: {domain} @ {host}:{port}  debug={debug}")
     return 0
 
 
