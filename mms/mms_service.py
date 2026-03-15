@@ -64,8 +64,8 @@ API HTTP (JSON, état persistant dans mms/subscriptions.json) :
             "scl": "...",
             "rcb_list": "...",
             "debug": true,
-            "status": "running" | "stopped" | "error",
-            "last_error": "..." | null
+            "last_error": "..." | null,
+            "rcb_items": ["...", ...]
           },
           ...
         ]
@@ -761,7 +761,6 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             "scl": cfg.scl,
             "rcb_list": cfg.rcb_list,
             "debug": cfg.debug,
-            "status": rt.status,
             "last_error": rt.last_error,
             "rcb_items": list(rt.rcb_items),
         }

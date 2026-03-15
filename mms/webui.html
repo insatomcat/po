@@ -165,7 +165,6 @@ SPDX-License-Identifier: Apache-2.0
         <th>Id</th>
         <th>Domaine</th>
         <th>IED</th>
-        <th>Statut</th>
         <th>Debug</th>
         <th>Actions</th>
       </tr>
@@ -232,6 +231,7 @@ SPDX-License-Identifier: Apache-2.0
       const rcbList = items.length
         ? '<ul class="rcb-list">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>'
         : '<span style="color:var(--muted)">(chargement en cours ou flux arrêté)</span>';
+      const errBlock = s.last_error ? `<dt>Dernière erreur</dt><dd class="error-msg">${escapeHtml(s.last_error)}</dd>` : '';
       return `<dl class="details-grid">
         <dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd>
         <dt>Domaine</dt><dd>${escapeHtml(s.domain)}</dd>
@@ -239,6 +239,7 @@ SPDX-License-Identifier: Apache-2.0
         <dt>RCB list</dt><dd>${escapeHtml(s.rcb_list) || 'liste intégrée'}</dd>
         <dt>Debug</dt><dd>${s.debug ? 'Oui' : 'Non'}</dd>
         <dt>Reports souscrits (${items.length})</dt><dd>${rcbList}</dd>
+        ${errBlock}
       </dl>`;
     }
 
@@ -253,15 +254,12 @@ SPDX-License-Identifier: Apache-2.0
         return;
       }
       tbody.innerHTML = rows.map((s, idx) => {
-        const statusClass = (s.status || '').toLowerCase();
-        const err = s.last_error ? `<div class="error-msg">${escapeHtml(s.last_error)}</div>` : '';
         const rowId = 'row-' + idx;
         const isExp = expanded.has(s.id);
         return `<tr data-id="${escapeHtml(s.id)}">
           <td><strong>${escapeHtml(s.id)}</strong></td>
           <td>${escapeHtml(s.domain)}</td>
           <td>${escapeHtml(s.ied_host)}:${s.ied_port}</td>
-          <td><span class="status ${statusClass}">${escapeHtml(s.status)}</span>${err}</td>
           <td>${s.debug ? 'Oui' : 'Non'}</td>
           <td class="actions">
             <button type="button" class="btn btn--small" data-action="expand" data-id="${escapeHtml(s.id)}" data-rowid="${rowId}">${isExp ? 'Réduire' : 'Détails'}</button>
@@ -269,7 +267,7 @@ SPDX-License-Identifier: Apache-2.0
             <button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button>
           </td>
         </tr>
-        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${detailsHtml(s)}</td></tr>`;
+        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="5">${detailsHtml(s)}</td></tr>`;
       }).join('');
 
       tbody.querySelectorAll('[data-action="expand"]').forEach(btn => {
