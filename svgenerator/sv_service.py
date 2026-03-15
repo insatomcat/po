@@ -404,7 +404,6 @@ def _webui_html() -> str:
     tr:hover td { background: rgba(255,255,255,0.03); }
     .status { font-weight: 500; }
     .status.running { color: var(--success); }
-    .status.stopped { color: var(--muted); }
     .details-row td {
       background: #0f0f14;
       padding: 1rem 0.75rem;
