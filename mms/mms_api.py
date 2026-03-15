@@ -49,7 +49,6 @@ def handle_mms(
             "scl": cfg.scl,
             "rcb_list": cfg.rcb_list,
             "debug": cfg.debug,
-            "status": rt.status,
             "last_error": rt.last_error,
             "rcb_items": list(rt.rcb_items),
         }

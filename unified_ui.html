@@ -159,7 +159,7 @@
       <button type="button" class="btn btn--danger" id="mms-purge">Tout supprimer</button>
       <span id="mms-loading"></span>
     </div>
-    <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Statut</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
+    <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
     <section class="recents-section"><h2>Récents</h2><div id="mms-recents"></div></section>
     <section class="logs-section">
       <h2 style="display:flex;align-items:center;gap:0.75rem">
@@ -300,6 +300,7 @@
     function mmsDetailsHtml(s) {
       const items = s.rcb_items || [];
       const rcbList = items.length ? '<ul style="margin:0;padding-left:1.2rem;max-height:12rem;overflow-y:auto">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>' : '<span style="color:var(--muted)">(chargement…)</span>';
+      const errBlock = s.last_error ? `<dt>Dernière erreur</dt><dd class="error-msg">${escapeHtml(s.last_error)}</dd>` : '';
       return `<dl class="details-grid">
         <dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd>
         <dt>Domaine</dt><dd>${escapeHtml(s.domain)}</dd>
@@ -307,20 +308,19 @@
         <dt>RCB list</dt><dd>${escapeHtml(s.rcb_list) || 'liste intégrée'}</dd>
         <dt>Debug</dt><dd>${s.debug ? 'Oui' : 'Non'}</dd>
         <dt>Reports (${items.length})</dt><dd>${rcbList}</dd>
+        ${errBlock}
       </dl>`;
     }
     function mmsRender(rows) {
       const tbody = document.getElementById('mms-list');
       const expanded = new Set();
       tbody.querySelectorAll('.details-row').forEach(r => { if (r.style.display !== 'none') expanded.add(r.dataset.id); });
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>'; return; }
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>'; return; }
       tbody.innerHTML = rows.map((s, idx) => {
-        const sc = (s.status || '').toLowerCase();
-        const err = s.last_error ? `<div class="error-msg">${escapeHtml(s.last_error)}</div>` : '';
         const rowId = 'mms-row-' + idx;
         const isExp = expanded.has(s.id);
-        return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td><span class="status ${sc}">${escapeHtml(s.status)}</span>${err}</td><td>${s.debug ? 'Oui' : 'Non'}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
-        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="7">${mmsDetailsHtml(s)}</td></tr>`;
+        return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td>${s.debug ? 'Oui' : 'Non'}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
+        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${mmsDetailsHtml(s)}</td></tr>`;
       }).join('');
       tbody.querySelectorAll('[data-action="expand"]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -385,7 +385,7 @@
       try {
         const [subs, rec] = await Promise.all([mmsSubs(), mmsRecents()]);
         mmsRender(subs);
-        const runningIds = new Set(subs.filter(s => (s.status || '').toLowerCase() === 'running').map(s => s.id));
+        const runningIds = new Set(subs.map(s => s.id));
         mmsRenderRecents(rec, runningIds, subs);
         document.getElementById('mms-loading').textContent = '';
       } catch (e) {
