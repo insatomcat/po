@@ -206,7 +206,7 @@
       <span id="sv-msg"></span>
     </div>
     <h2>Flux en cours</h2>
-    <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th>État</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
+    <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
     <section class="recents-section"><h2>Récents</h2><table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table></section>
   </div>
 
@@ -601,10 +601,10 @@
           ? flows.map((f, idx) => {
               const rowId = 'sv-row-' + idx;
               const isExp = svExpanded.has(f.name);
-              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><span class="status ${f.running?'running':'stopped'}">${f.running?'En cours':'Arrêté'}</span></td><td><button type="button" class="btn btn--small btn--danger sv-delete" data-name="${escapeHtml(f.name)}">Supprimer</button></td></tr>
-              <tr class="details-row" id="${rowId}" data-name="${escapeHtml(f.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="7">${svDetailsHtml(f)}</td></tr>`;
+              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><button type="button" class="btn btn--small btn--danger sv-delete" data-name="${escapeHtml(f.name)}">Supprimer</button></td></tr>
+              <tr class="details-row" id="${rowId}" data-name="${escapeHtml(f.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${svDetailsHtml(f)}</td></tr>`;
             }).join('')
-          : '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>';
+          : '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
         svTbody.querySelectorAll('[data-action="sv-expand"]').forEach(btn => {
           btn.addEventListener('click', () => {
             const r = document.getElementById(btn.dataset.rowid);

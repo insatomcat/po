@@ -449,7 +449,6 @@ def _webui_html() -> str:
         <th>src_mac → dst_mac</th>
         <th>svID</th>
         <th>VLAN</th>
-        <th>État</th>
         <th></th>
       </tr>
     </thead>
@@ -500,7 +499,6 @@ def _webui_html() -> str:
         ['fault_phase_deg', f.fault_phase_deg],
         ['fault_cycle_s', f.fault_cycle_s],
       ];
-      if (f.running !== undefined) kv.push(['running', f.running]);
       return kv.filter(([,v]) => v !== undefined && v !== null)
         .map(([k,v]) => '<dt>' + escapeHtml(k) + '</dt><dd>' + escapeHtml(String(v)) + '</dd>').join('');
     }
@@ -510,7 +508,7 @@ def _webui_html() -> str:
         if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
         const flows = await r.json();
         tbody.innerHTML = flows.length === 0
-          ? '<tr><td colspan="8" class="empty">Aucun flux.</td></tr>'
+          ? '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>'
           : flows.flatMap(f => {
               const rowId = 'row-' + escapeHtml(f.name);
               const detailsId = 'details-' + escapeHtml(f.name);
@@ -522,10 +520,9 @@ def _webui_html() -> str:
                   '<td>' + escapeHtml(f.src_mac) + ' → ' + escapeHtml(f.dst_mac) + '</td>' +
                   '<td>' + escapeHtml(f.svid) + '</td>' +
                   '<td>' + (f.vlan_id != null ? f.vlan_id + (f.vlan_priority != null ? ' (prio ' + f.vlan_priority + ')' : '') : '–') + '</td>' +
-                  '<td><span class="status ' + (f.running ? 'running' : 'stopped') + '">' + (f.running ? 'En cours' : 'Arrêté') + '</span></td>' +
                   '<td><button type="button" class="btn btn--danger btn--small delete-one" data-name="' + escapeHtml(f.name) + '">Supprimer</button></td>' +
                 '</tr>',
-                '<tr id="' + detailsId + '" class="details-row" style="display:none"><td colspan="8"><div class="details-grid">' + formatFlowDetails(f) + '</div></td></tr>'
+                '<tr id="' + detailsId + '" class="details-row" style="display:none"><td colspan="7"><div class="details-grid">' + formatFlowDetails(f) + '</div></td></tr>'
               ];
             }).join('');
         tbody.querySelectorAll('[data-target]').forEach(btn => {
