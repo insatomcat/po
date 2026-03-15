@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "goose"))
 sys.path.insert(0, str(ROOT / "svgenerator"))
 
 # Import après configuration du path
+from mms import mms_service as _mms_svc
 from mms.mms_service import SubscriptionManager, _TeeStdout
 from mms.mms_api import handle_mms, serve_logs_sse
 from goose61850.service import GooseService, _handle_api as goose_handle_api
@@ -95,7 +96,7 @@ class UnifiedHandler(BaseHTTPRequestHandler):
             self._serve_unified_ui()
             return
         if path.startswith("/api/mms/"):
-            sub = path[len("/api/mms"):] or "/"
+            sub = path[len("/api/mms"):].split("?")[0] or "/"
             if sub == "/logs":
                 serve_logs_sse(self)
                 return
@@ -260,7 +261,15 @@ class UnifiedHandler(BaseHTTPRequestHandler):
         self.wfile.write(html.encode("utf-8"))
 
     def log_message(self, format: str, *args: object) -> None:
-        print(f"[HTTP] {self.address_string()} - {format % args}")
+        msg = f"[HTTP] {self.address_string()} - {format % args}"
+        print(msg)
+        # Alimenter le buffer des logs MMS (affichage onglet MMS) même après restart
+        with _mms_svc.LOG_LOCK:
+            _mms_svc.LOG_NEXT_SEQ += 1
+            _mms_svc.LOG_LINES.append((_mms_svc.LOG_NEXT_SEQ, msg))
+            if len(_mms_svc.LOG_LINES) > _mms_svc.LOG_MAX:
+                _mms_svc.LOG_LINES.pop(0)
+            _mms_svc.LOG_CONDITION.notify_all()
 
 
 def main() -> int:
