@@ -509,8 +509,26 @@
         });
         const gooseRecentsExpanded = new Set();
         document.getElementById('goose-recents').querySelectorAll('.goose-recent-details').forEach(d => { if (d.style.display !== 'none') gooseRecentsExpanded.add(d.dataset.id); });
-        document.getElementById('goose-recents').innerHTML = recent.length
-          ? recent.map((r, idx) => {
+
+        // Déduplication des flux récents GOOSE :
+        // on considère qu'un flux est le même s'il partage (iface, src_mac, dst_mac, app_id, gocbRef, goID).
+        const dedupMap = new Map();
+        for (const r of recent) {
+          const key = [
+            r.iface || '',
+            r.src_mac || '',
+            r.dst_mac || '',
+            r.app_id ?? '',
+            r.gocb_ref || '',
+            r.go_id || '',
+          ].join('|');
+          // On garde simplement la dernière occurrence pour ce flux logique.
+          dedupMap.set(key, r);
+        }
+        const dedupedRecent = Array.from(dedupMap.values());
+
+        document.getElementById('goose-recents').innerHTML = dedupedRecent.length
+          ? dedupedRecent.map((r, idx) => {
               const canRestart = !activeGrefs.has(r.gocb_ref);
               const detailId = 'goose-recent-' + idx;
               const isExp = gooseRecentsExpanded.has(r.id);

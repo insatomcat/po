@@ -215,11 +215,13 @@ class GooseService:
         """Ajoute une entrée à l'historique récent si elle est vraiment nouvelle.
 
         "Nouvelle" signifie qu'aucun élément existant de _recent n'a exactement les
-        mêmes paramètres (y compris all_data), à l'exception des champs d'id et de
-        compteurs stNum/sqNum.
+        mêmes paramètres « de configuration » (interface + adresses + GOOSE params),
+        à l'exception des champs d'id, des compteurs stNum/sqNum et du contenu
+        all_data, qui peuvent évoluer dans le temps pour un même flux logique.
         """
         with self._streams_lock:
-            # Filtre de dé-duplication : on compare la config hors id/st_num/sq_num.
+            # Filtre de dé-duplication : on compare la config hors id/st_num/sq_num
+            # et hors all_data, pour ne garder qu'une seule entrée par flux logique.
             def _config_key(e: Dict[str, Any]) -> Dict[str, Any]:
                 return {
                     k: e.get(k)
@@ -237,7 +239,6 @@ class GooseService:
                         "conf_rev",
                         "simulation",
                         "nds_com",
-                        "all_data",
                     )
                 }
 
@@ -372,11 +373,20 @@ class GooseService:
                     self._streams[s.id] = s
                 except Exception:
                     continue
+
             # Recharge l'historique récent tel quel (les conversions auront lieu
             # au moment d'une éventuelle relance).
             for e in recent_data:
                 if isinstance(e, dict):
                     self._recent.append(e)
+
+            # Si aucun historique récent n'est présent mais que des flux sont
+            # configurés, on initialise _recent avec un snapshot des flux
+            # actuels. Cela permet d'avoir une liste « Récents » non vide
+            # juste après un redémarrage, même avant toute suppression.
+            if not self._recent and self._streams:
+                for s in list(self._streams.values())[:10]:
+                    self._recent.append(_stream_to_dict(s))
 
     def _sender_loop(self) -> None:
         while not self._stop.wait(0.01):
