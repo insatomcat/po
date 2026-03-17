@@ -159,10 +159,11 @@
     <div class="toolbar">
       <button type="button" class="btn btn--accent" id="mms-refresh">Actualiser</button>
       <button type="button" class="btn btn--danger" id="mms-purge">Tout supprimer</button>
+      <button type="button" class="btn btn--small" id="mms-toggle-recents">Récents</button>
       <span id="mms-loading"></span>
     </div>
     <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
-    <section class="recents-section"><h2>Récents</h2><div id="mms-recents"></div></section>
+    <section class="recents-section" id="mms-recents-section" style="display:none"><h2>Récents</h2><div id="mms-recents"></div></section>
     <section class="logs-section">
       <h2 style="display:flex;align-items:center;gap:0.75rem">
         Logs
@@ -176,10 +177,11 @@
     <h1>Flux GOOSE</h1>
     <div class="toolbar">
       <button type="button" class="btn btn--accent" id="goose-refresh">Actualiser</button>
+      <button type="button" class="btn btn--small" id="goose-toggle-recents">Récents</button>
       <span id="goose-loading"></span>
     </div>
     <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
-    <section class="recents-section"><h2>Récents</h2><table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table></section>
+    <section class="recents-section" id="goose-recents-section" style="display:none"><h2>Récents</h2><table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table></section>
 
     <div id="goose-edit-modal" class="modal" style="display:none">
       <div class="modal-content">
@@ -205,11 +207,12 @@
     <div class="toolbar">
       <button type="button" class="btn btn--accent" id="sv-refresh">Actualiser</button>
       <button type="button" class="btn btn--danger" id="sv-purge">Tout supprimer</button>
+      <button type="button" class="btn btn--small" id="sv-toggle-recents">Récents</button>
       <span id="sv-msg"></span>
     </div>
     <h2>Flux en cours</h2>
     <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
-    <section class="recents-section"><h2>Récents</h2><table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table></section>
+    <section class="recents-section" id="sv-recents-section" style="display:none"><h2>Récents</h2><table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table></section>
   </div>
 
   <div id="panel-svview" class="panel">
@@ -422,6 +425,12 @@
         mmsLoad();
       } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
     });
+    const mmsRecentsSection = document.getElementById('mms-recents-section');
+    document.getElementById('mms-toggle-recents').addEventListener('click', () => {
+      if (!mmsRecentsSection) return;
+      const visible = mmsRecentsSection.style.display !== 'none';
+      mmsRecentsSection.style.display = visible ? 'none' : 'block';
+    });
     const mmsLogsEl = document.getElementById('mms-logs');
     const mmsLogsPauseBtn = document.getElementById('mms-logs-pause');
     let mmsLogsPaused = false;
@@ -553,6 +562,12 @@
       }).catch(e => { document.getElementById('goose-loading').textContent = 'Erreur: ' + e.message; });
     }
     document.getElementById('goose-refresh').addEventListener('click', gooseLoad);
+    const gooseRecentsSection = document.getElementById('goose-recents-section');
+    document.getElementById('goose-toggle-recents').addEventListener('click', () => {
+      if (!gooseRecentsSection) return;
+      const visible = gooseRecentsSection.style.display !== 'none';
+      gooseRecentsSection.style.display = visible ? 'none' : 'block';
+    });
 
     async function gooseEdit(streamId) {
       const modal = document.getElementById('goose-edit-modal');
@@ -708,6 +723,12 @@
       document.getElementById('sv-msg').textContent = 'Tous les flux supprimés.';
       document.getElementById('sv-msg').className = 'ok';
       svLoad();
+    });
+    const svRecentsSection = document.getElementById('sv-recents-section');
+    document.getElementById('sv-toggle-recents').addEventListener('click', () => {
+      if (!svRecentsSection) return;
+      const visible = svRecentsSection.style.display !== 'none';
+      svRecentsSection.style.display = visible ? 'none' : 'block';
     });
 
     // --- SV Listener ---
