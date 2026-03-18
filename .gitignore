@@ -35,6 +35,7 @@ rcb_*.txt
 # Fichiers de persistance (état des flux par application)
 mms/subscriptions.json
 mms/recents.json
+mms/commands.json
 goose/streams.json
 goose/recents.json
 svgenerator/flows.json

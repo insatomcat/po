@@ -172,6 +172,19 @@ class SubscriptionRuntime:
     debug_console: list = field(default_factory=lambda: [False])
 
 
+@dataclass
+class MMSCommandConfig:
+    """Configuration persistée d'une commande MMS (write/operate)."""
+
+    id: str
+    name: str
+    ied_host: str
+    ied_port: int
+    domain: str
+    item: str
+    position: str  # "open" | "closed" | "intermediate"
+
+
 RECENTS_MAX = 20
 
 # Drapeau debug par flux (in-memory, pas de persistance)
@@ -181,6 +194,7 @@ _DEBUG_CONSOLE: Dict[str, bool] = {}
 _MMS_DIR = Path(__file__).resolve().parent
 SUBSCRIPTIONS_PATH = _MMS_DIR / "subscriptions.json"
 RECENTS_PATH = _MMS_DIR / "recents.json"
+COMMANDS_PATH = _MMS_DIR / "commands.json"
 
 
 class SubscriptionManager:
@@ -189,13 +203,16 @@ class SubscriptionManager:
     def __init__(self, vm_url: Optional[str], vm_batch_ms: int) -> None:
         self._subs: Dict[str, SubscriptionRuntime] = {}
         self._recents: list[Dict[str, Any]] = []
+        self._commands: Dict[str, MMSCommandConfig] = {}
         self._lock = threading.Lock()
         self._vm_url = vm_url
         self._vm_batch_ms = vm_batch_ms
         self._state_path = SUBSCRIPTIONS_PATH
         self._recents_path = RECENTS_PATH
+        self._commands_path = COMMANDS_PATH
         self._load_state()
         self._load_recents()
+        self._load_commands()
 
     def list_subscriptions(self) -> Dict[str, SubscriptionRuntime]:
         with self._lock:
@@ -320,6 +337,247 @@ class SubscriptionManager:
             os.replace(tmp_path, self._recents_path)
         except Exception as e:
             print(f"[Recents] Erreur sauvegarde {self._recents_path}: {e}")
+
+    # --- commandes MMS (persistence + envoi) ---
+
+    def list_commands(self) -> list[Dict[str, Any]]:
+        with self._lock:
+            return [asdict(c) for c in self._commands.values()]
+
+    def get_command(self, cmd_id: str) -> Optional[MMSCommandConfig]:
+        with self._lock:
+            return self._commands.get(cmd_id)
+
+    def create_command(self, cfg: MMSCommandConfig) -> MMSCommandConfig:
+        with self._lock:
+            if cfg.id in self._commands:
+                raise ValueError(f"command {cfg.id!r} already exists")
+            self._commands[cfg.id] = cfg
+            self._save_commands_locked()
+        return cfg
+
+    def delete_command(self, cmd_id: str) -> None:
+        with self._lock:
+            if cmd_id not in self._commands:
+                raise KeyError(cmd_id)
+            self._commands.pop(cmd_id, None)
+            self._save_commands_locked()
+
+    def purge_commands(self) -> None:
+        with self._lock:
+            self._commands.clear()
+            self._save_commands_locked()
+
+    def send_command(self, cmd_id: str) -> str:
+        """
+        Envoie la commande MMS configurée et retourne la réponse brute en hex.
+        """
+        with self._lock:
+            cfg = self._commands.get(cmd_id)
+        if not cfg:
+            raise KeyError(cmd_id)
+
+        from mms.mms_commands_codec import encode_pos_oper_write
+        from mms.mms_reports_client import MMSReportsClient
+
+        client = MMSReportsClient(cfg.ied_host, cfg.ied_port, timeout=5.0, debug=False)
+        try:
+            client.connect()
+
+            expected_item = cfg.item.encode("ascii", errors="ignore")
+            expected_obj = f"{cfg.domain}/{cfg.item}".encode("ascii", errors="ignore")
+
+            def _extract_error_addcause(resp_bytes: bytes) -> tuple[int | None, int | None]:
+                if b"LastApplError" not in resp_bytes:
+                    return None, None
+                start = resp_bytes.find(b"LastApplError")
+                window = resp_bytes[start:]
+                vals: list[int] = []
+                for i in range(len(window) - 2):
+                    if window[i] == 0x85 and window[i + 1] == 0x01:
+                        vals.append(window[i + 2])
+                # error (ControlLastApplError) est dans {0,1,2,3}
+                err_candidates = [v for v in vals if v in (0, 1, 2, 3)]
+                error = err_candidates[-1] if err_candidates else None
+                # addCause est souvent le seul autre entier "significatif"
+                non_err = [v for v in vals if v not in (0, 1, 2, 3)]
+                addCause = non_err[0] if non_err else (vals[-1] if vals else None)
+                return error, addCause
+
+            # addCause IEC 61850 → libellé court pour les logs
+            _ADDCAUSE_LABELS: dict[int, str] = {
+                0: "unknown", 1: "not-supported", 2: "blocked-by-switching-hierarchy",
+                3: "select-failed", 4: "invalid-position", 5: "position-reached",
+                6: "param-chg-in-execution", 7: "step-limit", 8: "blocked-by-interlocking",
+                9: "blocked-by-synchrocheck", 10: "command-already-in-execution",
+                11: "blocked-by-health", 12: "1-of-n-control",
+            }
+
+            def _log_step_response(step: str, resp: bytes) -> None:
+                """Loggue la réponse d'une étape avec addCause décodé."""
+                e2, ac = _extract_error_addcause(resp)
+                ac_label = _ADDCAUSE_LABELS.get(ac, str(ac)) if ac is not None else "n/a"
+                # a0 4e / a0 03 = failure dans write-response ; a1 = success
+                if b"\xa0\x4e" in resp or b"\xa0\x03" in resp:
+                    status = "FAILURE"
+                elif b"\xa1" in resp:
+                    status = "success"
+                else:
+                    status = "?"
+                print(
+                    f"[MMS-CMD] {step} response status={status} error={e2} "
+                    f"addCause={ac} ({ac_label}) hex={resp.hex()}",
+                    flush=True,
+                )
+
+            def _send_three_step_sequence() -> bytes:
+                # Protocole validé terrain :
+                # L'IED s'attend à UN SEUL PDU Oper par commande (direct-with-enhanced-security).
+                # ctlNum=0 → ouvre ; ctlNum=1 → ferme.
+                # Envoyer step2 après open (ctlNum=1) déclenche une FERMETURE immédiate.
+                # → open  : 1 seul PDU (step1 ctlNum=0), pas de step2 ni step3.
+                # → close : 1 PDU Oper (step1 ctlNum=1) + step3 execute pour compléter la séquence.
+
+                pdu1 = encode_pos_oper_write(  # type: ignore[arg-type]
+                    domain_id=cfg.domain,
+                    item_id=cfg.item,
+                    position=cfg.position,
+                    step="step1",
+                )
+                print(
+                    f"[MMS-CMD] send oper position={cfg.position} domain={cfg.domain} item={cfg.item} "
+                    f"pdu_len={len(pdu1)} pdu_hex={pdu1.hex()}",
+                    flush=True,
+                )
+                resp1 = client.send_confirmed_pdu_and_wait(pdu1)
+                _log_step_response("oper", resp1)
+
+                if cfg.position == "open":
+                    # Un seul PDU suffit pour l'ouverture.
+                    print("[MMS-CMD] open: séquence complète (1 seul PDU Oper)", flush=True)
+                    return resp1
+
+                # closed : step3 execute requis pour déclencher la CommandTermination finale
+                time.sleep(0.01)
+                resp3 = resp1
+                try:
+                    from mms.mms_commands_codec import encode_pos_oper_execute_step3
+
+                    pdu3 = encode_pos_oper_execute_step3(
+                        domain_id=cfg.domain,
+                        item_id=cfg.item,
+                        position=cfg.position,
+                    )
+                    print(
+                        f"[MMS-CMD] send step3(execute) position={cfg.position} "
+                        f"domain={cfg.domain} item={cfg.item} pdu_len={len(pdu3)} pdu_hex={pdu3.hex()}",
+                        flush=True,
+                    )
+                    client.send_confirmed_pdu(pdu3)
+                    try:
+                        resp3 = client.recv_until_contains(
+                            substrings=(b"LastApplError", expected_item, expected_obj),
+                            timeout_total=4.5,
+                            per_read_timeout=0.5,
+                            stop_on_first=False,
+                        )
+                    except TypeError:
+                        resp3 = client.recv_until_contains(
+                            substrings=(b"LastApplError", expected_item, expected_obj),
+                            timeout_total=4.5,
+                            per_read_timeout=0.5,
+                        )
+                except Exception as e:
+                    print(f"[MMS-CMD] step3 skipped due to: {e}", flush=True)
+
+                return resp3
+
+            resp2 = _send_three_step_sequence()
+            err, addCause = _extract_error_addcause(resp2)
+
+            if addCause == 12:
+                # Commande déjà en exécution :
+                # - on évite de rejouer immédiatement sur la même association,
+                # - on laisse une fenêtre plus longue à l'IED pour libérer l'état.
+                print(
+                    "[MMS-CMD] addCause=12 (COMMAND_ALREADY_IN_EXECUTION). "
+                    "Retry after reconnect and longer delay…",
+                    flush=True,
+                )
+                try:
+                    client.close()
+                except Exception:
+                    pass
+                time.sleep(8.0)
+                client.connect()
+                resp2 = _send_three_step_sequence()
+
+            resp_hex = resp2.hex()
+            ac_label = _ADDCAUSE_LABELS.get(addCause, str(addCause)) if addCause is not None else "n/a"
+            print(
+                f"[MMS-CMD] final response error={err} addCause={addCause} ({ac_label}) "
+                f"response_hex={resp_hex}",
+                flush=True,
+            )
+            return resp_hex
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    def _load_commands(self) -> None:
+        try:
+            with open(self._commands_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except FileNotFoundError:
+            return
+        except Exception as e:
+            print(f"[MMS-CMD] Impossible de charger {self._commands_path}: {e}")
+            return
+
+        if isinstance(raw, list):
+            items = raw
+        elif isinstance(raw, dict):
+            items = raw.get("commands", raw.get("cmds", []))
+        else:
+            return
+
+        if not isinstance(items, list):
+            return
+
+        loaded: Dict[str, MMSCommandConfig] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                cmd = MMSCommandConfig(
+                    id=str(item["id"]),
+                    name=str(item.get("name") or item["id"]),
+                    ied_host=str(item["ied_host"]),
+                    ied_port=int(item.get("ied_port", 102)),
+                    domain=str(item["domain"]),
+                    item=str(item["item"]),
+                    position=str(item.get("position") or "closed"),
+                )
+            except Exception:
+                continue
+            loaded[cmd.id] = cmd
+
+        with self._lock:
+            self._commands = loaded
+        if loaded:
+            print(f"[MMS-CMD] {len(loaded)} commande(s) rechargée(s) depuis {self._commands_path}.")
+
+    def _save_commands_locked(self) -> None:
+        try:
+            payload = [asdict(c) for c in self._commands.values()]
+            tmp_path = self._commands_path.with_suffix(".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, self._commands_path)
+        except Exception as e:
+            print(f"[MMS-CMD] Erreur sauvegarde {self._commands_path}: {e}")
 
     # --- gestion des threads ---
 

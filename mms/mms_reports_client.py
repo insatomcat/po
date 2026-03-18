@@ -13,6 +13,7 @@ de l'implémentation concrète ASN.1/BER.
 from __future__ import annotations
 
 import socket
+import time
 from typing import Callable, Optional
 
 HEARTBEAT_INTERVAL = 60.0  # secondes entre deux messages "en attente"
@@ -275,4 +276,112 @@ class MMSReportsClient:
                 decoded.raw_pdu = pdu
                 callback(decoded)
             # Pour d'autres types de PDUs, on pourrait ajouter un dispatch ici.
+
+    def send_confirmed_pdu_and_wait(self, pdu: bytes) -> bytes:
+        """
+        Envoie un MMS confirmed-RequestPDU et attend la première réponse reçue.
+
+        Utilisé pour un MVP : Write/Operate sans décoder le response en détail.
+        """
+        if self._sock is None:
+            raise MMSConnectionError("Connexion MMS non établie.")
+        cotp_send_data(self._sock, pdu)
+        resp = self._recv_until_response(report_callback=None)
+        if resp is None:
+            raise MMSConnectionError("Connexion fermée pendant l'attente de la réponse MMS.")
+        return resp
+
+    def send_confirmed_pdu(self, pdu: bytes) -> None:
+        """Envoie un confirmed-RequestPDU sans attendre de réponse."""
+        if self._sock is None:
+            raise MMSConnectionError("Connexion MMS non établie.")
+        cotp_send_data(self._sock, pdu)
+
+    def recv_next_tpdu(self, *, timeout: float = 1.0) -> Optional[bytes]:
+        """Lit la prochaine TPDU DT et retourne le payload user_data (MMS)."""
+        if self._sock is None:
+            raise MMSConnectionError("Connexion MMS non établie.")
+        try:
+            return cotp_recv_data(self._sock, timeout=timeout)
+        except socket.timeout:
+            # Pas de donnée dans le délai : on signale "rien reçu"
+            return None
+
+    def recv_until_contains(
+        self,
+        *,
+        substrings: tuple[bytes, ...],
+        timeout_total: float = 3.0,
+        per_read_timeout: float = 0.5,
+        stop_on_first: bool = True,
+    ) -> bytes:
+        """
+        Lit plusieurs réponses jusqu'à ce que :
+          - un des `substrings` apparaisse dans un payload brut,
+          - ou que `timeout_total` expire.
+        Retourne la dernière réponse lue (ou lève si aucune).
+        """
+        end_ts = time.time() + timeout_total
+        last_resp: Optional[bytes] = None
+        last_match_resp: Optional[bytes] = None
+        while time.time() < end_ts:
+            try:
+                resp = self.recv_next_tpdu(timeout=per_read_timeout)
+            except socket.timeout:
+                # Pas de nouvelle TPDU pour l'instant : on retente jusqu'au
+                # timeout_total global.
+                continue
+            if resp is None:
+                break
+            last_resp = resp
+            if any(s in resp for s in substrings):
+                if stop_on_first:
+                    return resp
+                # Sinon on continue jusqu'au timeout_total : on conserve la
+                # dernière réponse qui *match* le critère (ex: LastApplError),
+                # pour éviter de perdre l'erreur si un ACK court arrive ensuite.
+                last_match_resp = resp
+        if last_resp is None:
+            raise MMSConnectionError("Connexion fermée pendant l'attente de la réponse MMS.")
+        return last_match_resp if last_match_resp is not None else last_resp
+
+    def send_confirmed_pdu_and_wait_for_control_response(
+        self,
+        pdu: bytes,
+        *,
+        expected_substrings: tuple[bytes, ...] = (),
+        timeout_total: float = 3.0,
+    ) -> bytes:
+        """
+        Envoie un confirmed-RequestPDU et attend une réponse "utile".
+
+        Dans certains cas, un IED peut envoyer une réponse de confirmation courte
+        avant l'éventuel contenu applicatif (ex: controlLastApplError).
+        Cette méthode lit plusieurs PDUs successives jusqu'à ce que :
+          - au moins un des `expected_substrings` soit présent dans le payload brut,
+          - ou que `timeout_total` soit dépassé.
+        """
+        if self._sock is None:
+            raise MMSConnectionError("Connexion MMS non établie.")
+
+        cotp_send_data(self._sock, pdu)
+
+        end_ts = time.time() + timeout_total
+        last_resp: Optional[bytes] = None
+        # On attend au moins une réponse
+        while time.time() < end_ts:
+            # timeout par lecture, pour éviter de bloquer trop longtemps
+            resp = cotp_recv_data(self._sock, timeout=min(self._timeout, 1.0))
+            if resp is None:
+                break
+            last_resp = resp
+            raw = resp
+            if b"LastApplError" in raw:
+                return resp
+            if expected_substrings and any(s in raw for s in expected_substrings):
+                return resp
+            # sinon on continue jusqu'au timeout_total
+        if last_resp is None:
+            raise MMSConnectionError("Connexion fermée pendant l'attente de la réponse MMS.")
+        return last_resp
 
