@@ -156,32 +156,113 @@
 
   <div id="panel-mms" class="panel active">
     <h1>Flux MMS</h1>
-    <div class="toolbar">
-      <button type="button" class="btn btn--accent" id="mms-refresh">Actualiser</button>
-      <button type="button" class="btn btn--danger" id="mms-purge">Tout supprimer</button>
-      <button type="button" class="btn btn--small" id="mms-toggle-recents">Récents</button>
-      <span id="mms-loading"></span>
+    <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Flux en cours</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-streams">Afficher</button>
     </div>
-    <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
-    <section class="recents-section" id="mms-recents-section" style="display:none"><h2>Récents</h2><div id="mms-recents"></div></section>
-    <section class="logs-section">
-      <h2 style="display:flex;align-items:center;gap:0.75rem">
-        Logs
+    <div id="mms-streams-body" style="display:none">
+      <div class="toolbar">
+        <button type="button" class="btn btn--accent" id="mms-refresh">Actualiser</button>
+        <button type="button" class="btn btn--danger" id="mms-purge">Tout supprimer</button>
+        <span id="mms-loading"></span>
+      </div>
+      <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
+    </div>
+
+    <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Flux récents</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-recents-panel">Afficher</button>
+    </div>
+    <section class="recents-section" id="mms-recents-section" style="display:none"><div id="mms-recents"></div></section>
+
+    <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Nouvelle commandes MMS</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-new-cmds">Afficher</button>
+    </div>
+    <div id="mms-new-cmds-body" style="display:none">
+      <form id="mms-cmd-form">
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.75rem;align-items:end">
+          <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <span>Nom</span>
+            <input type="text" id="mms-cmd-name" name="name" placeholder="Ex: Ouverture TB1" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <span>Position</span>
+            <select id="mms-cmd-position" name="position" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit">
+              <option value="closed" selected>Fermer</option>
+              <option value="open">Ouvrir</option>
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <span>IED Host</span>
+            <input type="text" id="mms-cmd-ied-host" name="ied_host" placeholder="10.132.159.191" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <span>IED Port</span>
+            <input type="number" id="mms-cmd-ied-port" name="ied_port" min="1" placeholder="102" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <span>Domaine (LD)</span>
+            <input type="text" id="mms-cmd-domain" name="domain" placeholder="VMC7_2BayLD" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <span>Objet MMS (ex: CBCSWI1$CO$Pos$Oper)</span>
+            <input type="text" id="mms-cmd-item" name="item" placeholder="CBCSWI1$CO$Pos$Oper" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+          </label>
+        </div>
+        <div class="modal-actions" style="margin-top:0.9rem">
+          <button type="submit" class="btn btn--accent">Enregistrer</button>
+          <button type="button" class="btn btn--small btn--danger" id="mms-cmd-purge">Tout supprimer</button>
+          <span id="mms-cmd-loading"></span>
+        </div>
+      </form>
+    </div>
+
+    <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Commandes MMS enregistrées</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-recorded-cmds">Masquer</button>
+    </div>
+    <div id="mms-recorded-cmds-body" style="display:block">
+      <table>
+        <thead><tr><th></th><th>Nom</th><th>Domaine</th><th>Objet</th><th>Pos</th><th>Actions</th></tr></thead>
+        <tbody id="mms-cmd-list"></tbody>
+      </table>
+      <pre id="mms-cmd-last-response" style="margin-top:0.75rem;font-size:0.8rem;max-height:10rem;overflow:auto;background:var(--bg);border:1px solid var(--muted);padding:0.75rem;border-radius:8px;white-space:pre-wrap"></pre>
+    </div>
+
+    <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Logs</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-logs-panel">Afficher</button>
+    </div>
+    <section class="logs-section" id="mms-logs-section" style="display:none">
+      <div style="display:flex;align-items:center;gap:0.75rem">
         <button type="button" class="btn btn--small" id="mms-logs-pause">Pause</button>
-      </h2>
+      </div>
       <pre id="mms-logs"></pre>
     </section>
   </div>
 
   <div id="panel-goose" class="panel">
     <h1>Flux GOOSE</h1>
-    <div class="toolbar">
-      <button type="button" class="btn btn--accent" id="goose-refresh">Actualiser</button>
-      <button type="button" class="btn btn--small" id="goose-toggle-recents">Récents</button>
-      <span id="goose-loading"></span>
+    <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Flux en cours</h2>
+      <button type="button" class="btn btn--small" id="goose-toggle-streams">Masquer</button>
     </div>
-    <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
-    <section class="recents-section" id="goose-recents-section" style="display:none"><h2>Récents</h2><table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table></section>
+    <div id="goose-streams-body" style="display:block">
+      <div class="toolbar">
+        <button type="button" class="btn btn--accent" id="goose-refresh">Actualiser</button>
+        <span id="goose-loading"></span>
+      </div>
+      <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
+    </div>
+
+    <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Flux récents</h2>
+      <button type="button" class="btn btn--small" id="goose-toggle-recents-panel">Afficher</button>
+    </div>
+    <section class="recents-section" id="goose-recents-section" style="display:none">
+      <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table>
+    </section>
 
     <div id="goose-edit-modal" class="modal" style="display:none">
       <div class="modal-content">
@@ -204,15 +285,25 @@
 
   <div id="panel-sv" class="panel">
     <h1>SV Generator</h1>
-    <div class="toolbar">
-      <button type="button" class="btn btn--accent" id="sv-refresh">Actualiser</button>
-      <button type="button" class="btn btn--danger" id="sv-purge">Tout supprimer</button>
-      <button type="button" class="btn btn--small" id="sv-toggle-recents">Récents</button>
-      <span id="sv-msg"></span>
+    <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Flux en cours</h2>
+      <button type="button" class="btn btn--small" id="sv-toggle-streams">Masquer</button>
     </div>
-    <h2>Flux en cours</h2>
-    <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
-    <section class="recents-section" id="sv-recents-section" style="display:none"><h2>Récents</h2><table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table></section>
+    <div id="sv-streams-body" style="display:block">
+      <div class="toolbar">
+        <button type="button" class="btn btn--accent" id="sv-refresh">Actualiser</button>
+        <button type="button" class="btn btn--danger" id="sv-purge">Tout supprimer</button>
+        <span id="sv-msg"></span>
+      </div>
+      <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
+    </div>
+    <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+      <h2 style="margin:0">Récents</h2>
+      <button type="button" class="btn btn--small" id="sv-toggle-recents-panel">Afficher</button>
+    </div>
+    <section class="recents-section" id="sv-recents-section" style="display:none">
+      <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table>
+    </section>
   </div>
 
   <div id="panel-svview" class="panel">
@@ -407,10 +498,11 @@
     async function mmsLoad() {
       document.getElementById('mms-loading').textContent = 'Chargement…';
       try {
-        const [subs, rec] = await Promise.all([mmsSubs(), mmsRecents()]);
+        const [subs, rec, cmds] = await Promise.all([mmsSubs(), mmsRecents(), mmsCommands()]);
         mmsRender(subs);
         const runningIds = new Set(subs.map(s => s.id));
         mmsRenderRecents(rec, runningIds, subs);
+        mmsCommandsRender(cmds);
         document.getElementById('mms-loading').textContent = '';
       } catch (e) {
         document.getElementById('mms-loading').textContent = 'Erreur: ' + e.message;
@@ -425,12 +517,197 @@
         mmsLoad();
       } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
     });
+
+    function mmsToggleSection(sectionEl, btnEl) {
+      if (!sectionEl) return;
+      const visible = sectionEl.style.display !== 'none';
+      sectionEl.style.display = visible ? 'none' : 'block';
+      if (btnEl) btnEl.textContent = visible ? 'Afficher' : 'Masquer';
+    }
+
+    // Flux en cours
+    const mmsStreamsBody = document.getElementById('mms-streams-body');
+    const mmsStreamsToggleBtn = document.getElementById('mms-toggle-streams');
+    if (mmsStreamsBody && mmsStreamsToggleBtn) {
+      mmsStreamsToggleBtn.addEventListener('click', () => {
+        mmsToggleSection(mmsStreamsBody, mmsStreamsToggleBtn);
+      });
+    }
+
+    // Nouvelle commandes MMS
+    const mmsNewCmdsBody = document.getElementById('mms-new-cmds-body');
+    const mmsNewCmdsToggleBtn = document.getElementById('mms-toggle-new-cmds');
+    if (mmsNewCmdsBody && mmsNewCmdsToggleBtn) {
+      mmsNewCmdsToggleBtn.addEventListener('click', () => mmsToggleSection(mmsNewCmdsBody, mmsNewCmdsToggleBtn));
+    }
+
+    // Commandes enregistrées
+    const mmsRecordedCmdsBody = document.getElementById('mms-recorded-cmds-body');
+    const mmsRecordedCmdsToggleBtn = document.getElementById('mms-toggle-recorded-cmds');
+    if (mmsRecordedCmdsBody && mmsRecordedCmdsToggleBtn) {
+      mmsRecordedCmdsToggleBtn.addEventListener('click', () => mmsToggleSection(mmsRecordedCmdsBody, mmsRecordedCmdsToggleBtn));
+    }
+
+    // Flux récents
     const mmsRecentsSection = document.getElementById('mms-recents-section');
-    document.getElementById('mms-toggle-recents').addEventListener('click', () => {
-      if (!mmsRecentsSection) return;
-      const visible = mmsRecentsSection.style.display !== 'none';
-      mmsRecentsSection.style.display = visible ? 'none' : 'block';
+    const mmsRecentsToggleBtn = document.getElementById('mms-toggle-recents-panel');
+    if (mmsRecentsSection && mmsRecentsToggleBtn) {
+      mmsRecentsToggleBtn.addEventListener('click', () => mmsToggleSection(mmsRecentsSection, mmsRecentsToggleBtn));
+    }
+
+    // Logs
+    const mmsLogsSection = document.getElementById('mms-logs-section');
+    const mmsLogsToggleBtn = document.getElementById('mms-toggle-logs-panel');
+    if (mmsLogsSection && mmsLogsToggleBtn) {
+      mmsLogsToggleBtn.addEventListener('click', () => mmsToggleSection(mmsLogsSection, mmsLogsToggleBtn));
+    }
+
+    // --- MMS Commands ---
+    async function mmsCommands() {
+      const r = await fetch(API.mms + '/commands');
+      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      return r.json();
+    }
+
+    function mmsCommandsRender(cmds) {
+      const tbody = document.getElementById('mms-cmd-list');
+      const lastResp = document.getElementById('mms-cmd-last-response');
+      if (!tbody) return;
+      const list = cmds || [];
+
+      const mmsDetailsCommandHtml = (c) => {
+        return `<dl class="details-grid">
+          <dt>IED</dt><dd>${escapeHtml(c.ied_host)}:${escapeHtml(String(c.ied_port ?? ''))}</dd>
+          <dt>Domaine</dt><dd>${escapeHtml(c.domain)}</dd>
+          <dt>Objet</dt><dd><code style="font-size:0.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:560px">${escapeHtml(c.item)}</code></dd>
+          <dt>Position</dt><dd>${escapeHtml(c.position)}</dd>
+        </dl>`;
+      };
+
+      const expanded = new Set();
+      tbody.querySelectorAll('.command-details.visible').forEach(d => expanded.add(d.dataset.id));
+
+      tbody.innerHTML = list.length
+        ? list.map(c => {
+            const detailId = 'mms-cmd-detail-' + escapeHtml(c.id);
+            const isExp = expanded.has(c.id);
+            return `
+              <tr data-id="${escapeHtml(c.id)}">
+                <td><button type="button" class="btn btn--small expand-btn" data-action="mms-cmd-expand" data-detailid="${escapeHtml(detailId)}">${isExp ? '▼' : '▶'}</button></td>
+                <td><strong>${escapeHtml(c.name)}</strong></td>
+                <td>${escapeHtml(c.domain)}</td>
+                <td><code style="font-size:0.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:340px">${escapeHtml(c.item)}</code></td>
+                <td>${escapeHtml(c.position)}</td>
+                <td>
+                  <button type="button" class="btn btn--small btn--accent" data-action="mms-cmd-send" data-id="${escapeHtml(c.id)}">Envoyer</button>
+                  <button type="button" class="btn btn--small btn--danger" data-action="mms-cmd-delete" data-id="${escapeHtml(c.id)}">Supprimer</button>
+                </td>
+              </tr>
+              <tr class="details-row command-details ${isExp ? 'visible' : ''}" id="${escapeHtml(detailId)}" data-id="${escapeHtml(c.id)}" style="display:${isExp ? 'table-row' : 'none'}">
+                <td colspan="6">${mmsDetailsCommandHtml(c)}</td>
+              </tr>
+            `;
+          }).join('')
+        : '<tr><td colspan="6" class="empty">Aucune commande enregistrée.</td></tr>';
+
+      tbody.querySelectorAll('[data-action="mms-cmd-expand"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const d = document.getElementById(btn.dataset.detailid);
+          if (!d) return;
+          d.classList.toggle('visible');
+          d.style.display = d.classList.contains('visible') ? 'table-row' : 'none';
+          btn.textContent = d.classList.contains('visible') ? '▼' : '▶';
+        });
+      });
+
+      tbody.querySelectorAll('[data-action="mms-cmd-send"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const cmdId = btn.dataset.id;
+          if (!cmdId) return;
+          lastResp.textContent = 'Envoi en cours…';
+          try {
+            const r = await fetch(API.mms + '/commands/' + encodeURIComponent(cmdId) + '/send', { method: 'POST' });
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error((data && data.error) ? data.error : (r.status + ' ' + r.statusText));
+            lastResp.textContent = JSON.stringify(data, null, 2);
+          } catch (e) {
+            lastResp.textContent = 'Erreur: ' + e.message;
+            lastResp.style.color = 'var(--danger)';
+          }
+        });
+      });
+
+      tbody.querySelectorAll('[data-action="mms-cmd-delete"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const cmdId = btn.dataset.id;
+          if (!cmdId) return;
+          if (!confirm('Supprimer la commande ?')) return;
+          try {
+            await fetch(API.mms + '/commands/' + encodeURIComponent(cmdId), { method: 'DELETE' });
+            const cmds2 = await mmsCommands();
+            mmsCommandsRender(cmds2);
+          } catch (e) {
+            const loadingEl = document.getElementById('mms-cmd-loading');
+            if (loadingEl) loadingEl.textContent = e.message;
+          }
+        });
+      });
+    }
+
+    document.getElementById('mms-cmd-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const loadingEl = document.getElementById('mms-cmd-loading');
+      const get = (id) => (document.getElementById(id)?.value || '').trim();
+
+      const payload = {
+        name: get('mms-cmd-name') || undefined,
+        position: get('mms-cmd-position') || 'closed',
+        ied_host: get('mms-cmd-ied-host'),
+        ied_port: get('mms-cmd-ied-port') ? parseInt(get('mms-cmd-ied-port'), 10) : 102,
+        domain: get('mms-cmd-domain'),
+        item: get('mms-cmd-item'),
+      };
+
+      const required = ['ied_host', 'domain', 'item'];
+      for (const k of required) {
+        if (!payload[k]) {
+          if (loadingEl) loadingEl.textContent = 'Champ requis manquant: ' + k;
+          return;
+        }
+      }
+
+      try {
+        if (loadingEl) loadingEl.textContent = 'Enregistrement…';
+        const r = await fetch(API.mms + '/commands', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((data && data.error) ? data.error : (r.status + ' ' + r.statusText));
+        if (loadingEl) loadingEl.textContent = '';
+        const cmds = await mmsCommands();
+        mmsCommandsRender(cmds);
+      } catch (e) {
+        if (loadingEl) {
+          loadingEl.textContent = 'Erreur: ' + e.message;
+          loadingEl.style.color = 'var(--danger)';
+        }
+      }
     });
+
+    document.getElementById('mms-cmd-purge').addEventListener('click', async () => {
+      if (!confirm('Supprimer toutes les commandes enregistrées ?')) return;
+      try {
+        await fetch(API.mms + '/commands', { method: 'DELETE' });
+        const cmds = await mmsCommands();
+        mmsCommandsRender(cmds);
+      } catch (e) {
+        const loadingEl = document.getElementById('mms-cmd-loading');
+        if (loadingEl) loadingEl.textContent = e.message;
+      }
+    });
+
     const mmsLogsEl = document.getElementById('mms-logs');
     const mmsLogsPauseBtn = document.getElementById('mms-logs-pause');
     let mmsLogsPaused = false;
@@ -562,12 +839,25 @@
       }).catch(e => { document.getElementById('goose-loading').textContent = 'Erreur: ' + e.message; });
     }
     document.getElementById('goose-refresh').addEventListener('click', gooseLoad);
+
+    function gooseToggleSection(sectionEl, btnEl) {
+      if (!sectionEl) return;
+      const visible = sectionEl.style.display !== 'none';
+      sectionEl.style.display = visible ? 'none' : 'block';
+      if (btnEl) btnEl.textContent = visible ? 'Afficher' : 'Masquer';
+    }
+
+    const gooseStreamsBody = document.getElementById('goose-streams-body');
+    const gooseStreamsToggleBtn = document.getElementById('goose-toggle-streams');
+    if (gooseStreamsBody && gooseStreamsToggleBtn) {
+      gooseStreamsToggleBtn.addEventListener('click', () => gooseToggleSection(gooseStreamsBody, gooseStreamsToggleBtn));
+    }
+
     const gooseRecentsSection = document.getElementById('goose-recents-section');
-    document.getElementById('goose-toggle-recents').addEventListener('click', () => {
-      if (!gooseRecentsSection) return;
-      const visible = gooseRecentsSection.style.display !== 'none';
-      gooseRecentsSection.style.display = visible ? 'none' : 'block';
-    });
+    const gooseRecentsToggleBtn = document.getElementById('goose-toggle-recents-panel');
+    if (gooseRecentsSection && gooseRecentsToggleBtn) {
+      gooseRecentsToggleBtn.addEventListener('click', () => gooseToggleSection(gooseRecentsSection, gooseRecentsToggleBtn));
+    }
 
     async function gooseEdit(streamId) {
       const modal = document.getElementById('goose-edit-modal');
@@ -724,12 +1014,24 @@
       document.getElementById('sv-msg').className = 'ok';
       svLoad();
     });
+    const svStreamsBody = document.getElementById('sv-streams-body');
+    const svStreamsToggleBtn = document.getElementById('sv-toggle-streams');
+    if (svStreamsBody && svStreamsToggleBtn) {
+      svStreamsToggleBtn.addEventListener('click', () => {
+        const visible = svStreamsBody.style.display !== 'none';
+        svStreamsBody.style.display = visible ? 'none' : 'block';
+        svStreamsToggleBtn.textContent = visible ? 'Afficher' : 'Masquer';
+      });
+    }
     const svRecentsSection = document.getElementById('sv-recents-section');
-    document.getElementById('sv-toggle-recents').addEventListener('click', () => {
-      if (!svRecentsSection) return;
-      const visible = svRecentsSection.style.display !== 'none';
-      svRecentsSection.style.display = visible ? 'none' : 'block';
-    });
+    const svRecentsToggleBtn = document.getElementById('sv-toggle-recents-panel');
+    if (svRecentsSection && svRecentsToggleBtn) {
+      svRecentsToggleBtn.addEventListener('click', () => {
+        const visible = svRecentsSection.style.display !== 'none';
+        svRecentsSection.style.display = visible ? 'none' : 'block';
+        svRecentsToggleBtn.textContent = visible ? 'Afficher' : 'Masquer';
+      });
+    }
 
     // --- SV Listener ---
     const SVVIEW_COLORS = { u: '#7aa2f7', i: '#f7768e', uLight: ['#7aa2f7','#89b4fa','#b4d0ff'], iLight: ['#f7768e','#ff8a95','#ffb0b8'] };

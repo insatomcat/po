@@ -148,17 +148,19 @@ def _extract_pos_components(val: Any) -> Optional[Dict[str, float]]:
     except (TypeError, ValueError):
         pass
 
-    # Position : extraire un état numérique simple à partir du mot hexa
+    # DBPOS IEC 61850 : bits de position dans l'octet bas du mot 16 bits.
+    #   0x0680 → closed (2), 0x0640 → open (1), 0x0600/0x0000/... → intermediate (0)
     state_val: float | None = None
     if isinstance(val[1], str):
         try:
             pw = int(val[1], 16)
-            if pw & 0x80:
+            lo = pw & 0x00FF
+            if lo & 0x80:
                 state_val = 2.0  # closed
-            elif pw & 0x40:
+            elif lo & 0x40:
                 state_val = 1.0  # open
-            elif pw == 0x0000 or pw == 0x0012:
-                state_val = 0.0  # intermediate / manoeuvre
+            else:
+                state_val = 0.0  # intermediate (octet bas sans bits positionnels)
         except ValueError:
             state_val = None
     if state_val is not None:

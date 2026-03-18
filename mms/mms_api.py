@@ -1,11 +1,12 @@
 """
 API MMS exposée pour intégration dans le service unifié.
-Routes: /subscriptions, /recents, /logs (SSE)
+Routes: /subscriptions, /recents, /logs (SSE), /commands (write/operate)
 """
 from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import asdict
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
@@ -26,7 +27,7 @@ def handle_mms(
     body: corps brut (JSON pour POST/PUT)
     Retourne (status_code, body) où body est dict/list (sérialisable JSON) ou None pour 204.
     """
-    from .mms_service import SubscriptionConfig
+    from .mms_service import SubscriptionConfig, MMSCommandConfig
 
     path = (path or "/").rstrip("/") or "/"
 
@@ -139,6 +140,81 @@ def handle_mms(
             return HTTPStatus.NOT_FOUND, {"error": f"subscription {sub_id!r} not found"}
         manager.delete_subscription(sub_id)
         return HTTPStatus.NO_CONTENT, None
+
+    # --- MMS commands (write/operate) ---
+
+    # GET /commands
+    if path == "/commands" and method == "GET":
+        return HTTPStatus.OK, manager.list_commands()
+
+    # POST /commands
+    if path == "/commands" and method == "POST":
+        data, ok = _read_json()
+        if not ok or data is None:
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid JSON body"}
+        try:
+            cmd_id = data.get("id") or uuid.uuid4().hex
+            ied_host = data["ied_host"]
+            ied_port = int(data.get("ied_port", 102))
+            domain = data["domain"]
+            item = data["item"]
+            name = str(data.get("name") or cmd_id)
+            position = str(data.get("position") or "closed")
+        except KeyError as e:
+            return HTTPStatus.BAD_REQUEST, {"error": f"missing field: {e.args[0]}"}
+        except (TypeError, ValueError):
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid fields"}
+
+        if position not in {"open", "closed", "intermediate", "testbascule"}:
+            return HTTPStatus.BAD_REQUEST, {"error": "position must be one of: open|closed|intermediate|testbascule"}
+
+        cfg = MMSCommandConfig(
+            id=str(cmd_id),
+            name=name,
+            ied_host=str(ied_host),
+            ied_port=ied_port,
+            domain=str(domain),
+            item=str(item),
+            position=position,
+        )
+        try:
+            manager.create_command(cfg)
+        except ValueError as e:
+            return HTTPStatus.CONFLICT, {"error": str(e)}
+        return HTTPStatus.CREATED, asdict(cfg)
+
+    # DELETE /commands (purge all)
+    if path == "/commands" and method == "DELETE":
+        manager.purge_commands()
+        return HTTPStatus.NO_CONTENT, None
+
+    # GET /commands/<id>
+    if path.startswith("/commands/") and method == "GET":
+        cmd_id = path.split("/", 2)[2]
+        cmd = manager.get_command(cmd_id)
+        if not cmd:
+            return HTTPStatus.NOT_FOUND, {"error": f"command {cmd_id!r} not found"}
+        return HTTPStatus.OK, asdict(cmd)
+
+    # DELETE /commands/<id>
+    if path.startswith("/commands/") and method == "DELETE" and not path.endswith("/send"):
+        cmd_id = path.split("/", 2)[2]
+        try:
+            manager.delete_command(cmd_id)
+        except KeyError:
+            return HTTPStatus.NOT_FOUND, {"error": f"command {cmd_id!r} not found"}
+        return HTTPStatus.NO_CONTENT, None
+
+    # POST /commands/<id>/send
+    if path.startswith("/commands/") and path.endswith("/send") and method == "POST":
+        cmd_id = path.split("/", 2)[2].removesuffix("/send")
+        try:
+            response_hex = manager.send_command(cmd_id)
+        except KeyError:
+            return HTTPStatus.NOT_FOUND, {"error": f"command {cmd_id!r} not found"}
+        except Exception as e:
+            return HTTPStatus.BAD_GATEWAY, {"error": str(e)}
+        return HTTPStatus.OK, {"id": cmd_id, "ok": True, "response_hex": response_hex}
 
     return HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"}
 

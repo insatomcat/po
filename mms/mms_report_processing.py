@@ -137,22 +137,31 @@ def _format_entry_value(val: Any) -> Any:  # noqa: C901
         else:
             parts.append(f"origin.orCat={or_cat_ordinal!r}")
 
-        # Position (double bit dans le mot hexa, ex. 0x0640=open, 0x0680=closed)
+        # DBPOS IEC 61850 : les bits de position sont dans l'octet bas du mot 16 bits.
+        #   0x0680 (octet bas 0x80) → closed
+        #   0x0640 (octet bas 0x40) → open
+        #   0x0600 (octet bas 0x00) → intermediate
         pos_state: str | None = "unknown"
+        pos_hex: str | None = None
         if isinstance(pos_word, str):
             try:
                 pw = int(pos_word, 16)
-                if pw & 0x80:
+                pos_hex = f"0x{pw:04x}"
+                lo = pw & 0x00FF
+                if lo & 0x80:
                     pos_state = "closed"
-                elif pw & 0x40:
+                elif lo & 0x40:
                     pos_state = "open"
-                elif pw == 0x0000 or pw == 0x0012:
-                    pos_state = "intermediate"
                 else:
-                    pos_state = f"0x{pw:04x}"
+                    # octet bas sans bits positionnels = intermédiaire (ex. 0x0600, 0x0000, 0x0012)
+                    pos_state = "intermediate"
             except ValueError:
                 pos_state = pos_word
-        parts.append(f"stVal={pos_state}")
+                pos_hex = pos_word
+        if pos_hex:
+            parts.append(f"stVal={pos_state} ({pos_hex})")
+        else:
+            parts.append(f"stVal={pos_state}")
 
         if or_ident is not None:
             parts.append(f"origin.orIdent={or_ident!r}")
