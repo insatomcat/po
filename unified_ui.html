@@ -143,6 +143,67 @@
     }
     .modal-content textarea { min-height: 12rem; }
     .modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+
+    @media (max-width: 640px) {
+      /* Empêche le body de s'étirer avec les tableaux sur iOS Safari */
+      html, body { max-width: 100vw; overflow-x: hidden; }
+
+      /* Wrappers scrollables */
+      #mms-streams-table-wrap,
+      #mms-recorded-table-wrap,
+      #goose-streams-table-wrap,
+      #goose-recents-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      /* MMS Flux en cours : masquer Domaine (3), IED (4), Debug (5) → reste : [] Id Actions */
+      #mms-streams-table-wrap th:nth-child(3), #mms-streams-table-wrap td:nth-child(3),
+      #mms-streams-table-wrap th:nth-child(4), #mms-streams-table-wrap td:nth-child(4),
+      #mms-streams-table-wrap th:nth-child(5), #mms-streams-table-wrap td:nth-child(5) { display: none; }
+
+      /* MMS Commandes enregistrées : masquer Domaine (3), Objet (4) → reste : [] Nom Pos Actions */
+      #mms-recorded-table-wrap th:nth-child(3), #mms-recorded-table-wrap td:nth-child(3),
+      #mms-recorded-table-wrap th:nth-child(4), #mms-recorded-table-wrap td:nth-child(4) { display: none; }
+
+      /* GOOSE Flux en cours : masquer gocbRef (3), src_mac (5), dst_mac (6) → reste : [] ID goID Actions */
+      #goose-streams-table-wrap th:nth-child(3), #goose-streams-table-wrap td:nth-child(3),
+      #goose-streams-table-wrap th:nth-child(5), #goose-streams-table-wrap td:nth-child(5),
+      #goose-streams-table-wrap th:nth-child(6), #goose-streams-table-wrap td:nth-child(6) { display: none; }
+
+      /* GOOSE Flux récents : masquer gocbRef (3) → reste : [] ID goID Actions */
+      #goose-recents-table-wrap th:nth-child(3), #goose-recents-table-wrap td:nth-child(3) { display: none; }
+
+      /* Tronquer les cellules texte qui peuvent être longues */
+      #mms-streams-table-wrap td:nth-child(2),
+      #mms-recorded-table-wrap td:nth-child(2),
+      #goose-streams-table-wrap td:nth-child(2),
+      #goose-recents-table-wrap td:nth-child(2),
+      #sv-streams-table-wrap td:nth-child(2),
+      #sv-recents-table-wrap td:nth-child(2) {
+        max-width: 8rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* SV Flux en cours : masquer Interface (3) et src_mac→dst_mac (4) → reste : [] Nom svID Actions */
+      #sv-streams-table-wrap,
+      #sv-recents-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      #sv-streams-table-wrap th:nth-child(3), #sv-streams-table-wrap td:nth-child(3),
+      #sv-streams-table-wrap th:nth-child(4), #sv-streams-table-wrap td:nth-child(4) { display: none; }
+      /* SV Récents : masquer Interface (3) → reste : [] Nom svID Actions */
+      #sv-recents-table-wrap th:nth-child(3), #sv-recents-table-wrap td:nth-child(3) { display: none; }
+
+      /* Boutons d'action : empiler verticalement */
+      #mms-streams-table-wrap td:last-child .btn,
+      #mms-recorded-table-wrap td:last-child .btn,
+      #goose-streams-table-wrap td:last-child .btn,
+      #goose-recents-table-wrap td:last-child .btn,
+      #sv-streams-table-wrap td:last-child .btn,
+      #sv-recents-table-wrap td:last-child .btn { display: block; width: 100%; margin-bottom: 0.2rem; text-align: center; }
+    }
   </style>
 </head>
 <body>
@@ -167,7 +228,9 @@
         <button type="button" class="btn btn--danger" id="mms-purge">Tout supprimer</button>
         <span id="mms-loading"></span>
       </div>
-      <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
+      <div id="mms-streams-table-wrap">
+        <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
+      </div>
     </div>
 
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
@@ -226,10 +289,12 @@
       <span id="mms-blackout-status" style="font-size:0.82rem;color:var(--muted)"></span>
     </div>
     <div id="mms-recorded-cmds-body" style="display:block">
-      <table>
-        <thead><tr><th></th><th>Nom</th><th>Domaine</th><th>Objet</th><th>Pos</th><th>Actions</th></tr></thead>
-        <tbody id="mms-cmd-list"></tbody>
-      </table>
+      <div id="mms-recorded-table-wrap">
+        <table>
+          <thead><tr><th></th><th>Nom</th><th>Domaine</th><th>Objet</th><th>Pos</th><th>Actions</th></tr></thead>
+          <tbody id="mms-cmd-list"></tbody>
+        </table>
+      </div>
       <pre id="mms-cmd-last-response" style="margin-top:0.75rem;font-size:0.8rem;max-height:10rem;overflow:auto;background:var(--bg);border:1px solid var(--muted);padding:0.75rem;border-radius:8px;white-space:pre-wrap"></pre>
     </div>
 
@@ -256,7 +321,9 @@
         <button type="button" class="btn btn--accent" id="goose-refresh">Actualiser</button>
         <span id="goose-loading"></span>
       </div>
-      <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
+      <div id="goose-streams-table-wrap">
+        <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
+      </div>
     </div>
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
@@ -264,7 +331,9 @@
       <button type="button" class="btn btn--small" id="goose-toggle-recents-panel">Afficher</button>
     </div>
     <section class="recents-section" id="goose-recents-section" style="display:none">
-      <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table>
+      <div id="goose-recents-table-wrap">
+        <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table>
+      </div>
     </section>
 
     <div id="goose-edit-modal" class="modal" style="display:none">
@@ -298,14 +367,18 @@
         <button type="button" class="btn btn--danger" id="sv-purge">Tout supprimer</button>
         <span id="sv-msg"></span>
       </div>
-      <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
+      <div id="sv-streams-table-wrap">
+        <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
+      </div>
     </div>
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
       <h2 style="margin:0">Récents</h2>
       <button type="button" class="btn btn--small" id="sv-toggle-recents-panel">Afficher</button>
     </div>
     <section class="recents-section" id="sv-recents-section" style="display:none">
-      <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table>
+      <div id="sv-recents-table-wrap">
+        <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table>
+      </div>
     </section>
   </div>
 
