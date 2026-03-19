@@ -222,7 +222,7 @@
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem;flex-wrap:wrap">
       <h2 style="margin:0">Commandes MMS enregistrées</h2>
       <button type="button" class="btn btn--small" id="mms-toggle-recorded-cmds">Masquer</button>
-      <button type="button" id="mms-blackout-btn" style="padding:0.4rem 1.1rem;font-weight:700;font-size:0.95rem;background:#111;color:#fff;border:2px solid #fff;border-radius:6px;cursor:pointer;letter-spacing:0.08em;transition:background 0.15s,color 0.15s" title="Envoyer toutes les commandes &quot;Ouvrir&quot; enregistrées">⚡ BLACKOUT</button>
+      <button type="button" id="mms-blackout-btn" style="display:none;padding:0.4rem 1.1rem;font-weight:700;font-size:0.95rem;background:#111;color:#fff;border:2px solid #fff;border-radius:6px;cursor:pointer;letter-spacing:0.08em;transition:background 0.15s,color 0.15s" title="Envoyer toutes les commandes &quot;Ouvrir&quot; enregistrées">⚡ BLACKOUT</button>
       <span id="mms-blackout-status" style="font-size:0.82rem;color:var(--muted)"></span>
     </div>
     <div id="mms-recorded-cmds-body" style="display:block">
@@ -722,6 +722,27 @@
         if (loadingEl) loadingEl.textContent = e.message;
       }
     });
+
+    (function () {
+      const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+      let pos = 0;
+      document.addEventListener('keydown', (e) => {
+        if (e.key === KONAMI[pos]) {
+          pos++;
+          if (pos === KONAMI.length) {
+            pos = 0;
+            const btn = document.getElementById('mms-blackout-btn');
+            btn.style.display = 'inline-block';
+            btn.style.animation = 'none';
+            const statusEl = document.getElementById('mms-blackout-status');
+            statusEl.textContent = '🔓 Mode BLACKOUT activé';
+            setTimeout(() => { if (statusEl.textContent === '🔓 Mode BLACKOUT activé') statusEl.textContent = ''; }, 3000);
+          }
+        } else {
+          pos = (e.key === KONAMI[0]) ? 1 : 0;
+        }
+      });
+    })();
 
     document.getElementById('mms-blackout-btn').addEventListener('click', async () => {
       const statusEl = document.getElementById('mms-blackout-status');
