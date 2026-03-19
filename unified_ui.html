@@ -151,7 +151,7 @@
     <button type="button" class="tab" data-tab="goose">GOOSE</button>
     <button type="button" class="tab" data-tab="sv">SV</button>
     <button type="button" class="tab" data-tab="svview">SV Listener</button>
-    <button type="button" class="tab" data-tab="grafana-public">Grafana dep1</button>
+    <button type="button" class="tab" data-tab="grafana-public">Grafana dep6</button>
     <button type="button" class="tab" data-tab="grafana-dep2">Grafana dep2</button>
   </div>
 
@@ -219,9 +219,11 @@
       </form>
     </div>
 
-    <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
+    <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem;flex-wrap:wrap">
       <h2 style="margin:0">Commandes MMS enregistrées</h2>
       <button type="button" class="btn btn--small" id="mms-toggle-recorded-cmds">Masquer</button>
+      <button type="button" id="mms-blackout-btn" style="padding:0.4rem 1.1rem;font-weight:700;font-size:0.95rem;background:#111;color:#fff;border:2px solid #fff;border-radius:6px;cursor:pointer;letter-spacing:0.08em;transition:background 0.15s,color 0.15s" title="Envoyer toutes les commandes &quot;Ouvrir&quot; enregistrées">⚡ BLACKOUT</button>
+      <span id="mms-blackout-status" style="font-size:0.82rem;color:var(--muted)"></span>
     </div>
     <div id="mms-recorded-cmds-body" style="display:block">
       <table>
@@ -719,6 +721,32 @@
         const loadingEl = document.getElementById('mms-cmd-loading');
         if (loadingEl) loadingEl.textContent = e.message;
       }
+    });
+
+    document.getElementById('mms-blackout-btn').addEventListener('click', async () => {
+      const statusEl = document.getElementById('mms-blackout-status');
+      if (!confirm('BLACKOUT : envoyer toutes les commandes "Ouvrir" enregistrées ?')) return;
+      let cmds;
+      try { cmds = await mmsCommands(); } catch (e) { statusEl.textContent = 'Erreur lecture commandes : ' + e.message; return; }
+      const openCmds = (cmds || []).filter(c => c.position === 'open');
+      if (!openCmds.length) { statusEl.textContent = 'Aucune commande "Ouvrir" enregistrée.'; return; }
+      const btn = document.getElementById('mms-blackout-btn');
+      btn.disabled = true;
+      btn.style.opacity = '0.6';
+      statusEl.style.color = 'var(--text)';
+      statusEl.textContent = `Envoi de ${openCmds.length} commande(s)…`;
+      let ok = 0, fail = 0;
+      for (const cmd of openCmds) {
+        try {
+          const r = await fetch(API.mms + '/commands/' + encodeURIComponent(cmd.id) + '/send', { method: 'POST' });
+          if (r.ok) { ok++; } else { fail++; }
+        } catch { fail++; }
+        statusEl.textContent = `${ok + fail}/${openCmds.length} – ok:${ok} erreurs:${fail}`;
+      }
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      statusEl.style.color = fail ? 'var(--danger)' : 'var(--success, #4caf50)';
+      statusEl.textContent = `BLACKOUT terminé – ${ok} ok, ${fail} erreur(s)`;
     });
 
     const mmsLogsEl = document.getElementById('mms-logs');
