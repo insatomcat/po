@@ -724,24 +724,51 @@
     });
 
     (function () {
-      const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+      const SEQ = ['up','up','down','down','left','right','left','right','tap','tap'];
       let pos = 0;
-      document.addEventListener('keydown', (e) => {
-        if (e.key === KONAMI[pos]) {
+      let resetTimer = null;
+
+      function activateBlackout() {
+        pos = 0;
+        const btn = document.getElementById('mms-blackout-btn');
+        btn.style.display = 'inline-block';
+        const statusEl = document.getElementById('mms-blackout-status');
+        statusEl.textContent = '🔓 Mode BLACKOUT activé';
+        setTimeout(() => { if (statusEl.textContent === '🔓 Mode BLACKOUT activé') statusEl.textContent = ''; }, 3000);
+      }
+
+      function advance(gesture) {
+        if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
+        if (gesture === SEQ[pos]) {
           pos++;
-          if (pos === KONAMI.length) {
-            pos = 0;
-            const btn = document.getElementById('mms-blackout-btn');
-            btn.style.display = 'inline-block';
-            btn.style.animation = 'none';
-            const statusEl = document.getElementById('mms-blackout-status');
-            statusEl.textContent = '🔓 Mode BLACKOUT activé';
-            setTimeout(() => { if (statusEl.textContent === '🔓 Mode BLACKOUT activé') statusEl.textContent = ''; }, 3000);
-          }
+          if (pos === SEQ.length) { activateBlackout(); return; }
         } else {
-          pos = (e.key === KONAMI[0]) ? 1 : 0;
+          pos = (gesture === SEQ[0]) ? 1 : 0;
         }
-      });
+        resetTimer = setTimeout(() => { pos = 0; }, 2000);
+      }
+
+      // Clavier
+      const KEY_MAP = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', b:'tap', a:'tap' };
+      document.addEventListener('keydown', (e) => { const g = KEY_MAP[e.key]; if (g) advance(g); });
+
+      // Tactile
+      const SWIPE_MIN = 30;
+      let tx0 = null, ty0 = null;
+      document.addEventListener('touchstart', (e) => {
+        tx0 = e.changedTouches[0].clientX;
+        ty0 = e.changedTouches[0].clientY;
+      }, { passive: true });
+      document.addEventListener('touchend', (e) => {
+        if (tx0 === null) return;
+        const dx = e.changedTouches[0].clientX - tx0;
+        const dy = e.changedTouches[0].clientY - ty0;
+        tx0 = null; ty0 = null;
+        const adx = Math.abs(dx), ady = Math.abs(dy);
+        if (adx < SWIPE_MIN && ady < SWIPE_MIN) { advance('tap'); return; }
+        if (adx >= ady) { advance(dx > 0 ? 'right' : 'left'); }
+        else            { advance(dy > 0 ? 'down'  : 'up');   }
+      }, { passive: true });
     })();
 
     document.getElementById('mms-blackout-btn').addEventListener('click', async () => {
