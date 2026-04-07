@@ -437,6 +437,10 @@
     .svview-stat { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; }
     .svview-stat .stat-label { color: var(--muted); }
     .svview-svid-badge { display: inline-block; background: var(--accent); color: var(--bg); padding: 4px 10px; border-radius: 4px; font-weight: 600; cursor: pointer; margin-bottom: 0.75rem; }
+    .svview-health-badge { display: inline-block; font-size: 0.8rem; font-weight: 600; padding: 3px 8px; border-radius: 999px; margin-bottom: 0.75rem; }
+    .svview-health-badge.ok { background: rgba(158,206,106,0.2); color: var(--success); border: 1px solid var(--success); }
+    .svview-health-badge.err { background: rgba(247,118,142,0.15); color: var(--danger); border: 1px solid var(--danger); }
+    .svview-health-details { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.75rem 0; }
     .svview-svids-list { list-style: none; padding: 0; margin: 0; }
     .svview-svids-list li { padding: 6px 0; border-bottom: 1px solid var(--surface); cursor: pointer; }
     .svview-svids-list li:hover { background: rgba(255,255,255,0.05); }
@@ -1276,6 +1280,17 @@
     function svviewUpdateDataValues(data) {
       const badge = document.getElementById('svview-svid-badge');
       if (badge) badge.textContent = 'svID: ' + (data.svid || '');
+      const health = document.getElementById('svview-health-badge');
+      const healthDetails = document.getElementById('svview-health-details');
+      if (health) {
+        const running = !!(data.debug && data.debug.capture_running);
+        health.className = 'svview-health-badge ' + (running ? 'ok' : 'err');
+        health.textContent = running ? 'Capture: OK' : 'Capture: KO';
+      }
+      if (healthDetails) {
+        const err = data.debug && data.debug.last_error ? data.debug.last_error : '';
+        healthDetails.textContent = err ? ('Dernière erreur: ' + err) : '';
+      }
       const hasPhasors = data.u_arrows && data.u_arrows.length === 3;
       const uArrows = hasPhasors ? data.u_arrows : [[0,0],[0,0],[0,0]];
       const iArrows = hasPhasors ? data.i_arrows : [[0,0],[0,0],[0,0]];
@@ -1308,10 +1323,16 @@
     function svviewRender(data) {
       const root = document.getElementById('svview-root');
       const unconfigured = document.getElementById('svview-unconfigured');
+      const running = !!(data.debug && data.debug.capture_running);
+      const healthClass = running ? 'ok' : 'err';
+      const healthLabel = running ? 'Capture: OK' : 'Capture: KO';
+      const healthError = (data.debug && data.debug.last_error) ? ('<p class="svview-health-details">Dernière erreur: ' + escapeHtml(data.debug.last_error) + '</p>') : '';
       if (!data.svid) {
         unconfigured.style.display = 'none';
         root.innerHTML = `
           <div class="svview-card">
+            <div class="svview-health-badge ${healthClass}">${healthLabel}</div>
+            ${healthError}
             <h2>svIDs vus</h2>
             ${data.svids && data.svids.length ? `
               <ul class="svview-svids-list" id="svview-svids-list">
@@ -1347,8 +1368,10 @@
       root.innerHTML = `
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
           <div class="svview-svid-badge" id="svview-svid-badge" title="Cliquer pour changer">svID: ${escapeHtml(data.svid)}</div>
+          <div class="svview-health-badge ${healthClass}" id="svview-health-badge">${healthLabel}</div>
           <button type="button" class="btn" id="svview-btn-stop" title="Revenir à la liste">Arrêter</button>
         </div>
+        <p class="svview-health-details" id="svview-health-details">${(data.debug && data.debug.last_error) ? ('Dernière erreur: ' + escapeHtml(data.debug.last_error)) : ''}</p>
         <div class="svview-layout" id="svview-data-container">
           <div>
             <div class="svview-card">
