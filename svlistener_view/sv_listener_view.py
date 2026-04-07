@@ -24,6 +24,7 @@ import struct
 import sys
 import threading
 import time
+import traceback
 from collections import deque
 
 try:
@@ -423,11 +424,24 @@ def create_flask_app(
             buf = list(samples)
         with seen_svids_lock:
             svids = sorted(seen_svids)
+        with stats_lock:
+            debug = {
+                "capture_running": bool(stats.get("capture_running")),
+                "capture_heartbeat": stats.get("capture_heartbeat"),
+                "capture_packets": int(stats.get("capture_packets", 0)),
+                "sv_packets": int(stats.get("sv_packets", 0)),
+                "asdu_seen": int(stats.get("asdu_seen", 0)),
+                "parse_errors": int(stats.get("parse_errors", 0)),
+                "capture_loop_errors": int(stats.get("capture_loop_errors", 0)),
+                "last_error": stats.get("last_error"),
+                "last_error_at": stats.get("last_error_at"),
+            }
         svid = config.get("svid")
         if not svid:
-            return jsonify({"svid": None, "svids": svids})
+            return jsonify({"svid": None, "svids": svids, "debug": debug})
         data = compute_display_data(buf, stats, stats_lock, config, svid)
         data["svids"] = svids
+        data["debug"] = debug
         return jsonify(data)
 
     @app.route("/api/config", methods=["GET"])
@@ -468,6 +482,8 @@ def create_flask_app(
 def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                  stats: dict, stats_lock: threading.Lock, config: dict,
                  seen_svids: set, seen_svids_lock: threading.Lock) -> None:
+    with stats_lock:
+        stats["capture_running"] = True
     cap = pcapy.open_live(iface, 512, 1, 100)
     try:
         cap.setfilter("ether proto 0x88ba or (vlan and ether proto 0x88ba)")
@@ -476,71 +492,96 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
     print(f"[+] Capture sur {iface} (0x88ba)" + (f", svID={config.get('svid')}" if config.get("svid") else ""), file=sys.stderr)
     try:
         while True:
-            header, raw = cap.next()
-            if not header:
-                continue
-            payload = payload_from_frame(raw)
-            if not payload:
-                continue
-            ts = header.getts()
-            ts_sec = ts[0] + ts[1] / 1e6
-            asdus = parse_sv_asdus_with_seqdata(payload)
-            with seen_svids_lock:
-                for svid, _, _ in asdus:
-                    seen_svids.add(svid)
-            svid_filter = config.get("svid")
-            if svid_filter:
-                asdus = [a for a in asdus if a[0] == svid_filter]
-                if not asdus:
+            try:
+                header, raw = cap.next()
+                if not header:
                     continue
-            else:
-                continue
-            with stats_lock:
-                if stats["last_pkt_time"] is not None:
-                    delay = ts_sec - stats["last_pkt_time"]
-                    stats["min_delay_all"] = min(stats["min_delay_all"], delay)
-                    stats["max_delay_all"] = max(stats["max_delay_all"], delay)
-                stats["last_pkt_time"] = ts_sec
-                stats["packet_timestamps"].append(ts_sec)
-                window_sec = config.get("window", 10)
-                while stats["packet_timestamps"] and stats["packet_timestamps"][0] < ts_sec - window_sec:
-                    stats["packet_timestamps"].popleft()
-            for svid, smp_cnt, vals in asdus:
                 with stats_lock:
-                    last = stats["last_smpcnt"]
-                    if last is not None:
-                        if smp_cnt == last:
-                            gap = 0  # doublon
-                        elif smp_cnt > last:
-                            gap = smp_cnt - last - 1
-                        else:
-                            gap = (SMP_MOD - last - 1) + smp_cnt  # wrap
-                        if gap > 0:
-                            stats["misses_all"] += gap
-                            stats["misses_events"].append((ts_sec, gap))
-                            while stats["misses_events"] and stats["misses_events"][0][0] < ts_sec - config.get("window", 10):
-                                stats["misses_events"].popleft()
-                    stats["last_smpcnt"] = smp_cnt
-                if smp_cnt == 0:
-                    delay_sync = ts_sec - math.floor(ts_sec)
+                    stats["capture_packets"] += 1
+                    stats["capture_heartbeat"] = time.time()
+
+                payload = payload_from_frame(raw)
+                if not payload:
+                    continue
+
+                ts = header.getts()
+                ts_sec = ts[0] + ts[1] / 1e6
+                asdus = parse_sv_asdus_with_seqdata(payload)
+                with stats_lock:
+                    stats["sv_packets"] += 1
+                    stats["asdu_seen"] += len(asdus)
+                with seen_svids_lock:
+                    for svid, _, _ in asdus:
+                        seen_svids.add(svid)
+
+                svid_filter = config.get("svid")
+                if svid_filter:
+                    asdus = [a for a in asdus if a[0] == svid_filter]
+                    if not asdus:
+                        continue
+                else:
+                    continue
+
+                with stats_lock:
+                    if stats["last_pkt_time"] is not None:
+                        delay = ts_sec - stats["last_pkt_time"]
+                        stats["min_delay_all"] = min(stats["min_delay_all"], delay)
+                        stats["max_delay_all"] = max(stats["max_delay_all"], delay)
+                    stats["last_pkt_time"] = ts_sec
+                    stats["packet_timestamps"].append(ts_sec)
+                    window_sec = config.get("window", 10)
+                    while stats["packet_timestamps"] and stats["packet_timestamps"][0] < ts_sec - window_sec:
+                        stats["packet_timestamps"].popleft()
+
+                for svid, smp_cnt, vals in asdus:
                     with stats_lock:
-                        stats["min_delay_sync_all"] = min(stats["min_delay_sync_all"], delay_sync)
-                        stats["max_delay_sync_all"] = max(stats["max_delay_sync_all"], delay_sync)
-                        stats["smpcnt0_timestamps"].append(ts_sec)
-                        while stats["smpcnt0_timestamps"] and stats["smpcnt0_timestamps"][0] < ts_sec - config.get("window", 10):
-                            stats["smpcnt0_timestamps"].popleft()
-                ia = vals[0] / I_SCALE
-                ib = vals[1] / I_SCALE
-                ic = vals[2] / I_SCALE
-                va = vals[6] / V_SCALE
-                vb = vals[7] / V_SCALE
-                vc = vals[8] / V_SCALE
-                with samples_lock:
-                    samples.append((smp_cnt, [ia, ib, ic, vals[3]/I_SCALE, vals[4]/I_SCALE, vals[5]/I_SCALE, va, vb, vc]))
-                    if len(samples) > 5000:
-                        samples[:] = samples[-SMP_PER_CYCLE * 2:]
+                        last = stats["last_smpcnt"]
+                        if last is not None:
+                            if smp_cnt == last:
+                                gap = 0  # doublon
+                            elif smp_cnt > last:
+                                gap = smp_cnt - last - 1
+                            else:
+                                gap = (SMP_MOD - last - 1) + smp_cnt  # wrap
+                            if gap > 0:
+                                stats["misses_all"] += gap
+                                stats["misses_events"].append((ts_sec, gap))
+                                while stats["misses_events"] and stats["misses_events"][0][0] < ts_sec - config.get("window", 10):
+                                    stats["misses_events"].popleft()
+                        stats["last_smpcnt"] = smp_cnt
+                    if smp_cnt == 0:
+                        delay_sync = ts_sec - math.floor(ts_sec)
+                        with stats_lock:
+                            stats["min_delay_sync_all"] = min(stats["min_delay_sync_all"], delay_sync)
+                            stats["max_delay_sync_all"] = max(stats["max_delay_sync_all"], delay_sync)
+                            stats["smpcnt0_timestamps"].append(ts_sec)
+                            while stats["smpcnt0_timestamps"] and stats["smpcnt0_timestamps"][0] < ts_sec - config.get("window", 10):
+                                stats["smpcnt0_timestamps"].popleft()
+                    ia = vals[0] / I_SCALE
+                    ib = vals[1] / I_SCALE
+                    ic = vals[2] / I_SCALE
+                    va = vals[6] / V_SCALE
+                    vb = vals[7] / V_SCALE
+                    vc = vals[8] / V_SCALE
+                    with samples_lock:
+                        samples.append((smp_cnt, [ia, ib, ic, vals[3]/I_SCALE, vals[4]/I_SCALE, vals[5]/I_SCALE, va, vb, vc]))
+                        if len(samples) > 5000:
+                            samples[:] = samples[-SMP_PER_CYCLE * 2:]
+            except Exception as e:
+                err = f"{type(e).__name__}: {e}"
+                with stats_lock:
+                    stats["parse_errors"] += 1
+                    stats["capture_loop_errors"] += 1
+                    stats["last_error"] = err
+                    stats["last_error_at"] = time.time()
+                print(f"[capture] erreur loop ({iface}): {err}", file=sys.stderr)
+                print(traceback.format_exc(), file=sys.stderr)
+                continue
     except KeyboardInterrupt:
         pass
+    finally:
+        with stats_lock:
+            stats["capture_running"] = False
 
 
 def create_svview_app(
@@ -584,6 +625,15 @@ def create_svview_app(
         "misses_all": 0,
         "misses_events": deque(maxlen=50000),  # (ts_sec, gap)
         "last_smpcnt": None,
+        "capture_running": False,
+        "capture_heartbeat": None,
+        "capture_packets": 0,
+        "sv_packets": 0,
+        "asdu_seen": 0,
+        "parse_errors": 0,
+        "capture_loop_errors": 0,
+        "last_error": None,
+        "last_error_at": None,
     }
     stats_lock = threading.Lock()
 
