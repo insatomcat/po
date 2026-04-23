@@ -272,6 +272,8 @@ class SubscriptionManager:
         t = runtime.thread
         if t and t.is_alive():
             t.join(timeout=5.0)
+            if t.is_alive():
+                print(f"[MMS] Avertissement: thread {t.name!r} n'a pas terminé dans les délais.")
         self._start_subscription_thread(runtime)
         return runtime
 
@@ -658,6 +660,8 @@ class SubscriptionManager:
         t = runtime.thread
         if t and t.is_alive():
             t.join(timeout=5.0)
+            if t.is_alive():
+                print(f"[MMS] Avertissement: thread {t.name!r} n'a pas terminé dans les délais.")
 
     def _subscription_worker(self, runtime: SubscriptionRuntime) -> None:
         """Boucle de (re)connexion pour un flux, très proche de test_client_reports.main()."""
