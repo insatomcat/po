@@ -305,8 +305,8 @@ class GooseService:
     def _save_state(self) -> None:
         """Sauvegarde les flux et les récents dans streams.json et recents.json.
 
-        Attention : cette fonction est appelée depuis des sections déjà
-        protégées par `_streams_lock`.
+        Doit être appelée hors de `_streams_lock` : elle acquiert elle-même
+        le verrou pour copier l'état, puis écrit sur disque hors section critique.
         """
         try:
             with self._streams_lock:
