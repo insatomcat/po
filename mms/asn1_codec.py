@@ -26,9 +26,13 @@ class MMSReport:
     raw_pdu: Optional[bytes] = None  # PDU brut (rempli par le client pour debug/verbose)
 
 
-_PREFIX = b"\x01\x00\x01\x00"  # Session/Presentation
-_invoke_id = 0x012C  # Compteur pour invokeID (aligné sur les traces Wireshark)
+_PREFIX = b"\x01\x00\x01\x00"  # Session/Presentation header (ISO 8327 / RFC 1006)
 
+# InvokeID initial aligné sur les traces Wireshark capturées terrain.
+# L'IED n'impose pas de valeur de départ, mais la cohérence avec les captures
+# facilite la comparaison lors des analyses Wireshark ultérieures.
+_INVOKE_ID_INITIAL = 0x012C
+_invoke_id = _INVOKE_ID_INITIAL
 
 # ObjectClass ISO 9506 GetNameList : domain=9, namedVariable=0, namedVariableList=2
 OBJECT_CLASS_DOMAIN = 9
@@ -36,7 +40,7 @@ OBJECT_CLASS_NAMED_VARIABLE = 0
 OBJECT_CLASS_NAMED_VARIABLE_LIST = 2
 
 
-def reset_invoke_id(base: int = 0x012C) -> None:
+def reset_invoke_id(base: int = _INVOKE_ID_INITIAL) -> None:
     """Réinitialise le compteur invokeID (appelé à chaque nouvelle session)."""
     global _invoke_id
     _invoke_id = base
