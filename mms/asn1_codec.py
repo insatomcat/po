@@ -39,6 +39,26 @@ OBJECT_CLASS_DOMAIN = 9
 OBJECT_CLASS_NAMED_VARIABLE = 0
 OBJECT_CLASS_NAMED_VARIABLE_LIST = 2
 
+# Tags BER/ASN.1 utilisés dans les encodeurs et décodeurs MMS (ISO 9506 / X.690)
+_TAG_IA5_STRING = 0x1A   # IA5String (ASCII 7-bit)
+_TAG_BOOLEAN    = 0x83   # BOOLEAN
+_TAG_BIT_STRING = 0x84   # BIT STRING
+_TAG_UINT_SHORT = 0x85   # Unsigned integer ≤ 1 octet (MMS extension)
+_TAG_UINT_LONG  = 0x86   # Unsigned integer ≥ 2 octets (MMS extension)
+_TAG_FLOAT      = 0x87   # Floating-point (IEEE 754)
+_TAG_OCTET_STR  = 0x89   # OCTET STRING
+_TAG_VIS_STRING = 0x8A   # VisibleString
+_TAG_BIN_TIME   = 0x8C   # binary-time (IEC 61850-8-1 TimeOfDay)
+_TAG_UTC_TIME   = 0x91   # utc-time
+_TAG_STRUCTURE  = 0xA2   # Structure [2] CONSTRUCTED (MMS Data)
+_TAG_APP_PDU    = 0x61   # Application [1] — enveloppe PDU ISO 8650
+_TAG_SEQUENCE   = 0x30   # SEQUENCE (universal constructed)
+_TAG_CTX0_C     = 0xA0   # [0] IMPLICIT CONSTRUCTED
+_TAG_CTX1_C     = 0xA1   # [1] IMPLICIT CONSTRUCTED
+_TAG_CTX3_C     = 0xA3   # [3] IMPLICIT CONSTRUCTED — informationReport
+_TAG_CTX4_C     = 0xA4   # [4] IMPLICIT CONSTRUCTED — read (GetRCBValues)
+_TAG_CTX5_C     = 0xA5   # [5] IMPLICIT CONSTRUCTED — write (SetRCBValues)
+
 
 def reset_invoke_id(base: int = _INVOKE_ID_INITIAL) -> None:
     """Réinitialise le compteur invokeID (appelé à chaque nouvelle session)."""
@@ -54,9 +74,9 @@ def _next_invoke_id() -> int:
 
 
 def _encode_ia5(s: str) -> bytes:
-    """Encode une IA5String : 1a len octets."""
+    """Encode une IA5String : tag 1a + len + octets."""
     b = s.encode("ascii")
-    return b"\x1a" + bytes([len(b)]) + b
+    return bytes([_TAG_IA5_STRING, len(b)]) + b
 
 
 def _encode_domain_specific_name(domain_id: str, item_id: str) -> bytes:
@@ -87,33 +107,24 @@ def encode_mms_get_rcb(domain_id: str, item_id: str) -> bytes:
     """
     name_part = _encode_domain_specific_name(domain_id, item_id)
 
-    # a1 [len] name_part
-    a1_inner = b"\xa1" + bytes([len(name_part)]) + name_part
-    # a0 [len] a1
-    a0_1 = b"\xa0" + bytes([len(a1_inner)]) + a1_inner
-    # 30 [len] a0
-    seq_1 = b"\x30" + bytes([len(a0_1)]) + a0_1
-    # a0 [len] seq_1
-    a0_2 = b"\xa0" + bytes([len(seq_1)]) + seq_1
-    # a1 [len] a0_2
-    a1_2 = b"\xa1" + bytes([len(a0_2)]) + a0_2
-    # a4 [len] a1_2
-    a4 = b"\xa4" + bytes([len(a1_2)]) + a1_2
+    def _tlv(tag: int, value: bytes) -> bytes:
+        return bytes([tag, len(value)]) + value
+
+    a1_inner = _tlv(_TAG_CTX1_C, name_part)
+    a0_1     = _tlv(_TAG_CTX0_C, a1_inner)
+    seq_1    = _tlv(_TAG_SEQUENCE, a0_1)
+    a0_2     = _tlv(_TAG_CTX0_C, seq_1)
+    a1_2     = _tlv(_TAG_CTX1_C, a0_2)
+    a4       = _tlv(_TAG_CTX4_C, a1_2)
 
     inv = _next_invoke_id()
     invoke_part = b"\x02\x02" + bytes([inv >> 8, inv & 0xFF])
 
-    # a0 [len] invoke + a4
-    inner = invoke_part + a4
-    a0_3 = b"\xa0" + bytes([len(inner)]) + inner
-    # a0 [len] a0_3
-    a0_4 = b"\xa0" + bytes([len(a0_3)]) + a0_3
-    # 30 [len] 02 01 03 + a0_4
-    fixed = b"\x02\x01\x03"
-    seq_top = fixed + a0_4
-    seq_2 = b"\x30" + bytes([len(seq_top)]) + seq_top
-    # 61 [len] seq_2
-    app1 = b"\x61" + bytes([len(seq_2)]) + seq_2
+    inner   = invoke_part + a4
+    a0_3    = _tlv(_TAG_CTX0_C, inner)
+    a0_4    = _tlv(_TAG_CTX0_C, a0_3)
+    seq_2   = _tlv(_TAG_SEQUENCE, b"\x02\x01\x03" + a0_4)
+    app1    = _tlv(_TAG_APP_PDU, seq_2)
 
     return _PREFIX + app1
 
@@ -145,47 +156,45 @@ def encode_mms_get_name_list(
         id_bytes = _encode_ia5(domain_id)
         obj_scope = b"\x81" + bytes([len(id_bytes)]) + id_bytes
 
-    gnl_req = b"\x30" + bytes([len(obj_class) + len(obj_scope)]) + obj_class + obj_scope
+    def _tlv(tag: int, value: bytes) -> bytes:
+        return bytes([tag, len(value)]) + value
 
-    # getNameList [1] IMPLICIT (ISO 9506 ConfirmedServiceRequest)
-    gnl_wrapper = b"\xa1" + bytes([len(gnl_req)]) + gnl_req
+    gnl_req     = _tlv(_TAG_SEQUENCE, obj_class + obj_scope)
+    gnl_wrapper = _tlv(_TAG_CTX1_C, gnl_req)
 
     inv = _next_invoke_id()
     invoke_part = b"\x02\x02" + bytes([inv >> 8, inv & 0xFF])
 
-    # confirmed-RequestPDU : invokeID + getNameList
-    inner = invoke_part + gnl_wrapper
-    a0_3 = b"\xa0" + bytes([len(inner)]) + inner
-    a0_4 = b"\xa0" + bytes([len(a0_3)]) + a0_3
-    fixed = b"\x02\x01\x03"
-    seq_top = fixed + a0_4
-    seq_2 = b"\x30" + bytes([len(seq_top)]) + seq_top
-    app1 = b"\x61" + bytes([len(seq_2)]) + seq_2
+    inner  = invoke_part + gnl_wrapper
+    a0_3   = _tlv(_TAG_CTX0_C, inner)
+    a0_4   = _tlv(_TAG_CTX0_C, a0_3)
+    seq_2  = _tlv(_TAG_SEQUENCE, b"\x02\x01\x03" + a0_4)
+    app1   = _tlv(_TAG_APP_PDU, seq_2)
 
     return _PREFIX + app1
 
 
 def _encode_mms_value_boolean(val: bool) -> bytes:
-    return b"\x83\x01\x01" if val else b"\x83\x01\x00"
+    return bytes([_TAG_BOOLEAN, 1, 1 if val else 0])
 
 
 def _encode_mms_value_unsigned(val: int) -> bytes:
-    """Encode un unsigned (tag 85 ou 86 selon taille)."""
+    """Encode un unsigned (tag UINT_SHORT ≤1 octet, UINT_LONG sinon)."""
     if val < 0x100:
-        return b"\x85\x01" + bytes([val])
+        return bytes([_TAG_UINT_SHORT, 1, val])
     if val < 0x10000:
-        return b"\x86\x02" + bytes([val >> 8, val & 0xFF])
+        return bytes([_TAG_UINT_LONG, 2, val >> 8, val & 0xFF])
     b = val.to_bytes((val.bit_length() + 7) // 8 or 1, "big")
-    return b"\x86" + bytes([len(b)]) + b
+    return bytes([_TAG_UINT_LONG, len(b)]) + b
 
 
 def _encode_mms_value_bitstring(bits: bytes) -> bytes:
-    """Encode un bit string (tag 84). bits inclut les octets de padding si nécessaire."""
-    return b"\x84" + bytes([len(bits)]) + bits
+    """Encode un bit string. bits inclut les octets de padding si nécessaire."""
+    return bytes([_TAG_BIT_STRING, len(bits)]) + bits
 
 
 def _encode_mms_value_octetstring(val: bytes) -> bytes:
-    return b"\x89" + bytes([len(val)]) + val
+    return bytes([_TAG_OCTET_STR, len(val)]) + val
 
 
 def encode_mms_set_rcb_attribute(
@@ -211,31 +220,24 @@ def encode_mms_set_rcb_attribute(
     full_item = f"{item_id}${attribute}" if attribute else item_id
     name_part = _encode_domain_specific_name(domain_id, full_item)
 
-    # a1 [len] name_part
-    a1_inner = b"\xa1" + bytes([len(name_part)]) + name_part
-    # a0 [len] a1
-    a0_name_inner = b"\xa0" + bytes([len(a1_inner)]) + a1_inner
-    # 30 [len] a0 (SEQUENCE containing name)
-    seq_name = b"\x30" + bytes([len(a0_name_inner)]) + a0_name_inner
-    # a0 [len] 30 (name block)
-    a0_name_block = b"\xa0" + bytes([len(seq_name)]) + seq_name
-    # a0 [len] value (value block)
-    a0_val = b"\xa0" + bytes([len(value)]) + value
-    # a5 [len] a0_name_block + a0_val (two siblings)
-    a5_content = a0_name_block + a0_val
-    a5 = b"\xa5" + bytes([len(a5_content)]) + a5_content
+    def _tlv(tag: int, value: bytes) -> bytes:
+        return bytes([tag, len(value)]) + value
+
+    a1_inner      = _tlv(_TAG_CTX1_C, name_part)
+    a0_name_inner = _tlv(_TAG_CTX0_C, a1_inner)
+    seq_name      = _tlv(_TAG_SEQUENCE, a0_name_inner)
+    a0_name_block = _tlv(_TAG_CTX0_C, seq_name)
+    a0_val        = _tlv(_TAG_CTX0_C, value)
+    a5            = _tlv(_TAG_CTX5_C, a0_name_block + a0_val)
 
     inv = _next_invoke_id()
     invoke_part = b"\x02\x02" + bytes([inv >> 8, inv & 0xFF])
 
-    # a0 [len] invoke + a5
-    inner = invoke_part + a5
-    a0_3 = b"\xa0" + bytes([len(inner)]) + inner
-    a0_4 = b"\xa0" + bytes([len(a0_3)]) + a0_3
-    fixed = b"\x02\x01\x03"
-    seq_top = fixed + a0_4
-    seq_2 = b"\x30" + bytes([len(seq_top)]) + seq_top
-    app1 = b"\x61" + bytes([len(seq_2)]) + seq_2
+    inner  = invoke_part + a5
+    a0_3   = _tlv(_TAG_CTX0_C, inner)
+    a0_4   = _tlv(_TAG_CTX0_C, a0_3)
+    seq_2  = _tlv(_TAG_SEQUENCE, b"\x02\x01\x03" + a0_4)
+    app1   = _tlv(_TAG_APP_PDU, seq_2)
 
     return _PREFIX + app1
 
