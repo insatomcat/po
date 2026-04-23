@@ -85,18 +85,43 @@ def _encode_domain_specific_name(domain_id: str, item_id: str) -> bytes:
 
 
 def encode_mms_initiate() -> bytes:
-    """Construit un MMS InitiateRequest (replay de trame capturée)."""
+    """Construit un MMS InitiateRequest (replay de trame capturée terrain).
+
+    Ce PDU est un replay fidèle d'une capture Wireshark effectuée sur l'IED
+    cible. Il encode les couches Session (ISO 8327) + Présentation (ISO 8823)
+    + ACSE (ISO 8650) + MMS InitiateRequest (ISO 9506) avec les paramètres
+    négociés lors des captures : max-services-outstanding, PDU size, etc.
+
+    NE PAS modifier ces octets sans re-capturer sur l'IED : les paramètres
+    ACSE (Application Context OID, Presentation Context List) sont spécifiques
+    au profil IEC 61850-8-1 de l'équipement et doivent correspondre exactement.
+
+    Décomposition (vérifiable dans Wireshark) :
+      0d b2 05 06 …        Session SPDU type CN (Connect)
+      c1 9c 31 81 99 …     Presentation CP-PPDU
+        a0 03 80 01 01      ACSE : Application Context (IEC 61850-8-1)
+        a2 81 91 …          ACSE : Called AP Title + Presentation Context List
+      be 2f 28 2d …        ACSE User Information → MMS InitiateRequestPDU
+        02 01 03            MMS version = 3
+        a0 28 …             proposedParameterCBB
+        a8 26 …             initRequestDetail (maxServOutstanding, PDU sizes…)
+    """
     return bytes.fromhex(
-        (
-            "0db20506130100160102140200023302000134020001"
-            "c19c318199a003800101a28191810400000001820400000001"
-            "a423300f0201010604520100013004060251013010020103"
-            "060528ca220201300406025101615e305c020101a0576055"
-            "a107060528ca220203a20706052901876701a30302010c"
-            "a606060429018767a70302010cbe2f282d020103a028a826"
-            "800300fde881010582010583010aa416800101810305f100"
-            "820c03ee1c00000408000079ef18"
-        )
+        "0db20506130100160102140200023302000134020001"   # Session SPDU CN
+        "c19c318199"                                      # Presentation CP-PPDU header
+        "a003800101"                                      # ACSE Application Context OID
+        "a28191"                                          # ACSE Called AP / Pres context list
+        "810400000001820400000001"
+        "a423300f0201010604520100013004060251013010020103"
+        "060528ca220201300406025101615e305c020101a0576055"
+        "a107060528ca220203a20706052901876701a30302010c"   # ACSE Presentation Context List
+        "a606060429018767a70302010c"
+        "be2f282d"                                        # ACSE User Info → MMS PDU
+        "020103"                                          # MMS version 3
+        "a028a826"
+        "800300fde881010582010583010a"                    # proposedParameterCBB + PDU sizes
+        "a416800101810305f100"
+        "820c03ee1c00000408000079ef18"                    # initRequestDetail
     )
 
 
