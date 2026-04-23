@@ -314,11 +314,15 @@ def main() -> int:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", 0))
+        sock.listen(5)
         svview_port = sock.getsockname()[1]
-        sock.close()
+        _svview_fd = sock.fileno()
 
         def run_svview() -> None:
-            svview_app.run(host="127.0.0.1", port=svview_port, use_reloader=False, threaded=True)
+            from werkzeug.serving import make_server
+            srv = make_server("127.0.0.1", svview_port, svview_app, threaded=True, fd=_svview_fd)
+            sock.close()  # werkzeug a dupliqué le fd via socket.fromfd()
+            srv.serve_forever()
 
         t = threading.Thread(target=run_svview, daemon=True)
         t.start()
