@@ -186,6 +186,8 @@ class MMSCommandConfig:
 
 
 RECENTS_MAX = 20
+_RECONNECT_DELAY_INITIAL = 5.0
+_RECONNECT_DELAY_MAX = 60.0
 
 # Drapeau debug par flux (in-memory, pas de persistance)
 _DEBUG_CONSOLE: Dict[str, bool] = {}
@@ -506,7 +508,7 @@ class SubscriptionManager:
                 )
                 try:
                     client.close()
-                except Exception:
+                except OSError:
                     pass
                 time.sleep(8.0)
                 client.connect()
@@ -523,7 +525,7 @@ class SubscriptionManager:
         finally:
             try:
                 client.close()
-            except Exception:
+            except OSError:
                 pass
 
     def _load_commands(self) -> None:
@@ -560,7 +562,8 @@ class SubscriptionManager:
                     item=str(item["item"]),
                     position=str(item.get("position") or "closed"),
                 )
-            except Exception:
+            except (KeyError, TypeError, ValueError) as e:
+                print(f"[MMS-CMD] Commande ignorée (données invalides): {e}")
                 continue
             loaded[cmd.id] = cmd
 
@@ -644,7 +647,7 @@ class SubscriptionManager:
         if client is not None:
             try:
                 client.close()
-            except Exception:
+            except OSError:
                 pass
 
     def _stop_runtime(self, runtime: SubscriptionRuntime) -> None:
@@ -678,11 +681,12 @@ class SubscriptionManager:
             f"(source: {'fichier' if cfg.rcb_list else 'liste intégrée'})"
         )
 
-        reconnect_delay_sec = 5.0
+        reconnect_delay_sec = _RECONNECT_DELAY_INITIAL
         vm_url = self._vm_url
         batch_interval_sec = self._vm_batch_ms / 1000.0 if self._vm_batch_ms > 0 else 0.0
 
         while not runtime.stop_event.is_set():
+            _connection_ok = False
             client = MMSReportsClient(cfg.ied_host, cfg.ied_port, debug=False)
             runtime.client = client
             try:
@@ -761,6 +765,7 @@ class SubscriptionManager:
 
                 # Boucle bloquante jusqu'à perte de connexion ou arrêt
                 client.loop_reports(callback, quiet_heartbeat=True)
+                _connection_ok = True
 
                 if runtime.stop_event.is_set():
                     break
@@ -772,7 +777,6 @@ class SubscriptionManager:
                     break
                 runtime.last_error = str(e)
                 print(f"[MMS] Flux {cfg.id}: erreur de connexion ou de protocole : {e}")
-                print(f"[MMS] Flux {cfg.id}: nouvelle tentative dans {reconnect_delay_sec} s...")
             except Exception as e:
                 # Cas fréquent : socket fermé pendant un arrêt → EBADF, qu'on ne logue pas comme erreur.
                 if isinstance(e, OSError) and getattr(e, "errno", None) == errno.EBADF:
@@ -785,14 +789,18 @@ class SubscriptionManager:
             finally:
                 try:
                     client.close()
-                except Exception:
+                except OSError:
                     pass
                 runtime.client = None
 
             if runtime.stop_event.is_set():
                 break
 
-            # Attente avant reconnexion
+            if _connection_ok:
+                reconnect_delay_sec = _RECONNECT_DELAY_INITIAL
+            else:
+                reconnect_delay_sec = min(reconnect_delay_sec * 2.0, _RECONNECT_DELAY_MAX)
+            print(f"[MMS] Flux {cfg.id}: nouvelle tentative dans {reconnect_delay_sec:.0f} s...")
             for _ in range(int(reconnect_delay_sec * 10)):
                 if runtime.stop_event.is_set():
                     break
@@ -824,7 +832,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             if not isinstance(data, dict):
                 return None, False
             return data, True
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             return None, False
 
     def _send_json(self, status: int, payload: Any) -> None:

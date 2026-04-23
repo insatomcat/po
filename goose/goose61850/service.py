@@ -322,8 +322,8 @@ class GooseService:
                     encoding="utf-8",
                 )
                 tmp_path.replace(path)
-        except Exception:
-            pass
+        except (OSError, TypeError, ValueError) as e:
+            print(f"[GOOSE] Erreur sauvegarde état: {e}")
 
     def _load_state(self) -> None:
         """Recharge les flux depuis streams.json et recents.json."""
@@ -333,14 +333,14 @@ class GooseService:
             try:
                 raw = json.loads(self._streams_path.read_text(encoding="utf-8"))
                 streams_data = raw.get("streams") or []
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError, AttributeError) as e:
+                print(f"[GOOSE] Impossible de charger {self._streams_path}: {e}")
         if self._recents_path.exists():
             try:
                 raw = json.loads(self._recents_path.read_text(encoding="utf-8"))
                 recent_data = raw.get("recents") or raw.get("recent") or []
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError, AttributeError) as e:
+                print(f"[GOOSE] Impossible de charger {self._recents_path}: {e}")
         now = time.monotonic()
 
         with self._streams_lock:
@@ -371,7 +371,8 @@ class GooseService:
                         current_interval_ms=float(max(self.IEC_MIN_MS, 1)),
                     )
                     self._streams[s.id] = s
-                except Exception:
+                except (KeyError, TypeError, ValueError) as e:
+                    print(f"[GOOSE] Entrée de flux ignorée (données invalides): {e}")
                     continue
 
             # Recharge l'historique récent tel quel (les conversions auront lieu
@@ -399,8 +400,8 @@ class GooseService:
             for s in due:
                 try:
                     self._send_one(s)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[GOOSE] Erreur envoi flux {s.id}: {e}")
                 with self._streams_lock:
                     ss = self._streams.get(s.id)
                     if ss is not None:
