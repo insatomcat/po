@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Optional
+
+from iec_data import IECData
 
 
 @dataclass
@@ -20,7 +22,7 @@ class GoosePDU:
     conf_rev: int
     nds_com: bool
     num_dat_set_entries: int
-    all_data: List[Any] = field(default_factory=list)
+    all_data: list[IECData] = field(default_factory=list)
 
 
 @dataclass

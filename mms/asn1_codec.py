@@ -8,8 +8,14 @@ Basé sur l'analyse des trames Wireshark pour l'IED cible.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
+
+from iec_data import (
+    BoolData, IntData, UIntData, FloatData,
+    BitStringData, OctetStringData, VisibleStringData, MmsStringData,
+    TimestampData, StructureData, ArrayData, RawData, IECData,
+    decode_iec_data_at,
+)
 
 
 @dataclass
@@ -384,208 +390,35 @@ def _ber_decode_visible_string(data: bytes, offset: int) -> tuple[str, int]:
     return val, offset + length
 
 
-def _ber_decode_unsigned(data: bytes, offset: int) -> tuple[int, int]:
-    """Décode unsigned (tag 85/86) à offset."""
-    if offset >= len(data):
-        return 0, offset
-    offset += 1
-    length, n = _ber_read_length(data, offset)
-    offset += n
-    if length == 0 or offset + length > len(data):
-        return 0, offset
-    val = int.from_bytes(data[offset : offset + length], "big")
-    return val, offset + length
 
-
-def _ber_decode_boolean(data: bytes, offset: int) -> tuple[bool, int]:
-    """Décode boolean (tag 83) à offset."""
-    if offset + 3 > len(data) or data[offset] != 0x83:
-        return False, offset
-    offset += 1
-    if data[offset] != 1:
-        return False, offset + 2
-    return data[offset + 1] != 0, offset + 2
-
-
-def _ber_decode_octet_string(data: bytes, offset: int) -> tuple[bytes, int]:
-    """Décode octet-string (tag 89) à offset."""
-    if offset >= len(data) or data[offset] != 0x89:
-        return b"", offset
-    offset += 1
-    length, n = _ber_read_length(data, offset)
-    offset += n
-    if offset + length > len(data):
-        return b"", offset
-    return data[offset : offset + length], offset + length
-
-
-def _ber_decode_bit_string(data: bytes, offset: int) -> tuple[bytes, int]:
-    """Décode bit-string (tag 84) à offset. Retourne (octets bruts, nouvel_offset)."""
-    if offset >= len(data) or data[offset] != 0x84:
-        return b"", offset
-    offset += 1
-    length, n = _ber_read_length(data, offset)
-    offset += n
-    if offset + length > len(data):
-        return b"", offset
-    return data[offset : offset + length], offset + length
-
-
-# Epochs : 1984 (IEC 61850) pour petites valeurs, 1970 (Unix) pour timestamps type 202x
-_EPOCH_1984 = datetime(1984, 1, 1, tzinfo=timezone.utc)
-# Seuil : au-delà on considère que c'est un timestamp Unix (évite 2040 au lieu de 2024)
-_SECS_UNIX_MIN = 1_000_000_000  # ~2001
-
-
-def _timestamp_to_iso(sec: int, frac: float = 0.0) -> str:
-    """Convertit secondes (depuis 1970 ou 1984) + fraction en ISO UTC."""
-    if sec >= _SECS_UNIX_MIN:
-        base = 0.0  # Unix epoch
-    else:
-        base = _EPOCH_1984.timestamp()
-    dt = datetime.fromtimestamp(base + sec + frac, tz=timezone.utc)
-    return dt.isoformat()
-
-
-# Jours entre 1970-01-01 et 1984-01-01 (IEC 61850-8-1 TimeOfDay, format 6 octets)
-_DAYS_1970_TO_1984 = 5113
-
-
-def _ber_decode_binary_time(data: bytes, offset: int) -> tuple[Any, int]:
-    """Décode binary-time (tag 8c). Format IEC 61850-8-1 TimeOfDay :
-    - 4 octets : millisecondes depuis epoch (format relatif)
-    - 6 octets : ms du jour (4) + jours depuis 1984-01-01 (2), aligné Wireshark
-    """
-    if offset >= len(data) or data[offset] != 0x8C:
-        return "<binary-time?>", offset
-    offset += 1
-    length, n = _ber_read_length(data, offset)
-    offset += n
-    if offset + length > len(data) or length < 4:
-        return "<binary-time?>", offset + max(0, length)
-    raw = data[offset : offset + length]
-    offset += length
-    try:
-        if length == 6:
-            # Format 6 octets : ms du jour (4) + jours depuis 1984-01-01 (2), comme Wireshark
-            milliseconds = int.from_bytes(raw[:4], "big")
-            days = int.from_bytes(raw[4:6], "big")
-            if milliseconds <= 86400000 and days < 0xFFFE:
-                secs = (_DAYS_1970_TO_1984 + days) * 86400 + milliseconds // 1000
-                frac = (milliseconds % 1000) / 1000.0
-                return _timestamp_to_iso(secs, frac), offset
-        else:
-            # Format 4 octets : secondes depuis 1970 ou 1984 + fraction optionnelle
-            sec = int.from_bytes(raw[:4], "big")
-            frac = int.from_bytes(raw[4:6], "big") / 65536.0 if length >= 6 else 0.0
-            if 0 < sec < 0x7FFFFFFF:
-                return _timestamp_to_iso(sec, frac), offset
-        return raw.hex(), offset
-    except (ValueError, OSError):
-        return raw.hex(), offset
-
-
-def _ber_decode_utc_time(data: bytes, offset: int) -> tuple[Any, int]:
-    """Décode utc-time (tag 91). 4 octets secondes (1970 ou 1984) + optionnel fraction."""
-    if offset >= len(data) or data[offset] != 0x91:
-        return "<utc-time?>", offset
-    offset += 1
-    length, n = _ber_read_length(data, offset)
-    offset += n
-    if offset + length > len(data):
-        return "<utc-time?>", offset + max(0, length)
-    raw = data[offset : offset + length]
-    offset += length
-    if length >= 4:
-        try:
-            sec = int.from_bytes(raw[:4], "big")
-            if 0 < sec < 0x7FFFFFFF:
-                return _timestamp_to_iso(sec), offset
-        except (ValueError, OSError):
-            pass
-    return raw.hex(), offset
-
-
-def _ber_decode_float(data: bytes, offset: int) -> tuple[Any, int]:
-    """Décode MMS floating-point (tag 87). 1 octet format puis 4 ou 8 octets (IEEE 754)."""
-    import struct
-    if offset >= len(data) or data[offset] != 0x87:
-        return None, offset
-    offset += 1
-    length, n = _ber_read_length(data, offset)
-    offset += n
-    if offset + length > len(data) or length < 5:
-        return None, offset + max(0, length)
-    # Premier octet = format, puis 4 ou 8 octets IEEE 754 big-endian
-    payload = data[offset + 1 : offset + length]
-    end = offset + length
-    try:
-        if len(payload) == 4:
-            return round(struct.unpack("!f", payload)[0], 6), end
-        if len(payload) == 8:
-            return round(struct.unpack("!d", payload)[0], 6), end
-    except struct.error:
-        pass
-    return payload.hex(), end
-
-
-def _ber_decode_structure(data: bytes, offset: int) -> tuple[Union[List[Any], Dict[str, Any]], int]:
-    """Décode une structure (tag a2 ou constructed 0x20+). Retourne liste des champs décodés."""
-    if offset >= len(data):
-        return [], offset
-    tag = data[offset]
-    if tag != 0xA2 and (tag & 0x1F) != 0x20:
-        return [], offset
-    offset += 1
-    length, n = _ber_read_length(data, offset)
-    offset += n
-    end = offset + length
-    if end > len(data):
-        return [], offset
-    content = data[offset:end]
-    offset = end
-    fields: List[Any] = []
-    pos = 0
-    while pos < len(content):
-        try:
-            val, pos = _ber_decode_data_value(content, pos)
-            fields.append(val)
-        except (IndexError, ValueError):
-            break
-    return fields, offset
+def _iec_data_to_legacy(d: IECData) -> Any:
+    """Convertit IECData en type Python simple (format historique pour les entries MMS)."""
+    if isinstance(d, BoolData):
+        return d.value
+    if isinstance(d, (IntData, UIntData)):
+        return d.value
+    if isinstance(d, FloatData):
+        return d.value
+    if isinstance(d, (VisibleStringData, MmsStringData)):
+        return d.value
+    if isinstance(d, TimestampData):
+        return d.value.isoformat()
+    if isinstance(d, (BitStringData, OctetStringData)):
+        return d.value.hex()
+    if isinstance(d, StructureData):
+        return [_iec_data_to_legacy(m) for m in d.members]
+    if isinstance(d, ArrayData):
+        return [_iec_data_to_legacy(e) for e in d.elements]
+    return "<unknown>"
 
 
 def _ber_decode_data_value(data: bytes, offset: int) -> tuple[Any, int]:
-    """
-    Décode une valeur Data MMS à offset (tag 8a, 80, 1a, 84, 86, 8c, 83, 89, 87, 91, a2...).
-    Retourne (valeur Python, nouvel_offset). Les structures sont décodées récursivement.
-    """
-    if offset >= len(data):
-        return None, offset
-    tag = data[offset]
-    if tag in (0x8A, 0x1A, 0x80):
-        return _ber_decode_visible_string(data, offset)
-    if tag == 0x84:
-        bits, off = _ber_decode_bit_string(data, offset)
-        return bits.hex(), off
-    if tag == 0x85 or tag == 0x86:
-        return _ber_decode_unsigned(data, offset)
-    if tag == 0x83:
-        return _ber_decode_boolean(data, offset)
-    if tag == 0x89:
-        octs, off = _ber_decode_octet_string(data, offset)
-        return octs.hex(), off
-    if tag == 0x8C:
-        return _ber_decode_binary_time(data, offset)
-    if tag == 0x91:
-        return _ber_decode_utc_time(data, offset)
-    if tag == 0x87:
-        return _ber_decode_float(data, offset)
-    if tag == 0xA2 or (tag & 0x1F) == 0x20:
-        fields, off = _ber_decode_structure(data, offset)
-        return fields if fields else "<structure>", off
-    # défaut: skip
-    return "<unknown>", _ber_skip(data, offset)
+    """Décode une valeur Data MMS à offset. Délègue à decode_iec_data_at (iec_data.py)."""
+    try:
+        item, next_offset = decode_iec_data_at(data, offset)
+        return _iec_data_to_legacy(item), next_offset
+    except ValueError:
+        return None, _ber_skip(data, offset)
 
 
 def _decode_mms_report_list(data: bytes, offset: int) -> tuple[list[Dict[str, Any]], int]:
@@ -602,20 +435,6 @@ def _decode_mms_report_list(data: bytes, offset: int) -> tuple[list[Dict[str, An
             break
     return results, offset
 
-
-def _ber_decode_sequence_of_visible_strings(data: bytes, offset: int) -> tuple[List[str], int]:
-    """Décode SEQUENCE OF VisibleString (1a ou 8a). Retourne (liste, nouvel_offset)."""
-    names: List[str] = []
-    while offset < len(data):
-        if offset >= len(data):
-            break
-        tag = data[offset]
-        if tag not in (0x1A, 0x8A, 0x80):
-            break
-        s, offset = _ber_decode_visible_string(data, offset)
-        if s:
-            names.append(s)
-    return names, offset
 
 
 def is_read_response_success(pdu: bytes) -> bool:
