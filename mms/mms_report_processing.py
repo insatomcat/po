@@ -205,6 +205,38 @@ def _is_undecoded_raw(report: MMSReport) -> bool:
     return isinstance(e, dict) and "raw_hex" in e
 
 
+def _classify_raw_mms_pdu(raw: bytes) -> str:
+    """Retourne une description courte du type de PDU MMS brut."""
+    data = raw
+    # En-tête session/presentation déjà vu dans le codec ASN.1.
+    if data.startswith(b"\x01\x00\x01\x00"):
+        data = data[4:]
+    if not data:
+        return "vide"
+    if data[0] != 0x61:
+        return f"non-application(0x{data[0]:02x})"
+    if len(data) < 4 or data[2] != 0x30:
+        return "application-incomplète"
+    # SEQUENCE: [version INTEGER] puis CHOICE MMSPDU (souvent A0/A1/A3...).
+    pos = 4
+    if len(data) >= 7 and data[4] == 0x02:
+        # INTEGER tag + len + value...
+        ilen = data[5]
+        pos = 6 + ilen
+    if pos >= len(data):
+        return "mms-incomplet"
+    tag = data[pos]
+    labels = {
+        0xA0: "confirmed-request",
+        0xA1: "confirmed-response",
+        0xA3: "unconfirmed",
+        0xA4: "reject",
+        0xA8: "conclude-request",
+        0xA9: "conclude-response",
+    }
+    return labels.get(tag, f"mms-tag-0x{tag:02x}")
+
+
 def _print_report(report: MMSReport, verbose: bool = False, out: Any = None) -> None:
     """Affiche le détail d'un report dans la console.
     out: stream de sortie (sys.__stdout__ pour contourner TeeStdout), ou None pour print().
@@ -286,10 +318,17 @@ def process_mms_report(  # noqa: PLR0913
             print(s, flush=True)
 
     if _is_undecoded_raw(report):
-        n = len(report.entries[0].get("raw_hex", "")) // 2 if report.entries else 0
-        _out(f"  [PDU non décodé, {n} octets] (autre type de message MMS)")
-        if verbose and report.entries:
-            _out(f"      {report.entries[0].get('raw_hex', '')[:120]}...")
+        raw_hex = report.entries[0].get("raw_hex", "") if report.entries else ""
+        raw = bytes.fromhex(raw_hex) if isinstance(raw_hex, str) and raw_hex else b""
+        n = len(raw)
+        pdu_type = _classify_raw_mms_pdu(raw)
+        # Bruit courant observé sur certains IED: petites réponses techniques 14/16 octets.
+        # On les masque en mode non-verbose pour garder des logs exploitables.
+        if not verbose and pdu_type == "confirmed-response" and n <= 16:
+            return
+        _out(f"  [PDU non décodé, {n} octets] (type={pdu_type})")
+        if verbose and raw_hex:
+            _out(f"      {raw_hex[:120]}...")
         return
 
     if vm_url:
