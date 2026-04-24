@@ -18,6 +18,7 @@ STREAMS_PATH = _GOOSE_DIR / "streams.json"
 RECENTS_PATH = _GOOSE_DIR / "recents.json"
 from urllib.parse import parse_qs, urlparse
 
+from iec_data import IECData, iec_data_from_json, iec_data_to_json
 from .transport import _build_frame
 from .types import GoosePDU
 
@@ -40,7 +41,7 @@ class GooseStream:
     conf_rev: int
     simulation: bool
     nds_com: bool
-    all_data: List[Any]
+    all_data: List[IECData]
 
     st_num: int = 1
     sq_num: int = 0
@@ -80,21 +81,15 @@ def _stream_to_dict(s: GooseStream) -> Dict[str, Any]:
         "conf_rev": s.conf_rev,
         "simulation": s.simulation,
         "nds_com": s.nds_com,
-        "all_data": s.all_data,
+        "all_data": [iec_data_to_json(d) for d in s.all_data],
         "st_num": s.st_num,
         "sq_num": s.sq_num,
     }
 
 
-def _parse_all_data(raw: List[Any]) -> List[Any]:
-    """Convertit les valeurs JSON (y compris tuples raw) en all_data Python."""
-    result: List[Any] = []
-    for item in raw:
-        if isinstance(item, list) and len(item) == 3 and item[0] == "raw":
-            result.append(("raw", int(item[1]), str(item[2])))
-        else:
-            result.append(item)
-    return result
+def _parse_all_data(raw: List[Any]) -> List[IECData]:
+    """Convertit les valeurs JSON en IECData. Accepte l'ancien format ["raw", tag, hex]."""
+    return [iec_data_from_json(item) for item in raw]
 
 
 class GooseService:

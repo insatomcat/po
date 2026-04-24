@@ -3,6 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
+from iec_data import (
+    IECData, _IEC_DATA_TYPES,
+    decode_iec_data_sequence,
+    encode_iec_data,
+    iec_data_from_json,
+)
 from .types import GoosePDU
 
 
@@ -127,22 +133,8 @@ def _parse_goose_fields(tlvs: List[Tuple[int, bytes]]) -> Dict[str, Any]:
         elif tag_num == 10:
             fields["num_dat_set_entries"] = _decode_integer(value)
         elif tag_num == 11:
-            # allData est lui-même une séquence de TLV ; on essaie de décoder
-            # chaque élément en bool/int/str selon un schéma simple.
-            inner_offset = 0
-            while inner_offset < len(value):
-                inner_tag, _inner_len, inner_val, inner_offset = _read_tlv(value, inner_offset)
-                inner_tag_num = inner_tag & 0x1F
-                if inner_tag_num == 1:
-                    all_data.append(_decode_boolean(inner_val))
-                elif inner_tag_num == 2:
-                    all_data.append(_decode_integer(inner_val))
-                elif inner_tag_num == 3:
-                    all_data.append(_decode_visible_string(inner_val))
-                else:
-                    # Type inconnu : on expose une représentation bijective :
-                    # ("raw", inner_tag_num, "<hex>")
-                    all_data.append(("raw", inner_tag_num, inner_val.hex()))
+            # allData : séquence TLV de Data IEC 61850 (types standard)
+            all_data = decode_iec_data_sequence(value)
         else:
             # Champ inconnu : on le stocke dans un dict annexe si besoin plus tard
             unk = fields.setdefault("_unknown", [])
@@ -279,32 +271,8 @@ def encode_goose_pdu(pdu: GoosePDU) -> bytes:
     # entier ou une chaîne VisibleString selon son type Python.
     all_data_content = b""
     for d in pdu.all_data:
-        # Cas spécial : valeur "brute" venant du décodage ou de la CLI,
-        # encodée sous la forme ("raw", tag_num, "hexbytes").
-        if (
-            isinstance(d, tuple)
-            and len(d) == 3
-            and d[0] == "raw"
-            and isinstance(d[1], int)
-            and isinstance(d[2], str)
-        ):
-            tag_num = d[1]
-            try:
-                content = bytes.fromhex(d[2])
-            except ValueError:
-                # En cas d'hex invalide, on retombe sur un encodage texte
-                tag_num = 3
-                content = enc_visible_string(str(d))
-        elif isinstance(d, bool):
-            tag_num = 1
-            content = enc_boolean(d)
-        elif isinstance(d, int):
-            tag_num = 2
-            content = enc_integer(d)
-        else:
-            tag_num = 3
-            content = enc_visible_string(str(d))
-        all_data_content += enc_tag(tag_num, content)
+        item = d if isinstance(d, _IEC_DATA_TYPES) else iec_data_from_json(d)
+        all_data_content += encode_iec_data(item)
 
     if all_data_content:
         parts.append(enc_tag(11, all_data_content))

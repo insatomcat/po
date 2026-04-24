@@ -7,10 +7,13 @@ import sys
 from datetime import datetime
 from typing import Optional
 
-# Ajoute la racine du dépôt au sys.path pour pouvoir importer goose61850
+# Ajoute la racine du dépôt au sys.path pour pouvoir importer goose61850 et iec_data
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from goose61850 import GooseSubscriber
 from goose61850.types import GooseFrame
