@@ -18,7 +18,7 @@ STREAMS_PATH = _GOOSE_DIR / "streams.json"
 RECENTS_PATH = _GOOSE_DIR / "recents.json"
 from urllib.parse import parse_qs, urlparse
 
-from iec_data import IECData, iec_data_from_json, iec_data_to_json
+from iec_data import IECData, RawData, TimestampData, iec_data_from_json, iec_data_to_json
 from .transport import _build_frame
 from .types import GoosePDU
 
@@ -48,20 +48,62 @@ class GooseStream:
     next_send_time: float = field(default_factory=time.monotonic)
     current_interval_ms: float = 10.0
 
+    @staticmethod
+    def _encode_utc_time_raw(now: datetime) -> bytes:
+        """Encode utc-time IEC (tag 0x91): secs(4) + frac(3) + quality(1)."""
+        ts = now.timestamp()
+        secs = int(ts)
+        frac = int((ts - secs) * (1 << 24))
+        return secs.to_bytes(4, "big") + frac.to_bytes(3, "big") + b"\x00"
+
+    @staticmethod
+    def _encode_binary_time_raw(now: datetime) -> bytes:
+        """Encode binary-time IEC 6 octets (tag 0x8C): ms_day(4) + days_since_1984(2)."""
+        epoch_1984 = datetime(1984, 1, 1, tzinfo=timezone.utc)
+        delta = now - epoch_1984
+        days = delta.days
+        ms_day = int((delta.seconds + delta.microseconds / 1_000_000.0) * 1000) % 86_400_000
+        return ms_day.to_bytes(4, "big") + days.to_bytes(2, "big", signed=False)
+
+    @classmethod
+    def _refresh_time_value(cls, v: IECData, now: datetime) -> IECData:
+        """Remplace les timestamps dynamiques (typed et raw legacy) par l'heure courante."""
+        if isinstance(v, TimestampData):
+            return TimestampData(now)
+        if isinstance(v, RawData):
+            if v.tag == 0x91:
+                # Respecte la longueur d'origine si > 8 octets.
+                base = cls._encode_utc_time_raw(now)
+                if len(v.value) > 8:
+                    return RawData(v.tag, base + v.value[8:])
+                return RawData(v.tag, base[: len(v.value)] if v.value else base)
+            if v.tag == 0x8C:
+                base = cls._encode_binary_time_raw(now)
+                return RawData(v.tag, base[: len(v.value)] if v.value else base)
+        return v
+
     def to_pdu(self) -> GoosePDU:
+        now = datetime.now(timezone.utc)
+        # Les timestamps contenus dans all_data doivent refléter l'instant d'émission.
+        # Si on conserve des valeurs fixes (chargées depuis un JSON/CLI), certains IED
+        # peuvent considérer le GOOSE comme obsolète/incohérent.
+        live_all_data = [
+            self._refresh_time_value(v, now)
+            for v in self.all_data
+        ]
         return GoosePDU(
             gocb_ref=self.gocb_ref,
             time_allowed_to_live=self.ttl,
             dat_set=self.dat_set,
             go_id=self.go_id,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=now,
             st_num=self.st_num,
             sq_num=self.sq_num,
             simulation=self.simulation,
             conf_rev=self.conf_rev,
             nds_com=self.nds_com,
-            num_dat_set_entries=len(self.all_data),
-            all_data=list(self.all_data),
+            num_dat_set_entries=len(live_all_data),
+            all_data=live_all_data,
         )
 
 
