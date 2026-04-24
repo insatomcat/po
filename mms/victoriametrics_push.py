@@ -10,6 +10,7 @@ pour réduire le nombre de connexions.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 import urllib.error
@@ -181,6 +182,49 @@ def _member_name(index: int, member_labels: List[str]) -> str:
     return f"entry_{index}"
 
 
+def _resolve_dataset_map_entry(
+    ds_name: str,
+    mapping: Dict[str, Any],
+    total_entries: int | None = None,
+) -> Any:
+    """Résout une entrée de mapping par DataSet avec match strict/non ambigu."""
+    def _norm_ds_id(s: str) -> str:
+        # Normalise les suffixes terrain fréquents (ex: _DQPO03 -> _DQPO).
+        return re.sub(r"_(DQPO|CYPO|GME)\d+$", r"_\1", s)
+
+    if not ds_name:
+        return None
+    exact = mapping.get(ds_name)
+    if exact is not None:
+        return exact
+    if "$" not in ds_name:
+        return None
+    target_ds = ds_name.split("$", 1)[-1]
+    target_ds_norm = _norm_ds_id(target_ds)
+    expected_members: int | None = None
+    if isinstance(total_entries, int) and total_entries >= len(_ENTRY_LABELS):
+        payload_entries = total_entries - len(_ENTRY_LABELS)
+        if payload_entries > 0 and payload_entries % 2 == 0:
+            expected_members = payload_entries // 2
+
+    candidates: List[Any] = []
+    for k, v in mapping.items():
+        if "$" not in k:
+            continue
+        key_ds = k.split("$", 1)[-1]
+        if key_ds != target_ds and _norm_ds_id(key_ds) != target_ds_norm:
+            continue
+        if expected_members is not None and isinstance(v, list) and len(v) != expected_members:
+            continue
+        candidates.append(v)
+    # Résolution non ambiguë: un seul contenu distinct.
+    unique_candidates: List[Any] = []
+    for c in candidates:
+        if not any(c == u for u in unique_candidates):
+            unique_candidates.append(c)
+    return unique_candidates[0] if len(unique_candidates) == 1 else None
+
+
 def _do_post_impl(base_url: str, lines: List[str], debug: bool = False) -> None:
     """Envoi direct (une requête HTTP)."""
     body = "\n".join(lines).encode("utf-8")
@@ -213,16 +257,10 @@ def _report_to_lines(
     rpt_id = (report.rpt_id or "unknown").replace('"', "_")
     data_set = (report.data_set_name or "unknown").replace('"', "_")
     ds_name = report.data_set_name or ""
-    labels_list = (member_labels or {}).get(ds_name, [])
+    labels_list = _resolve_dataset_map_entry(ds_name, member_labels or {}, len(report.entries)) or []
     comp_map: Dict[str, List[str]] = {}
     if member_components:
-        comp_map = (member_components.get(ds_name) or {})
-        if not comp_map and ds_name and "$" in ds_name:
-            suffix = "$" + ds_name.split("$", 1)[-1]
-            for k, c in (member_components or {}).items():
-                if k.endswith(suffix):
-                    comp_map = c
-                    break
+        comp_map = _resolve_dataset_map_entry(ds_name, member_components or {}, len(report.entries)) or {}
         # Repli : si on n'a pas de composants pour un DataSet CYPO/DQPO,
         # essayer de récupérer ceux du DataSet GME équivalent (suffixe GOOSE dans l'ICD).
         if not comp_map and ds_name:
@@ -232,19 +270,7 @@ def _report_to_lines(
             elif "_DQPO_" in ds_name:
                 alt = ds_name.replace("_DQPO_", "_GME_")
             if alt:
-                comp_map = (member_components.get(alt) or {})
-                if not comp_map and "$" in alt:
-                    suffix_alt = "$" + alt.split("$", 1)[-1]
-                    for k, c in (member_components or {}).items():
-                        if k.endswith(suffix_alt):
-                            comp_map = c
-                            break
-    if not labels_list and ds_name and "$" in ds_name:
-        suffix = "$" + ds_name.split("$", 1)[-1]
-        for k, L in (member_labels or {}).items():
-            if k.endswith(suffix):
-                labels_list = L
-                break
+                comp_map = _resolve_dataset_map_entry(alt, member_components or {}, len(report.entries)) or {}
     lines: List[str] = []
     for i, e in enumerate(report.entries):
         val = e.get("success", e) if isinstance(e, dict) else e
