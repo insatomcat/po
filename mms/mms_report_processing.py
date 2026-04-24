@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 
 """
@@ -205,6 +206,48 @@ def _is_undecoded_raw(report: MMSReport) -> bool:
     return isinstance(e, dict) and "raw_hex" in e
 
 
+def _resolve_member_labels_for_dataset(ds_name: str, total_entries: int | None = None) -> list[str]:
+    """Résout les labels d'un DataSet avec une stratégie stricte (sans match permissif)."""
+    def _norm_ds_id(s: str) -> str:
+        # Normalise les suffixes terrain fréquents (ex: _DQPO03 -> _DQPO).
+        return re.sub(r"_(DQPO|CYPO|GME)\d+$", r"_\1", s)
+
+    if not ds_name:
+        return []
+    exact = DATA_SET_MEMBER_LABELS.get(ds_name)
+    if exact is not None:
+        return exact
+    if "$" not in ds_name:
+        return []
+    target_ds = ds_name.split("$", 1)[-1]
+    target_ds_norm = _norm_ds_id(target_ds)
+    expected_members: int | None = None
+    if isinstance(total_entries, int) and total_entries >= len(ENTRY_LABELS):
+        payload_entries = total_entries - len(ENTRY_LABELS)
+        # Cas report "classique" : N valeurs + N qualités => 2N entrées.
+        if payload_entries > 0 and payload_entries % 2 == 0:
+            expected_members = payload_entries // 2
+
+    candidates: list[list[str]] = []
+    for k, labels in DATA_SET_MEMBER_LABELS.items():
+        if "$" not in k:
+            continue
+        key_ds = k.split("$", 1)[-1]
+        if key_ds != target_ds and _norm_ds_id(key_ds) != target_ds_norm:
+            continue
+        if expected_members is not None and len(labels) != expected_members:
+            continue
+        candidates.append(labels)
+    # Fallback seulement si la résolution du DataSet est non ambiguë en contenu.
+    unique_candidates: list[list[str]] = []
+    for labels in candidates:
+        if not any(labels == u for u in unique_candidates):
+            unique_candidates.append(labels)
+    if len(unique_candidates) == 1:
+        return unique_candidates[0]
+    return []
+
+
 def _classify_raw_mms_pdu(raw: bytes) -> str:
     """Retourne une description courte du type de PDU MMS brut."""
     data = raw
@@ -264,14 +307,7 @@ def _print_report(report: MMSReport, verbose: bool = False, out: Any = None) -> 
     w(f"  BufOvfl     : {report.buf_ovfl}")
     if report.entries:
         ds_name = report.data_set_name or ""
-        member_labels = DATA_SET_MEMBER_LABELS.get(ds_name, [])
-        if not member_labels and ds_name and "$" in ds_name:
-            # Repli : matcher par la fin du nom (ex. $DS_LDPHAS1_CYPO) si le préfixe IED diffère
-            suffix = "$" + ds_name.split("$", 1)[-1]
-            for k, labels in DATA_SET_MEMBER_LABELS.items():
-                if k.endswith(suffix):
-                    member_labels = labels
-                    break
+        member_labels = _resolve_member_labels_for_dataset(ds_name, len(report.entries))
         w(f"  Entries ({len(report.entries)}) :")
         if len(report.entries) > len(ENTRY_LABELS):
             w("  (à partir de [8] : 1er, 2e, … membre du data set)")
