@@ -55,14 +55,16 @@ Par défaut le CLI cible `http://127.0.0.1:7050` (service unifié). Pour un serv
 ```bash
 # Lister les flux
 python3 svctl.py list
-python3 svctl.py list -v   # détail (VLAN, fault, etc.)
+python3 svctl.py list -v   # détail (VLAN, APPID, confRev, fault, etc.)
 
-# Créer un flux
+# Créer un flux (appid et conf_rev obligatoires)
 python3 svctl.py create monflux eth0 01:0c:cd:04:00:01 01:0c:cd:04:00:02 "SV_1" \
+  --appid 0x4060 --conf-rev 10000 \
   --freq 50 --i-peak 10 --v-peak 100 --vlan-id 100
 
-# Mettre à jour
-python3 svctl.py update monflux eth0 01:0c:cd:04:00:01 01:0c:cd:04:00:02 "SV_1" --fault
+# Mettre à jour (appid et conf_rev obligatoires)
+python3 svctl.py update monflux eth0 01:0c:cd:04:00:01 01:0c:cd:04:00:02 "SV_1" \
+  --appid 0x4060 --conf-rev 10001 --fault
 
 # Supprimer un flux
 python3 svctl.py delete monflux
@@ -71,14 +73,25 @@ python3 svctl.py delete monflux
 python3 svctl.py clear
 ```
 
+Paramètres obligatoires pour `create`/`update` : `--appid`, `--conf-rev`.
+
 Paramètres optionnels courants : `--smp-synch`, `--vlan-id`, `--vlan-priority`, `--freq`, `--i-peak`, `--v-peak`, `--phase`, `--fault`, `--fault-i-peak`, `--fault-v-peak`, `--fault-phase`, `--fault-cycle`.
+
+### 4. Exécution directe du binaire `rt_sender`
+
+`rt_sender` exige aussi `--appid` et `--conf-rev` (pas de valeur par défaut) :
+
+```bash
+./rt_sender --appid 0x4060 --conf-rev 10000 \
+  --smp-synch 2 --vlan-id 100 --vlan-priority 4 \
+  eth0 01:0c:cd:04:00:01 01:0c:cd:04:00:02 SV_1
+```
 
 ## API (résumé)
 
 - **GET /flows** – Liste des flux avec état (running, config)
-- **POST /flows** – Création (name, interface, src_mac, dst_mac, svid, + options)
+- **POST /flows** – Création (name, interface, src_mac, dst_mac, svid, appid, conf_rev, + options)
 - **GET /flows/recents** – Derniers événements (démarrage/arrêt, etc.)
-- **GET /flows/{name}** – Détail d’un flux
 - **PUT /flows/{name}** – Mise à jour (ré démarre le processus avec la nouvelle config)
 - **DELETE /flows/{name}** – Suppression et arrêt du flux
 - **DELETE /flows** – Suppression de tous les flux (svctl clear)
