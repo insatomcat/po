@@ -36,6 +36,7 @@ class FlowConfig(BaseModel):
     dst_mac: str = Field(..., description="Adresse MAC destination")
     svid: str = Field(..., description="svID (nom logique du flux)")
     appid: int = Field(..., ge=0, le=0xFFFF, description="APPID SV obligatoire 0-65535")
+    conf_rev: int = Field(..., ge=0, le=0xFFFFFFFF, description="confRev obligatoire 0-4294967295")
 
     # Paramètres temps-réel passés à rt_sender
     smp_synch: int = Field(
@@ -81,6 +82,7 @@ class FlowState(BaseModel):
     dst_mac: str
     svid: str
     appid: int
+    conf_rev: int
     smp_synch: int
     vlan_id: Optional[int]
     vlan_priority: int
@@ -198,6 +200,7 @@ def build_rt_sender_cmd(cfg: FlowConfig) -> list[str]:
 
     # Options de timing / contenu SV
     cmd += ["--appid", str(cfg.appid)]
+    cmd += ["--conf-rev", str(cfg.conf_rev)]
     cmd += ["--smp-synch", str(cfg.smp_synch)]
 
     if cfg.vlan_id is not None:
@@ -497,6 +500,7 @@ def _webui_html() -> str:
         ['dst_mac', f.dst_mac],
         ['svid', f.svid],
         ['appid', f.appid],
+        ['conf_rev', f.conf_rev],
         ['smp_synch', f.smp_synch],
         ['vlan_id', f.vlan_id],
         ['vlan_priority', f.vlan_priority],
@@ -667,6 +671,7 @@ def list_flows() -> list[FlowState]:
                     dst_mac=fr.config.dst_mac,
                     svid=fr.config.svid,
                     appid=fr.config.appid,
+                    conf_rev=fr.config.conf_rev,
                     smp_synch=fr.config.smp_synch,
                     vlan_id=fr.config.vlan_id,
                     vlan_priority=fr.config.vlan_priority,
@@ -704,6 +709,7 @@ def create_flow(cfg: FlowConfig) -> FlowState:
         dst_mac=cfg.dst_mac,
         svid=cfg.svid,
         appid=cfg.appid,
+        conf_rev=cfg.conf_rev,
         smp_synch=cfg.smp_synch,
         vlan_id=cfg.vlan_id,
         vlan_priority=cfg.vlan_priority,
@@ -742,6 +748,7 @@ def update_flow(name: str, cfg: FlowConfig) -> FlowState:
         dst_mac=cfg.dst_mac,
         svid=cfg.svid,
         appid=cfg.appid,
+        conf_rev=cfg.conf_rev,
         smp_synch=cfg.smp_synch,
         vlan_id=cfg.vlan_id,
         vlan_priority=cfg.vlan_priority,

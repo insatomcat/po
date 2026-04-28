@@ -65,6 +65,7 @@ def cmd_list(args: argparse.Namespace) -> None:
         print(f"  dst_mac       : {dst_mac}")
         print(f"  svid          : {svid}")
         print(f"  appid         : {f.get('appid')}")
+        print(f"  conf_rev      : {f.get('conf_rev')}")
         print(f"  running       : {running}")
         print(f"  smp_synch     : {f.get('smp_synch')}")
         print(f"  vlan_id       : {f.get('vlan_id')}")
@@ -89,6 +90,7 @@ def cmd_create(args: argparse.Namespace) -> None:
         "dst_mac": args.dst_mac,
         "svid": args.svid,
         "appid": args.appid,
+        "conf_rev": args.conf_rev,
         "fault": args.fault,
     }
     if args.smp_synch is not None:
@@ -133,6 +135,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         "dst_mac": args.dst_mac,
         "svid": args.svid,
         "appid": args.appid,
+        "conf_rev": args.conf_rev,
         "fault": args.fault,
     }
     if args.smp_synch is not None:
@@ -217,6 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("svid", help="svID")
     p_create.add_argument("--smp-synch", type=int, choices=[0, 1, 2])
     p_create.add_argument("--appid", type=_int_auto_base, required=True, help="APPID obligatoire (decimal ou 0x....)")
+    p_create.add_argument("--conf-rev", type=_int_auto_base, required=True, help="confRev obligatoire (decimal ou 0x....)")
     p_create.add_argument("--vlan-id", type=int)
     p_create.add_argument("--vlan-priority", type=int)
     p_create.add_argument("--freq", type=float)
@@ -238,6 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("svid", help="svID")
     p_update.add_argument("--smp-synch", type=int, choices=[0, 1, 2])
     p_update.add_argument("--appid", type=_int_auto_base, required=True, help="APPID obligatoire (decimal ou 0x....)")
+    p_update.add_argument("--conf-rev", type=_int_auto_base, required=True, help="confRev obligatoire (decimal ou 0x....)")
     p_update.add_argument("--vlan-id", type=int)
     p_update.add_argument("--vlan-priority", type=int)
     p_update.add_argument("--freq", type=float)
