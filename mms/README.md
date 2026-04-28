@@ -91,6 +91,8 @@ python3 mms/mms_service.py --port 8080 --victoriametrics-url http://localhost:84
 
 La configuration des abonnements est persistée dans `mms/subscriptions.json`.
 
+**Reconnexion automatique** : en cas de perte de connexion avec un IED, le service relance automatiquement le thread avec un délai exponentiel (5 s initial, doublement à chaque échec, max 60 s).
+
 ### 3. CLI mmsctl
 
 Le CLI appelle l’API du service (par défaut `http://localhost:7050` pour le service unifié).
