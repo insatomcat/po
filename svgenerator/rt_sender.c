@@ -34,7 +34,6 @@
 #define SEQDATA_6I3U  72   /* 6 courants + 3 tensions */
 #define SEQDATA_4I4U  64   /* 4 courants + 4 tensions (compat Wireshark/9-2LE) */
 #define SEQDATA_LEN   SEQDATA_6I3U  /* défaut, surchargé par --format 4i4u */
-#define CONF_REV      10000
 #define BER_BUF_SIZE  512
 #define ETH_HEADER_LEN 14     /* dst(6) + src(6) + ethertype(2) */
 #define ETH_VLAN_TAG_LEN 4    /* 0x8100 + TCI (PCP 3b | DEI 1b | VID 12b) */
@@ -77,7 +76,7 @@ static void ber_append_tag_len(uint8_t tag, unsigned len) {
 }
 
 static size_t ber_encode_asdu(uint8_t *out, size_t out_max,
-                               const char *svid, uint16_t smpCnt, uint8_t smp_synch,
+                               const char *svid, uint16_t smpCnt, uint8_t smp_synch, uint32_t conf_rev,
                                const uint8_t *seqData) {
     size_t svid_len = strnlen(svid, SV_ID_LEN);
     if (svid_len == 0)
@@ -113,7 +112,7 @@ static size_t ber_encode_asdu(uint8_t *out, size_t out_max,
     uint16_t be16 = htons(smpCnt);
     EMIT(0x82, 2, &be16, 2);
 
-    uint32_t be32 = htonl(CONF_REV);
+    uint32_t be32 = htonl(conf_rev);
     EMIT(0x83, 4, &be32, 4);
 
     EMIT(0x85, 1, &smp_synch, 1);
@@ -125,10 +124,10 @@ static size_t ber_encode_asdu(uint8_t *out, size_t out_max,
 }
 
 static size_t ber_build_sv_packet(const char *svid, uint16_t smpCnt0, uint16_t smpCnt1,
-                                   uint8_t smp_synch, uint16_t appid,
+                                   uint8_t smp_synch, uint16_t appid, uint32_t conf_rev,
                                    const uint8_t *seqData0, const uint8_t *seqData1) {
-    size_t n0 = ber_encode_asdu(asdu_tmp, sizeof(asdu_tmp), svid, smpCnt0, smp_synch, seqData0);
-    size_t n1 = ber_encode_asdu(asdu_tmp + n0, sizeof(asdu_tmp) - n0, svid, smpCnt1, smp_synch, seqData1);
+    size_t n0 = ber_encode_asdu(asdu_tmp, sizeof(asdu_tmp), svid, smpCnt0, smp_synch, conf_rev, seqData0);
+    size_t n1 = ber_encode_asdu(asdu_tmp + n0, sizeof(asdu_tmp) - n0, svid, smpCnt1, smp_synch, conf_rev, seqData1);
     size_t seq_len = n0 + n1;
 
     unsigned seq_tl_n = (seq_len < 128) ? 2u : 3u;
@@ -240,7 +239,9 @@ int main(int argc, char **argv) {
     int vlan_id = -1;       /* -1 = pas de VLAN; 0-4095 = VLAN tagué */
     int vlan_priority = 0;  /* PCP 0-7, utilisé si vlan_id >= 0 */
     uint16_t appid = 0;       /* APPID 0-65535 (0x0000-0xFFFF), obligatoire */
+    uint32_t conf_rev = 0;    /* confRev 0-4294967295, obligatoire */
     int appid_set = 0;
+    int conf_rev_set = 0;
     int dump_one = 0;       /* --dump: afficher 1er paquet hex et quitter */
     int debug_sync = 0;     /* --debug-sync: afficher durée du sleep à chaque seconde */
     const char *ifname = NULL;
@@ -331,6 +332,17 @@ int main(int argc, char **argv) {
             appid_set = 1;
             continue;
         }
+        if (strcmp(argv[i], "--conf-rev") == 0 && i + 1 < argc) {
+            char *end = NULL;
+            unsigned long v = strtoul(argv[++i], &end, 0); /* accepte decimal et 0x.... */
+            if (end == argv[i] || (end && *end != '\0')) {
+                fprintf(stderr, "Invalid --conf-rev value: %s\n", argv[i]);
+                return 1;
+            }
+            conf_rev = (uint32_t)v;
+            conf_rev_set = 1;
+            continue;
+        }
         if (strcmp(argv[i], "--debug-sync") == 0) {
             debug_sync = 1;
             continue;
@@ -346,12 +358,13 @@ int main(int argc, char **argv) {
         npos++;
     }
 
-    if (npos != 4 || !ifname || !src_mac_str || !dst_mac_str || !svid || !*svid || !appid_set) {
+    if (npos != 4 || !ifname || !src_mac_str || !dst_mac_str || !svid || !*svid || !appid_set || !conf_rev_set) {
         fprintf(stderr, "Usage: %s [opts] <interface> <src_mac> <dst_mac> <svid>\n", argv[0]);
         fprintf(stderr, "  opts: --smp-synch 0|1|2  --freq Hz  --zero  --i-peak A  --v-peak V  --phase deg\n");
         fprintf(stderr, "        --fault  --fault-i-peak A  --fault-v-peak V  --fault-phase deg  --fault-cycle s\n");
         fprintf(stderr, "        --vlan-id <0-4095>  --vlan-priority <0-7>  (défaut: pas de VLAN)\n");
         fprintf(stderr, "        --appid <0-65535|0x0000-0xFFFF>  (obligatoire)\n");
+        fprintf(stderr, "        --conf-rev <0-4294967295|0x00000000-0xFFFFFFFF>  (obligatoire)\n");
         fprintf(stderr, "  smpSynch: 0=None, 1=Local, 2=Global. freq: 50 par défaut (0=zéros).\n");
         fprintf(stderr, "  e.g. %s --freq 50 lo 00:00:00:00:00:01 00:00:00:00:00:02 LDTM1_SVI_DEP6\n", argv[0]);
         fprintf(stderr, "  --dump: build 1 packet, print hex to stderr, exit (no send).\n");
@@ -377,7 +390,7 @@ int main(int argc, char **argv) {
         memset(seq1, 0, sizeof(seq1));
         fill_seqdata_6i3u(seq0, 0, freq_hz, i_peak_a, v_peak_v, phase_deg, 0, fault_i, fault_v, fault_phase);
         fill_seqdata_6i3u(seq1, 1, freq_hz, i_peak_a, v_peak_v, phase_deg, 0, fault_i, fault_v, fault_phase);
-        size_t plen = ber_build_sv_packet(svid, 0, 1, smp_synch, appid, seq0, seq1);
+        size_t plen = ber_build_sv_packet(svid, 0, 1, smp_synch, appid, conf_rev, seq0, seq1);
         fprintf(stderr, "Built: %s %s\n", __DATE__, __TIME__);
         fprintf(stderr, "SV payload %zu bytes. Length@2-3=0x%02x%02x (big-endian). Hex:\n",
                 plen, ber_buf[2], ber_buf[3]);
@@ -461,6 +474,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Clock: CLOCK_REALTIME (PTP-friendly). smpSynch=%u (0=None,1=Local,2=Global). Sync: sleep until boundary each second.\n",
             (unsigned)smp_synch);
     fprintf(stderr, "APPID: 0x%04x (%u)\n", (unsigned)appid, (unsigned)appid);
+    fprintf(stderr, "confRev: %u\n", (unsigned)conf_rev);
     if (freq_hz > 0) {
         fprintf(stderr, "6I3U: sinusoïdes %.1f Hz, I_peak=%.1f A, V_peak=%.1f V, déphasage=%.1f° (facteurs I×%d, V×%d).\n",
                 freq_hz, i_peak_a, v_peak_v, phase_deg, I_SCALE, V_SCALE);
@@ -512,7 +526,7 @@ int main(int argc, char **argv) {
             fill_seqdata_6i3u(seqData1, (uint16_t)(k * 2 + 1), freq_hz, i_peak_a, v_peak_v, phase_deg,
                               in_fault, fault_i, fault_v, fault_phase);
             size_t payload_len = ber_build_sv_packet(svid, (uint16_t)(k * 2), (uint16_t)(k * 2 + 1),
-                                                     smp_synch, appid, seqData0, seqData1);
+                                                     smp_synch, appid, conf_rev, seqData0, seqData1);
 
             size_t hdr_len;
             memcpy(frame_buf, dest_mac, ETH_ALEN);
