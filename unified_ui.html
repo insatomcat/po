@@ -212,8 +212,9 @@
     <button type="button" class="tab" data-tab="goose">GOOSE</button>
     <button type="button" class="tab" data-tab="sv">SV</button>
     <button type="button" class="tab" data-tab="svview">SV Listener</button>
-    <button type="button" class="tab" data-tab="grafana-public">Grafana dep6</button>
+    <button type="button" class="tab" data-tab="grafana-dep6">Grafana dep6</button>
     <button type="button" class="tab" data-tab="grafana-dep2">Grafana dep2</button>
+    <button type="button" class="tab" data-tab="grafana-dep5">Grafana dep5</button>
   </div>
 
   <div id="panel-mms" class="panel active">
@@ -399,11 +400,11 @@
     </div>
   </div>
 
-  <div id="panel-grafana-public" class="panel">
+  <div id="panel-grafana-dep6" class="panel">
     <h1>Grafana – dep6</h1>
     <div style="margin-top:0.75rem;margin-left:-1.5rem;margin-right:-1.5rem;">
       <iframe
-        id="grafana-public-frame"
+        id="grafana-dep6-frame"
         src="https://vvh1.ytf.fr/public-dashboards/07a00fb9e21a4bd1aa694c4ea41b730d"
         style="display:block;width:100%;height:100vh;border:1px solid var(--surface);border-radius:8px;background:#000;"
         referrerpolicy="no-referrer"
@@ -417,6 +418,18 @@
       <iframe
         id="grafana-dep2-frame"
         src="https://vvh1.ytf.fr/public-dashboards/2aa14d158ac84ab39fe52b78836c6546"
+        style="display:block;width:100%;height:100vh;border:1px solid var(--surface);border-radius:8px;background:#000;"
+        referrerpolicy="no-referrer"
+      ></iframe>
+    </div>
+  </div>
+
+  <div id="panel-grafana-dep5" class="panel">
+    <h1>Grafana – dep5</h1>
+    <div style="margin-top:0.75rem;margin-left:-1.5rem;margin-right:-1.5rem;">
+      <iframe
+        id="grafana-dep5-frame"
+        src="https://vvh1.ytf.fr/public-dashboards/c54cbec09ba0489aa2739a16c8efaa6d"
         style="display:block;width:100%;height:100vh;border:1px solid var(--surface);border-radius:8px;background:#000;"
         referrerpolicy="no-referrer"
       ></iframe>
@@ -469,7 +482,7 @@
     let svviewConfigCache = { interval: 2, window: 10 };
 
     function activateTab(tabId) {
-      const id = ['mms','goose','sv','svview','grafana-public','grafana-dep2'].includes(tabId) ? tabId : 'mms';
+      const id = ['mms','goose','sv','svview','grafana-dep6','grafana-dep2','grafana-dep5'].includes(tabId) ? tabId : 'mms';
       document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === id));
       document.querySelectorAll('.panel').forEach(x => x.classList.toggle('active', x.id === 'panel-' + id));
       if (id !== 'svview') { if (svviewRefreshTimer) { clearInterval(svviewRefreshTimer); svviewRefreshTimer = null; } }
