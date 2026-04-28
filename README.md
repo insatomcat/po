@@ -53,6 +53,7 @@ po/
 ├── README.md              # Ce fichier
 ├── po_service.py          # Service HTTP unifié (port 7050)
 ├── unified_ui.html        # Interface web (onglets MMS/GOOSE/SV/SV Listener)
+├── iec_data.py            # Types IEC 61850 partagés (IECData, BoolData, IntData, TimestampData, …)
 ├── mms/                   # Client MMS, service, API, CLI → mms/README.md
 ├── goose/                 # GOOSE service, lib, CLI → goose/README.md
 ├── svgenerator/           # Générateur SV, API, CLI → svgenerator/README.md

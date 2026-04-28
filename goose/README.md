@@ -61,6 +61,8 @@ python3 goose_cli.py restart <id> --base-url http://127.0.0.1:7050
 
 Valeurs `--value` : `bool:true`, `int:42`, `str:texte`, `raw:TAG:HEX` (ex. `raw:1:80`).
 
+> **Timestamps auto-rafraîchis** : si `allData` contient des valeurs de type `utc-time` (tag `0x91`) ou `binary-time` (tag `0x8C`) — passées via `raw:` — elles sont automatiquement mises à jour à l'heure courante à chaque émission. Cela évite qu'un IED récepteur rejette le message comme obsolète.
+
 ## Bibliothèque goose61850
 
 Package Python dans `goose61850/` :
