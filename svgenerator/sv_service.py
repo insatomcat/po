@@ -35,6 +35,7 @@ class FlowConfig(BaseModel):
     src_mac: str = Field(..., description="Adresse MAC source aa:bb:cc:dd:ee:ff")
     dst_mac: str = Field(..., description="Adresse MAC destination")
     svid: str = Field(..., description="svID (nom logique du flux)")
+    appid: int = Field(..., ge=0, le=0xFFFF, description="APPID SV obligatoire 0-65535")
 
     # Paramètres temps-réel passés à rt_sender
     smp_synch: int = Field(
@@ -79,6 +80,7 @@ class FlowState(BaseModel):
     src_mac: str
     dst_mac: str
     svid: str
+    appid: int
     smp_synch: int
     vlan_id: Optional[int]
     vlan_priority: int
@@ -169,7 +171,12 @@ def load_config() -> Dict[str, FlowConfig]:
         data = json.load(f)
     result: Dict[str, FlowConfig] = {}
     for item in data.get("flows", []):
-        cfg = FlowConfig(**item)
+        try:
+            cfg = FlowConfig(**item)
+        except Exception as exc:
+            name = item.get("name", "<unknown>")
+            print(f"Skipping invalid SV flow config '{name}': {exc}")
+            continue
         result[cfg.name] = cfg
     return result
 
@@ -190,6 +197,7 @@ def build_rt_sender_cmd(cfg: FlowConfig) -> list[str]:
     cmd: list[str] = [str(RT_SENDER_PATH)]
 
     # Options de timing / contenu SV
+    cmd += ["--appid", str(cfg.appid)]
     cmd += ["--smp-synch", str(cfg.smp_synch)]
 
     if cfg.vlan_id is not None:
@@ -488,6 +496,7 @@ def _webui_html() -> str:
         ['src_mac', f.src_mac],
         ['dst_mac', f.dst_mac],
         ['svid', f.svid],
+        ['appid', f.appid],
         ['smp_synch', f.smp_synch],
         ['vlan_id', f.vlan_id],
         ['vlan_priority', f.vlan_priority],
@@ -657,6 +666,7 @@ def list_flows() -> list[FlowState]:
                     src_mac=fr.config.src_mac,
                     dst_mac=fr.config.dst_mac,
                     svid=fr.config.svid,
+                    appid=fr.config.appid,
                     smp_synch=fr.config.smp_synch,
                     vlan_id=fr.config.vlan_id,
                     vlan_priority=fr.config.vlan_priority,
@@ -693,6 +703,7 @@ def create_flow(cfg: FlowConfig) -> FlowState:
         src_mac=cfg.src_mac,
         dst_mac=cfg.dst_mac,
         svid=cfg.svid,
+        appid=cfg.appid,
         smp_synch=cfg.smp_synch,
         vlan_id=cfg.vlan_id,
         vlan_priority=cfg.vlan_priority,
@@ -730,6 +741,7 @@ def update_flow(name: str, cfg: FlowConfig) -> FlowState:
         src_mac=cfg.src_mac,
         dst_mac=cfg.dst_mac,
         svid=cfg.svid,
+        appid=cfg.appid,
         smp_synch=cfg.smp_synch,
         vlan_id=cfg.vlan_id,
         vlan_priority=cfg.vlan_priority,

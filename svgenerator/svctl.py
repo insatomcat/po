@@ -12,6 +12,11 @@ import requests
 DEFAULT_BASE_URL = "http://127.0.0.1:7050"
 
 
+def _int_auto_base(value: str) -> int:
+    """Parse un entier décimal ou hexadécimal (ex: 16480, 0x4060)."""
+    return int(value, 0)
+
+
 def _sv_api_path(base_url: str, path: str) -> str:
     """Préfixe /api/sv si service unifié (port 7050)."""
     u = base_url.rstrip("/")
@@ -59,6 +64,7 @@ def cmd_list(args: argparse.Namespace) -> None:
         print(f"  src_mac       : {src_mac}")
         print(f"  dst_mac       : {dst_mac}")
         print(f"  svid          : {svid}")
+        print(f"  appid         : {f.get('appid')}")
         print(f"  running       : {running}")
         print(f"  smp_synch     : {f.get('smp_synch')}")
         print(f"  vlan_id       : {f.get('vlan_id')}")
@@ -82,6 +88,7 @@ def cmd_create(args: argparse.Namespace) -> None:
         "src_mac": args.src_mac,
         "dst_mac": args.dst_mac,
         "svid": args.svid,
+        "appid": args.appid,
         "fault": args.fault,
     }
     if args.smp_synch is not None:
@@ -125,6 +132,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         "src_mac": args.src_mac,
         "dst_mac": args.dst_mac,
         "svid": args.svid,
+        "appid": args.appid,
         "fault": args.fault,
     }
     if args.smp_synch is not None:
@@ -208,6 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("dst_mac", help="Destination MAC")
     p_create.add_argument("svid", help="svID")
     p_create.add_argument("--smp-synch", type=int, choices=[0, 1, 2])
+    p_create.add_argument("--appid", type=_int_auto_base, required=True, help="APPID obligatoire (decimal ou 0x....)")
     p_create.add_argument("--vlan-id", type=int)
     p_create.add_argument("--vlan-priority", type=int)
     p_create.add_argument("--freq", type=float)
@@ -228,6 +237,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("dst_mac", help="Destination MAC")
     p_update.add_argument("svid", help="svID")
     p_update.add_argument("--smp-synch", type=int, choices=[0, 1, 2])
+    p_update.add_argument("--appid", type=_int_auto_base, required=True, help="APPID obligatoire (decimal ou 0x....)")
     p_update.add_argument("--vlan-id", type=int)
     p_update.add_argument("--vlan-priority", type=int)
     p_update.add_argument("--freq", type=float)
