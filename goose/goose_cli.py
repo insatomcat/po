@@ -7,6 +7,7 @@ import json
 import pathlib
 import sys
 import urllib.request
+from urllib.parse import urlparse
 from typing import Any, List
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -105,7 +106,9 @@ def build_stream_config(args: argparse.Namespace) -> dict:
 def _api_path(base_url: str, path: str) -> str:
     """Retourne le chemin API: /api/goose/... si unifié (7050), /api/... si standalone (7053)."""
     u = base_url.rstrip("/")
-    if "/7050" in u or u.endswith(":7050"):
+    parsed = urlparse(u)
+    port = parsed.port
+    if port == 7050:
         return f"/api/goose{path}"
     return f"/api{path}"
 
@@ -130,8 +133,7 @@ def _api_request(base_url: str, method: str, path: str, body: dict | None = None
 
 def cmd_add(args: argparse.Namespace, base_url: str) -> None:
     config = build_stream_config(args)
-    path = _api_path(base_url, "/streams")
-    result = _api_request(base_url, "POST", path, body=config)
+    result = _api_request(base_url, "POST", "/streams", body=config)
     print(f"Flux créé: {result['id']}")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -152,21 +154,18 @@ def cmd_modify(args: argparse.Namespace, base_url: str) -> None:
     if not body:
         print("Aucune modification spécifiée.", file=sys.stderr)
         sys.exit(1)
-    path = _api_path(base_url, f"/streams/{stream_id}")
-    result = _api_request(base_url, "PATCH", path, body=body)
+    result = _api_request(base_url, "PATCH", f"/streams/{stream_id}", body=body)
     print(f"Flux modifié: {stream_id}")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def cmd_delete(args: argparse.Namespace, base_url: str) -> None:
-    path = _api_path(base_url, f"/streams/{args.stream_id}")
-    _api_request(base_url, "DELETE", path)
+    _api_request(base_url, "DELETE", f"/streams/{args.stream_id}")
     print(f"Flux supprimé: {args.stream_id}")
 
 
 def cmd_list(args: argparse.Namespace, base_url: str) -> None:
-    path = _api_path(base_url, "/streams")
-    result = _api_request(base_url, "GET", path)
+    result = _api_request(base_url, "GET", "/streams")
     streams = result.get("streams", [])
     if not streams:
         print("Aucun flux configuré.")
@@ -202,8 +201,7 @@ def _value_to_spec(v: Any) -> str:
 def cmd_update_cmd(args: argparse.Namespace, base_url: str) -> None:
     """Affiche une commande 'modify' pré-remplie pour un flux donné."""
     stream_id = args.stream_id
-    path = _api_path(base_url, f"/streams/{stream_id}")
-    s = _api_request(base_url, "GET", path)
+    s = _api_request(base_url, "GET", f"/streams/{stream_id}")
     all_data = s.get("all_data", [])
 
     cmd_lines: list[str] = []
