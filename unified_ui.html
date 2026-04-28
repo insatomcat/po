@@ -1102,6 +1102,7 @@
         <dt>src_mac</dt><dd>${escapeHtml(f.src_mac)}</dd>
         <dt>dst_mac</dt><dd>${escapeHtml(f.dst_mac)}</dd>
         <dt>svID</dt><dd>${escapeHtml(f.svid)}</dd>
+        <dt>appID</dt><dd>${f.appid != null ? ('0x' + Number(f.appid).toString(16).padStart(4, '0') + ' (' + f.appid + ')') : '—'}</dd>
         <dt>smpSynch</dt><dd>${smpStr}</dd>
         <dt>VLAN</dt><dd>${vlanStr}</dd>
         <dt>freq_hz</dt><dd>${f.freq_hz ?? 50}</dd>
