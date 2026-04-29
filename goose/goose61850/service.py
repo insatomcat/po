@@ -255,6 +255,9 @@ class GooseService:
         mêmes paramètres « de configuration » (interface + adresses + GOOSE params),
         à l'exception des champs d'id, des compteurs stNum/sqNum et du contenu
         all_data, qui peuvent évoluer dans le temps pour un même flux logique.
+
+        Si la même configuration existe déjà, on remplace l'entrée existante par
+        un snapshot frais (notamment all_data) puis on la remonte en tête.
         """
         with self._streams_lock:
             # Filtre de dé-duplication : on compare la config hors id/st_num/sq_num
@@ -280,9 +283,13 @@ class GooseService:
                 }
 
             new_key = _config_key(entry)
-            for e in self._recent:
+            for idx, e in enumerate(self._recent):
                 if _config_key(e) == new_key:
-                    # Déjà présent avec la même config, on ne duplique pas.
+                    # Même flux logique : on met à jour le snapshot (all_data, id, etc.)
+                    # puis on le remonte en tête pour refléter la suppression la plus récente.
+                    self._recent.pop(idx)
+                    self._recent.insert(0, entry)
+                    self._recent = self._recent[:10]
                     return
 
             # On ajoute en tête de liste et on tronque à 10 éléments.
