@@ -498,7 +498,6 @@ SPDX-License-Identifier: Apache-2.0
     const FIXED_TABS = ['mms', 'goose', 'sv', 'svview'];
     const IF_TAB_STORAGE_KEY = 'unified-ui-iframe-tabs-v1';
     const DEFAULT_IFRAME_TABS = [
-      { id: 'grafana-dep6', name: 'Grafana dep6', url: 'https://grafana.example/public-dashboards/dep6' },
       { id: 'grafana-dep2', name: 'Grafana dep2', url: 'https://grafana.example/public-dashboards/dep2' },
       { id: 'grafana-dep5', name: 'Grafana dep5', url: 'https://grafana.example/public-dashboards/dep5' }
     ];
@@ -536,6 +535,15 @@ SPDX-License-Identifier: Apache-2.0
         raw = JSON.parse(localStorage.getItem(IF_TAB_STORAGE_KEY) || 'null');
       } catch {
         raw = null;
+      }
+      // Migration douce: si l'ancien jeu par défaut (dep6, dep2, dep5) est détecté tel quel,
+      // on passe au nouveau défaut (dep2, dep5).
+      if (Array.isArray(raw)) {
+        const oldDefaultIds = ['grafana-dep6', 'grafana-dep2', 'grafana-dep5'];
+        const rawIds = raw.map(t => String((t && t.id) || ''));
+        const matchesOldDefaults = rawIds.length === oldDefaultIds.length
+          && oldDefaultIds.every(id => rawIds.includes(id));
+        if (matchesOldDefaults) raw = null;
       }
       const source = Array.isArray(raw) ? raw : DEFAULT_IFRAME_TABS;
       const seen = new Set();
