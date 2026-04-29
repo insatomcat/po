@@ -32,6 +32,8 @@
       border-bottom: 1px solid var(--surface);
       padding-bottom: 0;
     }
+    .tabs-left { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+    .tabs-right { margin-left: auto; display: flex; align-items: center; }
     .tab {
       padding: 0.6rem 1rem;
       background: transparent;
@@ -143,6 +145,33 @@
     }
     .modal-content textarea { min-height: 12rem; }
     .modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+    .iframe-settings-list {
+      margin-top: 1rem;
+      border: 1px solid var(--muted);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .iframe-settings-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.1);
+    }
+    .iframe-settings-item:last-child { border-bottom: none; }
+    .iframe-settings-item-url {
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .iframe-settings-empty {
+      padding: 0.75rem;
+      color: var(--muted);
+      text-align: center;
+    }
 
     @media (max-width: 640px) {
       /* Empêche le body de s'étirer avec les tableaux sur iOS Safari */
@@ -207,14 +236,16 @@
   </style>
 </head>
 <body>
-  <div class="tabs">
-    <button type="button" class="tab active" data-tab="mms">MMS</button>
-    <button type="button" class="tab" data-tab="goose">GOOSE</button>
-    <button type="button" class="tab" data-tab="sv">SV</button>
-    <button type="button" class="tab" data-tab="svview">SV Listener</button>
-    <button type="button" class="tab" data-tab="grafana-dep6">Grafana dep6</button>
-    <button type="button" class="tab" data-tab="grafana-dep2">Grafana dep2</button>
-    <button type="button" class="tab" data-tab="grafana-dep5">Grafana dep5</button>
+  <div class="tabs" id="tabs-root">
+    <div class="tabs-left" id="tabs-left">
+      <button type="button" class="tab active" data-tab="mms">MMS</button>
+      <button type="button" class="tab" data-tab="goose">GOOSE</button>
+      <button type="button" class="tab" data-tab="sv">SV</button>
+      <button type="button" class="tab" data-tab="svview">SV Listener</button>
+    </div>
+    <div class="tabs-right">
+      <button type="button" class="btn btn--small" id="iframe-tabs-settings-btn">Paramètres</button>
+    </div>
   </div>
 
   <div id="panel-mms" class="panel active">
@@ -400,39 +431,23 @@
     </div>
   </div>
 
-  <div id="panel-grafana-dep6" class="panel">
-    <h1>Grafana – dep6</h1>
-    <div style="margin-top:0.75rem;margin-left:-1.5rem;margin-right:-1.5rem;">
-      <iframe
-        id="grafana-dep6-frame"
-        src="https://vvh1.ytf.fr/public-dashboards/07a00fb9e21a4bd1aa694c4ea41b730d"
-        style="display:block;width:100%;height:100vh;border:1px solid var(--surface);border-radius:8px;background:#000;"
-        referrerpolicy="no-referrer"
-      ></iframe>
-    </div>
-  </div>
+  <div id="iframe-panels-root"></div>
 
-  <div id="panel-grafana-dep2" class="panel">
-    <h1>Grafana – dep2</h1>
-    <div style="margin-top:0.75rem;margin-left:-1.5rem;margin-right:-1.5rem;">
-      <iframe
-        id="grafana-dep2-frame"
-        src="https://vvh1.ytf.fr/public-dashboards/2aa14d158ac84ab39fe52b78836c6546"
-        style="display:block;width:100%;height:100vh;border:1px solid var(--surface);border-radius:8px;background:#000;"
-        referrerpolicy="no-referrer"
-      ></iframe>
-    </div>
-  </div>
-
-  <div id="panel-grafana-dep5" class="panel">
-    <h1>Grafana – dep5</h1>
-    <div style="margin-top:0.75rem;margin-left:-1.5rem;margin-right:-1.5rem;">
-      <iframe
-        id="grafana-dep5-frame"
-        src="https://vvh1.ytf.fr/public-dashboards/c54cbec09ba0489aa2739a16c8efaa6d"
-        style="display:block;width:100%;height:100vh;border:1px solid var(--surface);border-radius:8px;background:#000;"
-        referrerpolicy="no-referrer"
-      ></iframe>
+  <div id="iframe-tabs-settings-modal" class="modal" style="display:none">
+    <div class="modal-content">
+      <h2>Paramètres des onglets supplémentaires</h2>
+      <p class="modal-details">Ajoutez ou supprimez les onglets iframe (MMS, GOOSE, SV, SV Listener restent fixes).</p>
+      <form id="iframe-tab-form">
+        <label for="iframe-tab-name">Nom de l'onglet</label>
+        <input id="iframe-tab-name" name="name" type="text" placeholder="Ex: Grafana dep6" required>
+        <label for="iframe-tab-url">URL de l'iframe</label>
+        <input id="iframe-tab-url" name="url" type="url" placeholder="https://..." required>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn--accent">Ajouter</button>
+          <button type="button" class="btn" id="iframe-tabs-settings-close">Fermer</button>
+        </div>
+      </form>
+      <div class="iframe-settings-list" id="iframe-settings-list"></div>
     </div>
   </div>
 
@@ -476,13 +491,166 @@
     // URLs relatives : le navigateur les résout par rapport à l'URL de la page (ex. /po/ → /po/api/...).
     const API = { mms: 'api/mms', goose: 'api/goose', sv: 'api/sv', svview: 'api/svview' };
     const SVVIEW_API = API.svview + '/api';
+    const FIXED_TABS = ['mms', 'goose', 'sv', 'svview'];
+    const IF_TAB_STORAGE_KEY = 'unified-ui-iframe-tabs-v1';
+    const DEFAULT_IFRAME_TABS = [
+      { id: 'grafana-dep6', name: 'Grafana dep6', url: 'https://vvh1.ytf.fr/public-dashboards/07a00fb9e21a4bd1aa694c4ea41b730d' },
+      { id: 'grafana-dep2', name: 'Grafana dep2', url: 'https://vvh1.ytf.fr/public-dashboards/2aa14d158ac84ab39fe52b78836c6546' },
+      { id: 'grafana-dep5', name: 'Grafana dep5', url: 'https://vvh1.ytf.fr/public-dashboards/c54cbec09ba0489aa2739a16c8efaa6d' }
+    ];
     let mmsRecentsCache = [];
     let svLastRecents = [];
     let svviewRefreshTimer = null;
     let svviewConfigCache = { interval: 2, window: 10 };
+    let iframeTabs = [];
+
+    function slugifyTabId(name) {
+      return name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .replace(/-{2,}/g, '-');
+    }
+
+    function sanitizeIframeTab(tab, fallbackIndex) {
+      if (!tab || typeof tab !== 'object') return null;
+      const name = String(tab.name || '').trim();
+      const url = String(tab.url || '').trim();
+      if (!name || !url) return null;
+      let parsed;
+      try { parsed = new URL(url); } catch { return null; }
+      if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+      const candidate = String(tab.id || '').trim() || slugifyTabId(name) || ('iframe-' + fallbackIndex);
+      return { id: candidate, name, url };
+    }
+
+    function loadIframeTabs() {
+      let raw = [];
+      try {
+        raw = JSON.parse(localStorage.getItem(IF_TAB_STORAGE_KEY) || 'null');
+      } catch {
+        raw = null;
+      }
+      const source = Array.isArray(raw) ? raw : DEFAULT_IFRAME_TABS;
+      const seen = new Set();
+      const clean = [];
+      source.forEach((t, idx) => {
+        const normalized = sanitizeIframeTab(t, idx);
+        if (!normalized) return;
+        if (FIXED_TABS.includes(normalized.id) || seen.has(normalized.id)) return;
+        seen.add(normalized.id);
+        clean.push(normalized);
+      });
+      iframeTabs = clean;
+      localStorage.setItem(IF_TAB_STORAGE_KEY, JSON.stringify(iframeTabs));
+    }
+
+    function saveIframeTabs() {
+      localStorage.setItem(IF_TAB_STORAGE_KEY, JSON.stringify(iframeTabs));
+    }
+
+    function createIframePanel(tab) {
+      const panel = document.createElement('div');
+      panel.id = 'panel-' + tab.id;
+      panel.className = 'panel';
+      panel.innerHTML = `
+        <h1>${escapeHtml(tab.name)}</h1>
+        <div style="margin-top:0.75rem;margin-left:-1.5rem;margin-right:-1.5rem;">
+          <iframe
+            id="${escapeHtml(tab.id)}-frame"
+            src="${escapeHtml(tab.url)}"
+            style="display:block;width:100%;height:100vh;border:1px solid var(--surface);border-radius:8px;background:#000;"
+            referrerpolicy="no-referrer"
+          ></iframe>
+        </div>
+      `;
+      return panel;
+    }
+
+    function renderIframeTabsUi() {
+      const tabsLeft = document.getElementById('tabs-left');
+      const panelsRoot = document.getElementById('iframe-panels-root');
+      if (!tabsLeft || !panelsRoot) return;
+      tabsLeft.querySelectorAll('[data-dynamic-iframe-tab="true"]').forEach(el => el.remove());
+      panelsRoot.innerHTML = '';
+      iframeTabs.forEach(tab => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tab';
+        btn.dataset.tab = tab.id;
+        btn.dataset.dynamicIframeTab = 'true';
+        btn.textContent = tab.name;
+        btn.addEventListener('click', () => activateTab(tab.id));
+        tabsLeft.appendChild(btn);
+        panelsRoot.appendChild(createIframePanel(tab));
+      });
+    }
+
+    function renderIframeSettingsList() {
+      const list = document.getElementById('iframe-settings-list');
+      if (!list) return;
+      if (!iframeTabs.length) {
+        list.innerHTML = '<div class="iframe-settings-empty">Aucun onglet supplémentaire configuré.</div>';
+        return;
+      }
+      list.innerHTML = iframeTabs.map(t => `
+        <div class="iframe-settings-item">
+          <div>${escapeHtml(t.name)}</div>
+          <div class="iframe-settings-item-url" title="${escapeHtml(t.url)}">${escapeHtml(t.url)}</div>
+          <button type="button" class="btn btn--small btn--danger" data-action="remove-iframe-tab" data-tab-id="${escapeHtml(t.id)}">Supprimer</button>
+        </div>
+      `).join('');
+      list.querySelectorAll('[data-action="remove-iframe-tab"]').forEach(btn => {
+        btn.addEventListener('click', () => removeIframeTab(btn.dataset.tabId));
+      });
+    }
+
+    function openIframeSettingsModal() {
+      renderIframeSettingsList();
+      const modal = document.getElementById('iframe-tabs-settings-modal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeIframeSettingsModal() {
+      const modal = document.getElementById('iframe-tabs-settings-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function addIframeTab(name, url) {
+      const tabName = String(name || '').trim();
+      const tabUrl = String(url || '').trim();
+      if (!tabName || !tabUrl) throw new Error('Nom et URL requis');
+      let parsed;
+      try { parsed = new URL(tabUrl); } catch { throw new Error('URL invalide'); }
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('URL doit commencer par http:// ou https://');
+      const base = slugifyTabId(tabName) || 'iframe';
+      let id = base;
+      let i = 2;
+      while (FIXED_TABS.includes(id) || iframeTabs.some(t => t.id === id)) { id = `${base}-${i++}`; }
+      iframeTabs.push({ id, name: tabName, url: tabUrl });
+      saveIframeTabs();
+      renderIframeTabsUi();
+      renderIframeSettingsList();
+    }
+
+    function removeIframeTab(tabId) {
+      const id = String(tabId || '');
+      const existing = iframeTabs.find(t => t.id === id);
+      if (!existing) return;
+      if (!confirm(`Supprimer l'onglet "${existing.name}" ?`)) return;
+      iframeTabs = iframeTabs.filter(t => t.id !== id);
+      saveIframeTabs();
+      renderIframeTabsUi();
+      renderIframeSettingsList();
+      if (location.hash === '#' + id) activateTab('mms');
+    }
 
     function activateTab(tabId) {
-      const id = ['mms','goose','sv','svview','grafana-dep6','grafana-dep2','grafana-dep5'].includes(tabId) ? tabId : 'mms';
+      const dynamicIds = iframeTabs.map(t => t.id);
+      const allowed = [...FIXED_TABS, ...dynamicIds];
+      const id = allowed.includes(tabId) ? tabId : 'mms';
       document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === id));
       document.querySelectorAll('.panel').forEach(x => x.classList.toggle('active', x.id === 'panel-' + id));
       if (id !== 'svview') { if (svviewRefreshTimer) { clearInterval(svviewRefreshTimer); svviewRefreshTimer = null; } }
@@ -492,8 +660,26 @@
       if (id === 'sv') svLoad();
       if (id === 'svview') svviewLoad();
     }
+    loadIframeTabs();
+    renderIframeTabsUi();
     document.querySelectorAll('.tab').forEach(t => {
       t.addEventListener('click', () => activateTab(t.dataset.tab));
+    });
+    document.getElementById('iframe-tabs-settings-btn')?.addEventListener('click', openIframeSettingsModal);
+    document.getElementById('iframe-tabs-settings-close')?.addEventListener('click', closeIframeSettingsModal);
+    document.getElementById('iframe-tabs-settings-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'iframe-tabs-settings-modal') closeIframeSettingsModal();
+    });
+    document.getElementById('iframe-tab-form')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const fd = new FormData(form);
+      try {
+        addIframeTab(fd.get('name'), fd.get('url'));
+        form.reset();
+      } catch (err) {
+        alert(err.message || 'Erreur lors de l\'ajout de l\'onglet');
+      }
     });
     const initialTab = (location.hash || '#mms').slice(1);
     activateTab(initialTab);
