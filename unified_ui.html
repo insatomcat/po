@@ -494,7 +494,6 @@
     const FIXED_TABS = ['mms', 'goose', 'sv', 'svview'];
     const IF_TAB_STORAGE_KEY = 'unified-ui-iframe-tabs-v1';
     const DEFAULT_IFRAME_TABS = [
-      { id: 'grafana-dep6', name: 'Grafana dep6', url: 'https://vvh1.ytf.fr/public-dashboards/07a00fb9e21a4bd1aa694c4ea41b730d' },
       { id: 'grafana-dep2', name: 'Grafana dep2', url: 'https://vvh1.ytf.fr/public-dashboards/2aa14d158ac84ab39fe52b78836c6546' },
       { id: 'grafana-dep5', name: 'Grafana dep5', url: 'https://vvh1.ytf.fr/public-dashboards/c54cbec09ba0489aa2739a16c8efaa6d' }
     ];
@@ -532,6 +531,15 @@
         raw = JSON.parse(localStorage.getItem(IF_TAB_STORAGE_KEY) || 'null');
       } catch {
         raw = null;
+      }
+      // Migration douce: si l'ancien jeu par défaut (dep6, dep2, dep5) est détecté tel quel,
+      // on passe au nouveau défaut (dep2, dep5).
+      if (Array.isArray(raw)) {
+        const oldDefaultIds = ['grafana-dep6', 'grafana-dep2', 'grafana-dep5'];
+        const rawIds = raw.map(t => String((t && t.id) || ''));
+        const matchesOldDefaults = rawIds.length === oldDefaultIds.length
+          && oldDefaultIds.every(id => rawIds.includes(id));
+        if (matchesOldDefaults) raw = null;
       }
       const source = Array.isArray(raw) ? raw : DEFAULT_IFRAME_TABS;
       const seen = new Set();
