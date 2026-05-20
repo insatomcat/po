@@ -501,6 +501,7 @@
     let svLastRecents = [];
     let svviewRefreshTimer = null;
     let svviewConfigCache = { interval: 2, window: 10 };
+    let svviewActiveSvid = null;
     let iframeTabs = [];
 
     function slugifyTabId(name) {
@@ -659,9 +660,14 @@
       const dynamicIds = iframeTabs.map(t => t.id);
       const allowed = [...FIXED_TABS, ...dynamicIds];
       const id = allowed.includes(tabId) ? tabId : 'mms';
+      const leavingSvview = document.querySelector('.tab.active')?.dataset.tab === 'svview' && id !== 'svview';
+      if (leavingSvview) void svviewOnTabLeave();
+      else if (id !== 'svview' && svviewRefreshTimer) {
+        clearInterval(svviewRefreshTimer);
+        svviewRefreshTimer = null;
+      }
       document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === id));
       document.querySelectorAll('.panel').forEach(x => x.classList.toggle('active', x.id === 'panel-' + id));
-      if (id !== 'svview') { if (svviewRefreshTimer) { clearInterval(svviewRefreshTimer); svviewRefreshTimer = null; } }
       if (location.hash !== '#' + id) location.hash = id;
       if (id === 'mms') mmsLoad();
       if (id === 'goose') gooseLoad();
@@ -1695,9 +1701,31 @@
       if (e.target.id === 'svview-modal') e.target.style.display = 'none';
     });
 
+    async function svviewCaptureStart() {
+      try {
+        await fetch(SVVIEW_API + '/capture/start', { method: 'POST' });
+      } catch (_) { /* service non configuré */ }
+    }
+
+    async function svviewCaptureStop() {
+      try {
+        await fetch(SVVIEW_API + '/capture/stop', { method: 'POST' });
+      } catch (_) { /* service non configuré */ }
+    }
+
+    async function svviewOnTabLeave() {
+      if (svviewRefreshTimer) {
+        clearInterval(svviewRefreshTimer);
+        svviewRefreshTimer = null;
+      }
+      // Analyse en cours (svID choisi) : la capture continue en arrière-plan
+      if (!svviewActiveSvid) await svviewCaptureStop();
+    }
+
     async function svviewPoll() {
       try {
         const data = await svviewFetchJson('/data');
+        svviewActiveSvid = data.svid || null;
         if (data.svid && document.getElementById('svview-data-container')) {
           svviewUpdateDataValues(data);
         } else {
@@ -1717,16 +1745,11 @@
       }
     }
 
-    function svviewLoad() {
+    async function svviewLoad() {
       if (svviewRefreshTimer) clearInterval(svviewRefreshTimer);
-      svviewPoll();
+      await svviewCaptureStart();
+      await svviewPoll();
       svviewRefreshTimer = setInterval(svviewPoll, (svviewConfigCache.interval || 2) * 1000);
-    }
-    function svviewStopPolling() {
-      if (svviewRefreshTimer) {
-        clearInterval(svviewRefreshTimer);
-        svviewRefreshTimer = null;
-      }
     }
 
   </script>

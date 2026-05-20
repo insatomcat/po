@@ -406,11 +406,83 @@ def _reset_stats_for_new_svid(stats: dict, stats_lock: threading.Lock) -> None:
         stats["last_smpcnt"] = None
 
 
+class CaptureManager:
+    """Démarre/arrête le thread pcapy à la demande (piloté par l'UI)."""
+
+    def __init__(
+        self,
+        interface: str,
+        samples: list,
+        samples_lock: threading.Lock,
+        stats: dict,
+        stats_lock: threading.Lock,
+        config: dict,
+        seen_svids: set,
+        seen_svids_lock: threading.Lock,
+    ) -> None:
+        self.interface = interface
+        self.samples = samples
+        self.samples_lock = samples_lock
+        self.stats = stats
+        self.stats_lock = stats_lock
+        self.config = config
+        self.seen_svids = seen_svids
+        self.seen_svids_lock = seen_svids_lock
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def is_running(self) -> bool:
+        t = self._thread
+        return t is not None and t.is_alive()
+
+    def start(self) -> dict:
+        with self._lock:
+            if self.is_running():
+                return {"running": True, "started": False}
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+            return {"running": True, "started": True}
+
+    def stop(self) -> dict:
+        with self._lock:
+            if not self.is_running():
+                with self.stats_lock:
+                    self.stats["capture_running"] = False
+                return {"running": False, "stopped": False}
+            self._stop_event.set()
+            t = self._thread
+        if t:
+            t.join(timeout=5.0)
+        with self._lock:
+            self._thread = None
+        with self.stats_lock:
+            self.stats["capture_running"] = False
+        with self.seen_svids_lock:
+            self.seen_svids.clear()
+        return {"running": False, "stopped": True}
+
+    def _run(self) -> None:
+        capture_loop(
+            self.interface,
+            self.samples,
+            self.samples_lock,
+            self.stats,
+            self.stats_lock,
+            self.config,
+            self.seen_svids,
+            self.seen_svids_lock,
+            self._stop_event,
+        )
+
+
 def create_flask_app(
     samples: list, samples_lock: threading.Lock,
     stats: dict, stats_lock: threading.Lock,
     seen_svids: set, seen_svids_lock: threading.Lock,
     config: dict,
+    capture_mgr: CaptureManager,
 ) -> Flask:
     app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), "templates"))
 
@@ -476,17 +548,26 @@ def create_flask_app(
         _reset_stats_for_new_svid(stats, stats_lock)
         return jsonify({"svid": config["svid"]})
 
+    @app.route("/api/capture/start", methods=["POST"])
+    def api_capture_start():
+        return jsonify(capture_mgr.start())
+
+    @app.route("/api/capture/stop", methods=["POST"])
+    def api_capture_stop():
+        return jsonify(capture_mgr.stop())
+
     return app
 
 
 def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                  stats: dict, stats_lock: threading.Lock, config: dict,
-                 seen_svids: set, seen_svids_lock: threading.Lock) -> None:
+                 seen_svids: set, seen_svids_lock: threading.Lock,
+                 stop_event: threading.Event) -> None:
     with stats_lock:
         stats["capture_running"] = True
     cap = None
     try:
-        while True:
+        while not stop_event.is_set():
             if cap is None:
                 try:
                     cap = pcapy.open_live(iface, 512, 1, 100)
@@ -497,7 +578,8 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                         stats["last_error"] = f"open_live: {err}"
                         stats["last_error_at"] = time.time()
                     print(f"[capture] open_live impossible sur {iface}: {err}; nouvelle tentative dans 1s", file=sys.stderr)
-                    time.sleep(1)
+                    if stop_event.wait(1):
+                        break
                     continue
 
                 try:
@@ -515,9 +597,13 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                 )
 
             try:
+                if stop_event.is_set():
+                    break
                 header, raw = cap.next()
                 if not header:
                     continue
+                if stop_event.is_set():
+                    break
                 with stats_lock:
                     stats["capture_packets"] += 1
                     stats["capture_heartbeat"] = time.time()
@@ -599,7 +685,8 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                 print(f"[capture] erreur loop ({iface}): {err}", file=sys.stderr)
                 print(traceback.format_exc(), file=sys.stderr)
                 cap = None
-                time.sleep(0.2)
+                if stop_event.wait(0.2):
+                    break
                 continue
     except KeyboardInterrupt:
         pass
@@ -617,7 +704,7 @@ def create_svview_app(
     svid: str | None = None,
 ) -> "Flask":
     """
-    Construire l'app Flask + démarrer la capture.
+    Construire l'app Flask (capture démarrée via POST /api/capture/start).
     Peut être appelé depuis po_service (avec interface explicite) ou depuis
     l'exécution directe/uvicorn (paramètres optionnels lus dans l'env).
     """
@@ -661,20 +748,17 @@ def create_svview_app(
     }
     stats_lock = threading.Lock()
 
-    t_cap = threading.Thread(
-        target=capture_loop,
-        args=(interface, samples, samples_lock, stats, stats_lock, config, seen_svids, seen_svids_lock),
-        daemon=True,
-    )
-    t_cap.start()
-
     if not HAS_FLASK:
         print("Flask requis pour l'interface web: pip install flask", file=sys.stderr)
         sys.exit(1)
 
-    app_flask = create_flask_app(
-        samples, samples_lock, stats, stats_lock, seen_svids, seen_svids_lock, config
+    capture_mgr = CaptureManager(
+        interface, samples, samples_lock, stats, stats_lock, config, seen_svids, seen_svids_lock
     )
+    app_flask = create_flask_app(
+        samples, samples_lock, stats, stats_lock, seen_svids, seen_svids_lock, config, capture_mgr
+    )
+    app_flask.capture_mgr = capture_mgr  # type: ignore[attr-defined]
     return app_flask
 
 

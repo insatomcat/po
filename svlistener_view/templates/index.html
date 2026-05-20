@@ -412,8 +412,14 @@
       }
     }
 
-    poll();
-    refreshTimer = setInterval(poll, (configCache.interval ?? 1) * 1000);
+    async function init() {
+      try {
+        await fetch(API + '/capture/start', { method: 'POST' });
+      } catch (_) {}
+      await poll();
+      refreshTimer = setInterval(poll, (configCache.interval ?? 1) * 1000);
+    }
+    init();
   </script>
 </body>
 </html>
