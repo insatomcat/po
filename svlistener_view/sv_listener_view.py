@@ -484,14 +484,36 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                  seen_svids: set, seen_svids_lock: threading.Lock) -> None:
     with stats_lock:
         stats["capture_running"] = True
-    cap = pcapy.open_live(iface, 512, 1, 100)
-    try:
-        cap.setfilter("ether proto 0x88ba or (vlan and ether proto 0x88ba)")
-    except Exception as e:
-        print(f"[capture] setfilter: {e}", file=sys.stderr)
-    print(f"[+] Capture sur {iface} (0x88ba)" + (f", svID={config.get('svid')}" if config.get("svid") else ""), file=sys.stderr)
+    cap = None
     try:
         while True:
+            if cap is None:
+                try:
+                    cap = pcapy.open_live(iface, 512, 1, 100)
+                except Exception as e:
+                    err = f"{type(e).__name__}: {e}"
+                    with stats_lock:
+                        stats["capture_loop_errors"] += 1
+                        stats["last_error"] = f"open_live: {err}"
+                        stats["last_error_at"] = time.time()
+                    print(f"[capture] open_live impossible sur {iface}: {err}; nouvelle tentative dans 1s", file=sys.stderr)
+                    time.sleep(1)
+                    continue
+
+                try:
+                    cap.setfilter("ether proto 0x88ba or (vlan and ether proto 0x88ba)")
+                except Exception as e:
+                    print(f"[capture] setfilter: {e}", file=sys.stderr)
+
+                with stats_lock:
+                    stats["last_error"] = None
+                    stats["last_error_at"] = None
+                print(
+                    f"[+] Capture sur {iface} (0x88ba)"
+                    + (f", svID={config.get('svid')}" if config.get("svid") else ""),
+                    file=sys.stderr,
+                )
+
             try:
                 header, raw = cap.next()
                 if not header:
@@ -576,6 +598,8 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                     stats["last_error_at"] = time.time()
                 print(f"[capture] erreur loop ({iface}): {err}", file=sys.stderr)
                 print(traceback.format_exc(), file=sys.stderr)
+                cap = None
+                time.sleep(0.2)
                 continue
     except KeyboardInterrupt:
         pass

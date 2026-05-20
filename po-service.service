@@ -6,7 +6,16 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/root/po
-ExecStart=/usr/bin/python3 /root/po/po_service.py --victoriametrics-url=http://192.168.165.3:8428
+# Adapter si besoin (eth0, enp1s0, processbus, ...)
+Environment=SVVIEW_INTERFACE=processbus
+# processbus (et interfaces virtuelles) reste souvent en "state UNKNOWN" malgré UP/LOWER_UP
+ExecStartPre=/bin/bash -c '\
+  for i in $(seq 1 20); do \
+    ip link show ${SVVIEW_INTERFACE} 2>/dev/null | grep -q "LOWER_UP" && exit 0; \
+    sleep 0.5; \
+  done; \
+  echo "ERROR: ${SVVIEW_INTERFACE} link not ready (no LOWER_UP) after 10s"; exit 1'
+ExecStart=/usr/bin/python3 /root/po/po_service.py --victoriametrics-url=http://192.168.165.3:8428 --svview-interface=${SVVIEW_INTERFACE}
 Restart=always
 RestartSec=5
 User=root
