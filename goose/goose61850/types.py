@@ -39,4 +39,5 @@ class GooseFrame:
     ethertype: int
     raw_payload: bytes
     pdu: Optional[GoosePDU] = None
+    ts_rx: Optional[float] = None  # timestamp libpcap (réception), pas traitement Python
 
