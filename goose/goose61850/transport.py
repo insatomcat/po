@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import binascii
+import queue
+import threading
+import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 from scapy.all import (  # type: ignore[import-untyped]
+    AsyncSniffer,
     Ether,
     Raw,
     Dot1Q,
@@ -17,6 +21,21 @@ from .types import GooseFrame, GoosePDU
 
 
 GOOSE_ETHERTYPE = 0x88B8
+_QUEUE_MAX = 50_000
+
+
+def goose_bpf_filter(app_id: Optional[int] = None) -> str:
+    """Filtre BPF kernel : GOOSE (0x88b8) uniquement, optionnellement par APPID.
+
+    Sans filtre BPF, scapy.sniff() reçoit aussi les SV (0x88ba) et autres trames
+    sur processbus ; le callback Python ne suit pas les rafales GOOSE (sqNum 0..3).
+    """
+    if app_id is None:
+        return "(ether proto 0x88b8) or (vlan and ether proto 0x88b8)"
+    aid = f"0x{app_id:04x}"
+    plain = f"ether proto 0x88b8 and ether[14:2]={aid}"
+    tagged = f"vlan and ether proto 0x88b8 and ether[18:2]={aid}"
+    return f"({plain}) or ({tagged})"
 
 
 def _mac_str(mac: str) -> str:
@@ -96,24 +115,51 @@ class GooseSubscriber:
         self.app_id = app_id
         self.callback = callback
         self.debug = debug
+        self._queue: queue.Queue = queue.Queue(maxsize=_QUEUE_MAX)
+        self._drops = 0
+        self._worker: Optional[threading.Thread] = None
+        self._worker_lock = threading.Lock()
+
+    def _ensure_worker(self) -> None:
+        with self._worker_lock:
+            if self._worker is not None and self._worker.is_alive():
+                return
+            self._worker = threading.Thread(
+                target=self._worker_loop,
+                daemon=True,
+                name="goose-subscriber-worker",
+            )
+            self._worker.start()
+
+    def _worker_loop(self) -> None:
+        while True:
+            try:
+                pkt = self._queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            self._handle_pkt(pkt)
+
+    def _enqueue(self, pkt) -> None:  # type: ignore[no-untyped-def]
+        self._ensure_worker()
+        try:
+            self._queue.put_nowait(pkt)
+        except queue.Full:
+            self._drops += 1
+
+    def _drain_queue(self, timeout_s: float = 2.0) -> None:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline and not self._queue.empty():
+            time.sleep(0.01)
 
     def _handle_pkt(self, pkt) -> None:  # type: ignore[no-untyped-def]
-        """Callback scapy pour chaque paquet sniffé.
-
-        On essaie d'abord de récupérer une couche Ether, mais certains OS
-        (ou certaines interfaces) renvoient des trames au format "Cooked"
-        sans cette couche. Dans ce cas, on vérifie directement le champ type.
-        """
+        """Décode une trame GOOSE et appelle le callback utilisateur."""
         if self.debug:
-            # résumé très court pour ne pas spammer de données brutes
             print(f"[DEBUG] pkt: {pkt.summary()}")
 
         eth = pkt.getlayer(Ether)
         if eth is None:
-            # mode "Cooked" ou autre encapsulation : on regarde directement le type
             if not hasattr(pkt, "type"):
                 return
-            # si c'est directement du GOOSE sur cette interface
             if pkt.type == GOOSE_ETHERTYPE:
                 payload = bytes(pkt.payload)
                 src_mac = getattr(pkt, "src", "unknown")
@@ -122,7 +168,6 @@ class GooseSubscriber:
             else:
                 return
         else:
-            # Gestion des trames VLAN-tagguées : Ether(type=0x8100) / Dot1Q(type=0x88B8)
             if eth.type == 0x8100 and pkt.haslayer(Dot1Q):
                 dot1q = pkt[Dot1Q]
                 if dot1q.type != GOOSE_ETHERTYPE:
@@ -132,7 +177,6 @@ class GooseSubscriber:
                 dst_mac = str(eth.dst)
                 ethertype = dot1q.type
             else:
-                # Trame non VLAN : on s'attend à voir directement l'EtherType GOOSE
                 if eth.type != GOOSE_ETHERTYPE:
                     return
                 payload = bytes(eth.payload)
@@ -145,8 +189,6 @@ class GooseSubscriber:
 
         app_id = int.from_bytes(payload[0:2], "big")
         length = int.from_bytes(payload[2:4], "big")
-        # reserved1 = payload[4:6]
-        # reserved2 = payload[6:8]
 
         if self.app_id is not None and app_id != self.app_id:
             return
@@ -158,34 +200,74 @@ class GooseSubscriber:
         except Exception:
             pdu = None
 
+        try:
+            ts_rx = float(pkt.time)
+        except (AttributeError, TypeError, ValueError):
+            ts_rx = time.time()
+
         frame = GooseFrame(
             dst_mac=dst_mac,
             src_mac=src_mac,
             app_id=app_id,
-            vlan_id=None,  # géré par scapy en amont si nécessaire
+            vlan_id=None,
             ethertype=ethertype,
             raw_payload=goose_payload,
             pdu=pdu,
+            ts_rx=ts_rx,
         )
 
         if self.callback:
             self.callback(frame)
 
-    def start(self, count: int = 0, timeout: Optional[int] = None) -> None:
+    def run_until(
+        self,
+        should_stop: Callable[[], bool],
+        poll_s: float = 0.1,
+    ) -> int:
+        """Capture continue (une seule session libpcap) jusqu'à should_stop() == True.
+
+        Évite de rouvrir la socket périodiquement (source de pertes de cycles entiers).
+        Retourne le nombre de paquets droppés (file pleine).
+        """
+        self._ensure_worker()
+        bpf = goose_bpf_filter(self.app_id)
+        sniffer = AsyncSniffer(
+            iface=self.iface,
+            filter=bpf,
+            prn=self._enqueue,
+            store=False,
+            stop_filter=lambda _: should_stop(),
+        )
+        sniffer.start()
+        try:
+            while not should_stop():
+                time.sleep(poll_s)
+        finally:
+            sniffer.stop()
+            self._drain_queue()
+        return self._drops
+
+    def start(
+        self,
+        count: int = 0,
+        timeout: Optional[Union[int, float]] = None,
+        stop_filter: Optional[Callable[..., bool]] = None,
+    ) -> None:
         """Démarre la capture (bloquante).
 
-        - `count` : nombre maximum de trames à capturer (0 = illimité).
-        - `timeout` : durée max en secondes (None = illimité).
+        Préférer run_until() pour une écoute longue durée sans trou de capture.
         """
-
+        self._ensure_worker()
         sniff(
             iface=self.iface,
-            prn=self._handle_pkt,
+            filter=goose_bpf_filter(self.app_id),
+            prn=self._enqueue,
             store=False,
             timeout=timeout,
             count=count if count > 0 else 0,
-            # pas de filtre BPF pour laisser passer tout type de trames
+            stop_filter=stop_filter or (lambda _: False),
         )
+        self._drain_queue()
 
 
 def decode_hex_goose(hex_str: str) -> GoosePDU:
@@ -193,4 +275,3 @@ def decode_hex_goose(hex_str: str) -> GoosePDU:
     hex_str = hex_str.replace(" ", "").replace("\n", "")
     data = binascii.unhexlify(hex_str)
     return decode_goose_pdu(data)
-

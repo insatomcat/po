@@ -242,6 +242,7 @@
       <button type="button" class="tab" data-tab="goose">GOOSE</button>
       <button type="button" class="tab" data-tab="sv">SV</button>
       <button type="button" class="tab" data-tab="svview">SV Listener</button>
+      <button type="button" class="tab" data-tab="gooselistener">GOOSE Listener</button>
     </div>
     <div class="tabs-right">
       <button type="button" class="btn btn--small" id="iframe-tabs-settings-btn">Paramètres</button>
@@ -414,6 +415,124 @@
     </section>
   </div>
 
+  <div id="panel-gooselistener" class="panel">
+    <h1>GOOSE Listener – Délais de déclenchement</h1>
+    <p class="status" id="gl-service-status">—</p>
+    <div id="gl-unconfigured" class="gl-card" style="display:none;max-width:560px">
+      <p class="status">GOOSE Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> (même interface que SV / sv_generator).</p>
+    </div>
+    <div id="gl-root" style="display:none">
+      <div class="gl-layout">
+        <div class="gl-col">
+          <div class="gl-card" id="gl-discovery-card">
+            <div class="gl-panel-head">
+              <h2>Découverte</h2>
+              <button type="button" class="btn btn--small" id="gl-discovery-toggle" aria-expanded="true">Masquer</button>
+            </div>
+            <div id="gl-discovery-body">
+            <div class="toolbar" style="align-items:center;gap:0.75rem;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
+                <span>Durée scan (s)</span>
+                <input type="number" id="gl-scan-duration" value="5" min="0.5" max="120" step="0.5" style="width:5rem">
+              </label>
+              <button type="button" class="btn btn--accent" id="gl-scan-btn">Scan</button>
+              <span class="status" id="gl-scan-status"></span>
+            </div>
+            <label class="gl-scan-filter-label">
+              <span class="status">Rechercher</span>
+              <input type="search" id="gl-scan-filter" placeholder="gocbRef, goID, APPID…" autocomplete="off">
+            </label>
+            <div class="table-wrap gl-scan-scroll" id="gl-scan-table-wrap">
+              <table class="gl-scan-table">
+                <thead><tr>
+                  <th></th><th>gocbRef</th><th>goID</th><th>APPID</th><th>Trames</th>
+                </tr></thead>
+                <tbody id="gl-scan-tbody"><tr><td colspan="5" class="status">Aucun scan effectué.</td></tr></tbody>
+              </table>
+            </div>
+            <button type="button" class="btn btn--small" id="gl-add-selected-btn" style="margin-top:0.5rem">Ajouter la sélection →</button>
+            </div>
+          </div>
+          <div class="gl-card">
+            <h2>Analyse</h2>
+            <p class="status" id="gl-analysis-status">Analyse arrêtée.</p>
+            <div class="table-wrap" id="gl-targets-table-wrap">
+              <table>
+                <thead><tr>
+                  <th></th><th>gocbRef</th><th>goID</th><th>Temporisation (ms)</th>
+                </tr></thead>
+                <tbody id="gl-targets-tbody"><tr><td colspan="4" class="status">Sélectionnez des flux depuis le scan.</td></tr></tbody>
+              </table>
+            </div>
+            <label class="gl-event-filter-label" style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap">
+              <span class="status">Afficher</span>
+              <select id="gl-event-filter" style="min-width:12rem;padding:0.4rem 0.5rem;border-radius:6px;border:1px solid var(--surface);background:var(--bg);color:var(--text);font:inherit">
+                <option value="declenchements_only" selected>Seulement les déclenchements</option>
+                <option value="all">Tous (déclenchements + retombées…)</option>
+              </select>
+            </label>
+            <div class="toolbar" style="margin-top:0.75rem">
+              <button type="button" class="btn btn--accent" id="gl-start-btn">Lancer l'analyse</button>
+              <button type="button" class="btn btn--danger" id="gl-stop-btn">Arrêter</button>
+            </div>
+          </div>
+          <div class="gl-card">
+            <div class="gl-panel-head">
+              <h2>Problèmes</h2>
+              <button type="button" class="btn btn--small" id="gl-problems-download">Télécharger (.txt)</button>
+            </div>
+            <div class="gl-problems-config" style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;margin-bottom:0.75rem">
+              <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
+                <span class="status">Cycle déclenchement (s)</span>
+                <input type="number" id="gl-problem-cycle" value="4" min="1" max="600" step="1" style="width:5rem">
+              </label>
+              <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
+                <span class="status">Seuil Δ (ms)</span>
+                <input type="number" id="gl-problem-threshold" value="40" min="0" max="5000" step="1" style="width:5rem">
+              </label>
+            </div>
+            <p class="status" id="gl-problems-status">—</p>
+            <p class="status" style="margin-top:0.25rem;font-size:0.82rem">
+              En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements (diagnostic).
+            </p>
+            <div class="table-wrap gl-problems-scroll" id="gl-problems-table-wrap">
+              <table class="gl-problems-table">
+                <thead><tr>
+                  <th>Type</th><th>Heure</th><th>goID</th><th>Δ (ms)</th><th>sqNum</th><th>Détail</th>
+                </tr></thead>
+                <tbody id="gl-problems-tbody"><tr><td colspan="6" class="status">Aucun problème détecté.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="gl-col">
+          <div class="gl-card">
+            <div class="gl-panel-head">
+              <h2>Histogramme des délais</h2>
+              <button type="button" class="btn btn--small" id="gl-hist-log-y" aria-pressed="false">Y logarithmique</button>
+            </div>
+            <p class="status" id="gl-hist-meta">—</p>
+            <div id="gl-histogram" class="gl-histogram"></div>
+            <ul id="gl-legend" class="gl-legend"></ul>
+          </div>
+          <div class="gl-card">
+            <div class="gl-panel-head">
+              <h2>Derniers événements</h2>
+              <button type="button" class="btn btn--small" id="gl-events-download">Télécharger (.txt)</button>
+            </div>
+            <p class="status" id="gl-events-meta" style="margin:0 0 0.5rem">—</p>
+            <div class="table-wrap gl-events-scroll" id="gl-events-table-wrap">
+              <table class="gl-events-table">
+                <thead><tr><th>Réception GOOSE</th><th>Type</th><th>gocbRef</th><th>goID</th><th>stNum</th><th>Δ net (ms)</th></tr></thead>
+                <tbody id="gl-events-tbody"><tr><td colspan="6" class="status">—</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="panel-svview" class="panel">
     <h1>SV Listener – Phasors U & I</h1>
     <div id="svview-unconfigured" class="svview-card" style="display:none;max-width:500px">
@@ -485,13 +604,119 @@
     #svview-config-form { min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     #svview-config-form label { min-width: 0; }
     #svview-config-form label span { overflow-wrap: break-word; }
+    .gl-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+    @media (max-width: 1000px) { .gl-layout { grid-template-columns: 1fr; } }
+    .gl-card { background: var(--surface); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    .gl-histogram { width: 100%; min-height: 280px; }
+    .gl-histogram svg { display: block; width: 100%; height: auto; }
+    .gl-legend {
+      list-style: none; padding: 0.65rem 0.75rem; margin: 0.75rem 0 0;
+      display: flex; flex-direction: column; gap: 0.45rem;
+      background: var(--bg); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);
+    }
+    .gl-legend li { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.82rem; line-height: 1.35; min-width: 0; }
+    .gl-legend .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; margin-top: 0.1rem; }
+    .gl-legend .gl-legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+    .gl-legend .gl-legend-count { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .gl-scan-filter-label { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.75rem 0 0.5rem; }
+    .gl-scan-filter-label input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.45rem 0.6rem;
+      border-radius: 6px;
+      border: 1px solid var(--surface);
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+    }
+    .gl-scan-scroll,
+    .gl-events-scroll {
+      --gl-table-row-h: 2.85rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      margin-bottom: 0;
+    }
+    .gl-scan-scroll {
+      max-height: calc(var(--gl-table-row-h) * 6);
+    }
+    .gl-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.5rem;
+    }
+    .gl-panel-head h2 { margin: 0; }
+    #gl-discovery-body.is-hidden { display: none; }
+    .gl-events-scroll {
+      max-height: calc(var(--gl-table-row-h) * 11);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .gl-scan-table,
+    .gl-events-table { margin: 0; border-radius: 0; }
+    .gl-scan-scroll .gl-scan-table thead th,
+    .gl-events-scroll .gl-events-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #16161e;
+    }
+    .gl-scan-scroll .gl-scan-table tbody tr,
+    .gl-events-scroll .gl-events-table tbody tr {
+      height: var(--gl-table-row-h);
+    }
+    .gl-scan-scroll .gl-scan-table tbody td,
+    .gl-events-scroll .gl-events-table tbody td {
+      vertical-align: middle;
+    }
+    .gl-event-kind { font-weight: 600; white-space: nowrap; }
+    .gl-event-kind.declenchement { color: var(--danger); }
+    .gl-event-kind.retombee { color: var(--success); }
+    .gl-event-kind.initial { color: var(--muted); }
+    .gl-event-kind.mixte { color: var(--accent); }
+    .gl-event-kind.inconnu { color: var(--muted); }
+    .gl-problems-scroll {
+      max-height: calc(var(--gl-table-row-h) * 11);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .gl-problems-table { margin: 0; border-radius: 0; }
+    .gl-problems-scroll .gl-problems-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #16161e;
+    }
+    .gl-problems-scroll .gl-problems-table tbody tr { height: var(--gl-table-row-h); }
+    .gl-problems-scroll .gl-problems-table tbody td { vertical-align: middle; font-size: 0.85rem; }
+    .gl-problem-kind { font-weight: 600; white-space: nowrap; }
+    .gl-problem-kind.missing { color: var(--danger); }
+    .gl-problem-kind.delay_exceeded { color: #e0af68; }
+    .gl-problem-kind.capture_incomplete { color: #7dcfff; }
+    .gl-problem-sqnum { text-align: center; font-variant-numeric: tabular-nums; }
+    .gl-problem-sqnum.lost { color: var(--danger); font-weight: 600; }
+    .gl-problem-diag td {
+      font-size: 0.78rem;
+      color: var(--muted);
+      padding: 0.35rem 0.5rem 0.5rem;
+      border-top: none;
+      vertical-align: top;
+    }
+    .gl-problem-diag pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1.35;
+    }
   </style>
 
   <script>
     // URLs relatives : le navigateur les résout par rapport à l'URL de la page (ex. /po/ → /po/api/...).
-    const API = { mms: 'api/mms', goose: 'api/goose', sv: 'api/sv', svview: 'api/svview' };
+    const API = { mms: 'api/mms', goose: 'api/goose', sv: 'api/sv', svview: 'api/svview', gooselistener: 'api/gooselistener' };
     const SVVIEW_API = API.svview + '/api';
-    const FIXED_TABS = ['mms', 'goose', 'sv', 'svview'];
+    const FIXED_TABS = ['mms', 'goose', 'sv', 'svview', 'gooselistener'];
     const IF_TAB_STORAGE_KEY = 'unified-ui-iframe-tabs-v1';
     const DEFAULT_IFRAME_TABS = [
       { id: 'grafana-dep2', name: 'Grafana dep2', url: 'https://vvh1.ytf.fr/public-dashboards/2aa14d158ac84ab39fe52b78836c6546' },
@@ -500,6 +725,19 @@
     let mmsRecentsCache = [];
     let svLastRecents = [];
     let svviewRefreshTimer = null;
+    let glRefreshTimer = null;
+    let glPollSeq = 0;
+    let glTabActive = false;
+    let glTargets = [];
+    let glScanEntries = [];
+    let glScanEntriesSig = '';
+    let glScanRunning = false;
+    let glScanFilterTimer = null;
+    let glProblemConfigTimer = null;
+    let glDiscoveryHidden = false;
+    let glHistLogY = false;
+    let glLastHistogram = null;
+    const GL_COLORS = ['#7aa2f7','#9ece6a','#e0af68','#bb9af7','#f7768e','#73daca','#ff9e64','#b4f9f8','#cfc9c2','#565f89'];
     let svviewConfigCache = { interval: 2, window: 10 };
     let svviewActiveSvid = null;
     let iframeTabs = [];
@@ -660,8 +898,16 @@
       const dynamicIds = iframeTabs.map(t => t.id);
       const allowed = [...FIXED_TABS, ...dynamicIds];
       const id = allowed.includes(tabId) ? tabId : 'mms';
-      const leavingSvview = document.querySelector('.tab.active')?.dataset.tab === 'svview' && id !== 'svview';
+      const activeTab = document.querySelector('.tab.active')?.dataset.tab;
+      const leavingSvview = activeTab === 'svview' && id !== 'svview';
       if (leavingSvview) void svviewOnTabLeave();
+      if (activeTab === 'gooselistener' && id !== 'gooselistener') {
+        glTabActive = false;
+        if (glRefreshTimer) {
+          clearInterval(glRefreshTimer);
+          glRefreshTimer = null;
+        }
+      }
       else if (id !== 'svview' && svviewRefreshTimer) {
         clearInterval(svviewRefreshTimer);
         svviewRefreshTimer = null;
@@ -673,6 +919,10 @@
       if (id === 'goose') gooseLoad();
       if (id === 'sv') svLoad();
       if (id === 'svview') svviewLoad();
+      if (id === 'gooselistener') {
+        glTabActive = true;
+        glLoad();
+      }
     }
     loadIframeTabs();
     renderIframeTabsUi();
@@ -1751,6 +2001,793 @@
       await svviewPoll();
       svviewRefreshTimer = setInterval(svviewPoll, (svviewConfigCache.interval || 2) * 1000);
     }
+
+    function glTargetKey(t) {
+      return (t.gocb_ref || '') + '|' + (t.go_id || '');
+    }
+
+    function glScanSearchFields(entry) {
+      const appId = entry.app_id >>> 0;
+      const hex = appId.toString(16);
+      const hexPadded = hex.padStart(4, '0');
+      const raw = [
+        entry.gocb_ref || '',
+        entry.go_id || '',
+        '0x' + hex,
+        '0x' + hexPadded,
+        String(appId),
+        String(entry.frames ?? ''),
+      ];
+      return raw.map(s => s.toLowerCase());
+    }
+
+    function glScanMatchesFilter(entry, query) {
+      if (!query) return true;
+      const fields = glScanSearchFields(entry);
+      const normalizedHay = fields.join(' ').replace(/[_$/\\.-]/g, ' ');
+      const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+      return tokens.every(token => {
+        if (fields.some(f => f.includes(token))) return true;
+        if (normalizedHay.includes(token)) return true;
+        const bareHex = token.replace(/^0x/, '');
+        if (bareHex !== token && fields.some(f => f.includes(bareHex))) return true;
+        if (/^\d+$/.test(token) && fields.some(f => f.includes(token))) return true;
+        const loose = token.replace(/[_$/\\.-]/g, ' ');
+        if (loose !== token && normalizedHay.includes(loose)) return true;
+        return false;
+      });
+    }
+
+    async function glFetchJson(path, opts) {
+      const r = await fetch(API.gooselistener + path, opts);
+      if (r.status === 503) throw new Error('unconfigured');
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || data.detail || r.statusText);
+      return data;
+    }
+
+    function glDownloadBlob(text, filename) {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    async function glDownloadExport(path, filename) {
+      const r = await fetch(API.gooselistener + path);
+      if (r.status === 503) throw new Error('GOOSE Listener non configuré');
+      if (!r.ok) {
+        let msg = r.statusText;
+        try {
+          const err = await r.json();
+          msg = err.error || msg;
+        } catch (_) { /* export non-JSON */ }
+        throw new Error(msg);
+      }
+      glDownloadBlob(await r.text(), filename);
+    }
+
+    function glSetDiscoveryVisible(visible) {
+      glDiscoveryHidden = !visible;
+      const body = document.getElementById('gl-discovery-body');
+      const btn = document.getElementById('gl-discovery-toggle');
+      if (body) body.classList.toggle('is-hidden', glDiscoveryHidden);
+      if (btn) {
+        btn.textContent = glDiscoveryHidden ? 'Afficher' : 'Masquer';
+        btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
+      }
+    }
+
+    function glGetCheckedScanKeys() {
+      const keys = new Set();
+      document.querySelectorAll('.gl-scan-cb:checked').forEach(cb => {
+        keys.add(glTargetKey({ gocb_ref: cb.dataset.gocb, go_id: cb.dataset.goid || '' }));
+      });
+      return keys;
+    }
+
+    function glUpdateScanStatus(filteredCount, query) {
+      const status = document.getElementById('gl-scan-status');
+      if (!status) return;
+      const q = query ?? (document.getElementById('gl-scan-filter')?.value || '').trim();
+      if (glScanRunning) {
+        const extra = q ? ` · ${filteredCount} affiché(s)` : '';
+        status.textContent = `Scan en cours… ${glScanRemaining}s restantes${extra}`;
+      } else if (glScanEntries.length) {
+        status.textContent = q
+          ? `${glScanEntries.length} flux vu(s) · ${filteredCount} affiché(s)`
+          : `${glScanEntries.length} flux vu(s)`;
+      } else {
+        status.textContent = '';
+      }
+    }
+
+    function glRenderScanTable() {
+      const tbody = document.getElementById('gl-scan-tbody');
+      const wrap = document.getElementById('gl-scan-table-wrap');
+      if (!tbody) return;
+
+      const scrollTop = wrap?.scrollTop ?? 0;
+      const query = (document.getElementById('gl-scan-filter')?.value || '').trim();
+      const filtered = glScanEntries.filter(e => glScanMatchesFilter(e, query));
+      const checked = glGetCheckedScanKeys();
+
+      glUpdateScanStatus(filtered.length, query);
+
+      if (!glScanEntries.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="status">' +
+          (glScanRunning ? 'Écoute en cours…' : 'Aucun flux GOOSE vu.') + '</td></tr>';
+        return;
+      }
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="status">Aucun résultat pour cette recherche.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(e => {
+        const k = glTargetKey(e);
+        const checkedAttr = checked.has(k) ? ' checked' : '';
+        return `<tr data-key="${escapeHtml(k)}">
+          <td><input type="checkbox" class="gl-scan-cb" data-gocb="${escapeHtml(e.gocb_ref)}" data-goid="${escapeHtml(e.go_id)}"${checkedAttr}></td>
+          <td>${escapeHtml(e.gocb_ref)}</td>
+          <td>${escapeHtml(e.go_id || '—')}</td>
+          <td>0x${(e.app_id >>> 0).toString(16).toUpperCase().padStart(4,'0')}</td>
+          <td>${e.frames}</td>
+        </tr>`;
+      }).join('');
+      if (wrap) wrap.scrollTop = scrollTop;
+    }
+
+    let glScanRemaining = 0;
+
+    function glRenderScan(scan) {
+      const entries = scan.entries || [];
+      const sig = JSON.stringify(entries);
+      const entriesChanged = sig !== glScanEntriesSig;
+      glScanRunning = !!scan.running;
+      glScanRemaining = scan.remaining_s ?? 0;
+
+      if (entriesChanged) {
+        glScanEntries = entries;
+        glScanEntriesSig = sig;
+      }
+
+      if (entriesChanged) {
+        glRenderScanTable();
+      } else {
+        const q = (document.getElementById('gl-scan-filter')?.value || '').trim();
+        glUpdateScanStatus(
+          glScanEntries.filter(e => glScanMatchesFilter(e, q)).length,
+          q
+        );
+      }
+    }
+
+    function glRenderTargets() {
+      const tbody = document.getElementById('gl-targets-tbody');
+      if (!tbody) return;
+      if (!glTargets.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="status">Sélectionnez des flux depuis le scan.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = glTargets.map((t, i) => `<tr data-idx="${i}">
+        <td><button type="button" class="btn btn--small btn--danger gl-remove-target" data-idx="${i}">✕</button></td>
+        <td>${escapeHtml(t.gocb_ref)}</td>
+        <td>${escapeHtml(t.go_id || '—')}</td>
+        <td><input type="number" class="gl-delay-input" data-idx="${i}" value="${t.delay_ms}" min="0" step="1" style="width:6rem"></td>
+      </tr>`).join('');
+      tbody.querySelectorAll('.gl-remove-target').forEach(btn => {
+        btn.addEventListener('click', () => {
+          glTargets.splice(Number(btn.dataset.idx), 1);
+          glRenderTargets();
+        });
+      });
+      tbody.querySelectorAll('.gl-delay-input').forEach(inp => {
+        inp.addEventListener('change', () => {
+          const idx = Number(inp.dataset.idx);
+          if (glTargets[idx]) glTargets[idx].delay_ms = Math.max(0, Number(inp.value) || 0);
+        });
+      });
+    }
+
+    function glNiceYTicks(maxY) {
+      if (maxY <= 1) return { ticks: [0, 1], yMax: 1 };
+      const rawStep = maxY / 5;
+      const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const norm = rawStep / magnitude;
+      let step = magnitude;
+      if (norm > 5) step = 10 * magnitude;
+      else if (norm > 2) step = 5 * magnitude;
+      else if (norm > 1) step = 2 * magnitude;
+      const yMax = Math.ceil(maxY / step) * step;
+      const ticks = [];
+      for (let v = 0; v <= yMax + step * 0.001; v += step) {
+        ticks.push(Math.round(v * 1000) / 1000);
+      }
+      return { ticks, yMax: ticks[ticks.length - 1] || yMax };
+    }
+
+    function glNiceLogYTicks(maxY) {
+      const yMin = 1;
+      if (maxY <= 1) return { ticks: [1, 10], yMin, yMax: 10 };
+      const yMax = Math.pow(10, Math.ceil(Math.log10(maxY)));
+      const ticks = [];
+      for (let p = 0; p <= Math.log10(yMax) + 0.001; p++) {
+        const base = Math.pow(10, p);
+        for (const m of [1, 2, 5]) {
+          const t = m * base;
+          if (t >= yMin && t <= yMax) ticks.push(t);
+        }
+      }
+      return { ticks, yMin, yMax };
+    }
+
+    function glSetHistLogY(enabled) {
+      glHistLogY = enabled;
+      const btn = document.getElementById('gl-hist-log-y');
+      if (btn) {
+        btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        btn.classList.toggle('btn--accent', enabled);
+        btn.textContent = enabled ? 'Y linéaire' : 'Y logarithmique';
+      }
+      glDrawHistogram();
+    }
+
+    function glFormatMs(v) {
+      const a = Math.abs(v);
+      if (a >= 100) return v.toFixed(0);
+      if (a >= 10) return v.toFixed(1);
+      return v.toFixed(2);
+    }
+
+    const GL_HIST_BIN_MS = 1;
+
+    /** Agrège les Δ bruts (API) en histogramme 1 ms — rendu côté navigateur. */
+    function glBuildHistogram(rawSeries) {
+      const inputs = rawSeries || [];
+      const allVals = inputs.flatMap(s => s.values || []);
+      if (!allVals.length) return null;
+
+      const binWidth = GL_HIST_BIN_MS;
+      const vmin = Math.min(...allVals);
+      const vmax = Math.max(...allVals);
+      let lo = Math.floor(vmin / binWidth) * binWidth;
+      let hi = Math.ceil(vmax / binWidth) * binWidth;
+      if (hi <= lo) hi = lo + binWidth;
+      const numBins = Math.max(1, Math.round((hi - lo) / binWidth));
+      const edges = Array.from({ length: numBins + 1 }, (_, i) => lo + i * binWidth);
+
+      const series = inputs.map(s => {
+        const counts = Array(numBins).fill(0);
+        const hiEdge = edges[edges.length - 1];
+        for (const v of (s.values || [])) {
+          if (v <= lo) { counts[0] += 1; continue; }
+          if (v >= hiEdge) { counts[numBins - 1] += 1; continue; }
+          let idx = binWidth > 0 ? Math.floor((v - lo) / binWidth) : 0;
+          if (idx >= numBins) idx = numBins - 1;
+          counts[idx] += 1;
+        }
+        return {
+          label: s.label,
+          gocb_ref: s.key?.gocb_ref,
+          go_id: s.key?.go_id,
+          color_index: s.color_index,
+          counts,
+          total: s.count ?? (s.values || []).length,
+        };
+      });
+
+      return { bin_edges: edges, bin_width_ms: binWidth, series };
+    }
+
+    function glDrawHistogram(hist) {
+      if (arguments.length) {
+        glLastHistogram = (hist?.bin_edges?.length >= 2) ? hist : null;
+      }
+      hist = glLastHistogram;
+
+      const root = document.getElementById('gl-histogram');
+      const meta = document.getElementById('gl-hist-meta');
+      const legend = document.getElementById('gl-legend');
+      const C = {
+        text: '#c0caf5',
+        muted: '#7a849c',
+        grid: 'rgba(122,132,156,0.22)',
+        axis: '#565f89',
+        plotBg: '#13131a',
+      };
+      if (!root || !hist || !hist.bin_edges || hist.bin_edges.length < 2) {
+        if (root) root.innerHTML = '<p class="status">Pas encore de données.</p>';
+        if (meta) meta.textContent = '—';
+        if (legend) legend.innerHTML = '';
+        return;
+      }
+      const edges = hist.bin_edges;
+      const series = hist.series || [];
+      const numBins = edges.length - 1;
+      const numSeries = Math.max(series.length, 1);
+      let maxCount = 1;
+      series.forEach(s => (s.counts || []).forEach(c => { if (c > maxCount) maxCount = c; }));
+
+      const w = 640;
+      const xLabelRows = numBins > 14 ? 2 : 1;
+      const pad = { l: 52, r: 16, t: 18, b: 28 + xLabelRows * 14 };
+      const h = 240 + xLabelRows * 14;
+      const gw = w - pad.l - pad.r;
+      const gh = h - pad.t - pad.b;
+      const barW = gw / numBins;
+      const barGap = Math.min(4, barW * 0.12);
+      const yBase = h - pad.b;
+
+      let yTicks;
+      let yAt;
+      if (glHistLogY) {
+        const { ticks, yMin, yMax } = glNiceLogYTicks(maxCount);
+        yTicks = ticks;
+        const logMin = Math.log10(yMin);
+        const logMax = Math.log10(yMax);
+        yAt = v => {
+          const cv = Math.max(v, yMin);
+          return yBase - ((Math.log10(cv) - logMin) / (logMax - logMin)) * gh;
+        };
+      } else {
+        const linear = glNiceYTicks(maxCount);
+        yTicks = linear.ticks;
+        yAt = v => yBase - (v / linear.yMax) * gh;
+      }
+
+      let svg = `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Histogramme des délais">`;
+      svg += `<rect x="${pad.l}" y="${pad.t}" width="${gw}" height="${gh}" fill="${C.plotBg}" rx="4"/>`;
+
+      yTicks.forEach(t => {
+        const y = yAt(t);
+        svg += `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${w - pad.r}" y2="${y.toFixed(1)}" stroke="${C.grid}" stroke-width="1"/>`;
+        svg += `<text x="${pad.l - 8}" y="${y + 4}" fill="${C.text}" font-size="11" text-anchor="end" font-family="system-ui,sans-serif">${t}</text>`;
+      });
+
+      svg += `<line x1="${pad.l}" y1="${h - pad.b}" x2="${w - pad.r}" y2="${h - pad.b}" stroke="${C.axis}" stroke-width="1.5"/>`;
+      svg += `<line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" stroke="${C.axis}" stroke-width="1.5"/>`;
+
+      for (let i = 0; i < numBins; i++) {
+        const groupX = pad.l + i * barW + barGap / 2;
+        const groupW = Math.max(2, barW - barGap);
+        const innerGap = numSeries > 1 ? 1.5 : 0;
+        const subBarW = Math.max(2, (groupW - innerGap * (numSeries - 1)) / numSeries);
+        series.forEach((s, si) => {
+          const c = (s.counts || [])[i] || 0;
+          if (!c) return;
+          const x = groupX + si * (subBarW + innerGap);
+          const y = yAt(c);
+          const bh = Math.max(0.5, yBase - y);
+          const col = GL_COLORS[s.color_index % GL_COLORS.length];
+          svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${subBarW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${col}" rx="2" opacity="0.92"/>`;
+          if (c > 0 && subBarW >= 7) {
+            svg += `<text x="${(x + subBarW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" fill="${C.text}" font-size="9" text-anchor="middle" font-family="system-ui,sans-serif">${c}</text>`;
+          }
+        });
+        const cx = groupX + groupW / 2;
+        const lo = edges[i];
+        const hi = edges[i + 1];
+        const label = numBins <= 20
+          ? (hi - lo >= 1 ? `${glFormatMs(lo)}` : `${glFormatMs(lo)}–${glFormatMs(hi)}`)
+          : (i % Math.ceil(numBins / 12) === 0 ? glFormatMs(lo) : '');
+        if (label) {
+          const ly = h - pad.b + (numBins > 14 ? 26 : 16);
+          if (numBins > 14) {
+            svg += `<text x="${cx.toFixed(1)}" y="${ly}" fill="${C.text}" font-size="10" text-anchor="end" font-family="system-ui,sans-serif" transform="rotate(-40 ${cx.toFixed(1)} ${ly})">${label}</text>`;
+          } else {
+            svg += `<text x="${cx.toFixed(1)}" y="${ly}" fill="${C.text}" font-size="10" text-anchor="middle" font-family="system-ui,sans-serif">${label}</text>`;
+          }
+        }
+      }
+
+      svg += `<text x="${(pad.l + w - pad.r) / 2}" y="${h - 6}" fill="${C.muted}" font-size="11" text-anchor="middle" font-family="system-ui,sans-serif">Délai net Δ (ms)</text>`;
+      const yAxisLabel = glHistLogY ? 'Événements (log)' : 'Événements';
+      svg += `<text x="14" y="${(pad.t + h - pad.b) / 2}" fill="${C.muted}" font-size="11" text-anchor="middle" font-family="system-ui,sans-serif" transform="rotate(-90 14 ${(pad.t + h - pad.b) / 2})">${yAxisLabel}</text>`;
+      svg += '</svg>';
+      root.innerHTML = svg;
+
+      if (meta) {
+        const totalEvents = hist.total ?? series.reduce((n, s) => n + (s.total || 0), 0);
+        meta.textContent = `${totalEvents} événement(s) cumulé(s) · pas ${glFormatMs(hist.bin_width_ms || 1)} ms · ${numBins} intervalle(s) [${glFormatMs(edges[0])} … ${glFormatMs(edges[edges.length - 1])}]`;
+      }
+      if (legend) {
+        legend.innerHTML = series.map(s => {
+          const col = GL_COLORS[s.color_index % GL_COLORS.length];
+          return `<li title="${escapeHtml(s.label)}">
+            <span class="swatch" style="background:${col}"></span>
+            <span class="gl-legend-label">${escapeHtml(s.label)}</span>
+            <span class="gl-legend-count">${s.total}</span>
+          </li>`;
+        }).join('');
+      }
+    }
+
+    function glFmtProblemTs(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts * 1000);
+      return d.toLocaleString('fr-FR', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+    }
+
+    function glRenderProblems(analysis) {
+      const cfg = analysis.problems_config || {};
+      const cycleInp = document.getElementById('gl-problem-cycle');
+      const threshInp = document.getElementById('gl-problem-threshold');
+      if (cycleInp && cfg.cycle_s != null && document.activeElement !== cycleInp) {
+        cycleInp.value = cfg.cycle_s;
+      }
+      if (threshInp && cfg.threshold_ms != null && document.activeElement !== threshInp) {
+        threshInp.value = cfg.threshold_ms;
+      }
+
+      const status = document.getElementById('gl-problems-status');
+      const tbody = document.getElementById('gl-problems-tbody');
+      const problems = analysis.problems || [];
+      const nMissing = problems.filter(p => p.kind === 'missing').length;
+      const nDelay = problems.filter(p => p.kind === 'delay_exceeded').length;
+      const nCapture = problems.filter(p => p.kind === 'capture_incomplete').length;
+
+      const totalProblems = analysis.problem_count ?? problems.length;
+      const panelMax = analysis.problems_panel_max ?? 50;
+
+      if (status) {
+        if (!analysis.running && !analysis.targets?.length) {
+          status.textContent = 'Lancez une analyse pour détecter les problèmes.';
+        } else if (!totalProblems) {
+          status.textContent = `Aucun problème (cycle ${cfg.cycle_s ?? 4} s · seuil ${cfg.threshold_ms ?? 40} ms).`;
+        } else {
+          const shown = problems.length;
+          const trunc = totalProblems > shown ? ` · ${shown} affiché(s) sur ${totalProblems}` : '';
+          const capNote = nCapture ? ` · ${nCapture} capture(s)` : '';
+          status.textContent = `${totalProblems} problème(s) : ${nMissing} manquant(s) · ${nDelay} délai(s) > seuil${capNote}${trunc}`;
+        }
+      }
+
+      if (!tbody) return;
+      const wrap = document.getElementById('gl-problems-table-wrap');
+      const scrollTop = wrap?.scrollTop ?? 0;
+      if (!problems.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="status">Aucun problème détecté.</td></tr>';
+        if (wrap) wrap.scrollTop = scrollTop;
+        return;
+      }
+
+      const kindLabel = {
+        missing: 'Manquant',
+        delay_exceeded: 'Δ > seuil',
+        capture_incomplete: 'Capture',
+      };
+
+      function glFmtDiagContext(p) {
+        const ctx = p.context;
+        if (!ctx?.length) return '';
+        const lines = ['GOOSE entre déclenchements :'];
+        const prevTs = p.declenchement_prev_ts ?? p.defaut_prev_ts;
+        const nextTs = p.declenchement_next_ts ?? p.defaut_next_ts;
+        if (prevTs != null) {
+          lines.push(`  déclenc. préc. ${glFmtProblemTs(prevTs)}`);
+        }
+        if (nextTs != null) {
+          lines.push(`  déclenc. suiv. ${glFmtProblemTs(nextTs)}`);
+        } else if (p.kind === 'missing') {
+          lines.push('  déclenc. suiv. (pas encore reçu)');
+        }
+        if (p.gap_s != null) lines.push(`  écart ${p.gap_s} s`);
+        for (const c of ctx) {
+          const d = c.delta_net_ms != null ? ` Δ=${c.delta_net_ms} ms` : '';
+          lines.push(
+            `  ${glFmtProblemTs(c.ts_goose)}  ${c.event_label || c.event_kind}${d}  st=${c.st_num}`
+          );
+        }
+        return lines.join('\n');
+      }
+
+      tbody.innerHTML = problems.map(p => {
+        const kind = p.kind || 'unknown';
+        const label = kindLabel[kind] || kind;
+        const ts = p.ts_goose ?? p.ts_expected;
+        const delta = p.delta_net_ms != null ? p.delta_net_ms.toFixed(2) : '—';
+        let sqCell = '—';
+        if (kind === 'delay_exceeded' && p.sq_num != null) {
+          const sqLost = p.sq_num !== 0;
+          sqCell = `<span class="gl-problem-sqnum${sqLost ? ' lost' : ''}" title="${sqLost ? 'sqNum=0 manqué en capture' : 'Déclenchement sqNum=0'}">${escapeHtml(String(p.sq_num))}</span>`;
+        }
+        const diag = glFmtDiagContext(p);
+        const main = `<tr>
+          <td class="gl-problem-kind ${escapeHtml(kind)}">${escapeHtml(label)}</td>
+          <td>${escapeHtml(glFmtProblemTs(ts))}</td>
+          <td>${escapeHtml(p.go_id || '—')}</td>
+          <td>${delta}</td>
+          <td>${sqCell}</td>
+          <td>${escapeHtml(p.message || '')}</td>
+        </tr>`;
+        if (!diag) return main;
+        return `${main}<tr class="gl-problem-diag"><td colspan="6"><pre>${escapeHtml(diag)}</pre></td></tr>`;
+      }).join('');
+      if (wrap) wrap.scrollTop = scrollTop;
+    }
+
+    async function glPostProblemConfig() {
+      const cycle_s = Number(document.getElementById('gl-problem-cycle')?.value) || 4;
+      const threshold_ms = Number(document.getElementById('gl-problem-threshold')?.value) || 40;
+      await glFetchJson('/analysis/problems', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cycle_s, threshold_ms }),
+      });
+    }
+
+    function glIsDeclenchementsOnlyFilter(analysis) {
+      const f = analysis.event_filter || 'declenchements_only';
+      return f === 'declenchements_only' || f === 'defauts_only';
+    }
+
+    function glFormatEventCount(analysis) {
+      const n = analysis.event_count ?? 0;
+      if (glIsDeclenchementsOnlyFilter(analysis)) {
+        return `${n} déclenchement(s)`;
+      }
+      return `${n} événement(s)`;
+    }
+
+    function glRenderAnalysis(analysis) {
+      const filterSel = document.getElementById('gl-event-filter');
+      if (filterSel && analysis.event_filter) {
+        filterSel.value = analysis.event_filter === 'defauts_only'
+          ? 'declenchements_only'
+          : analysis.event_filter;
+      }
+      const status = document.getElementById('gl-analysis-status');
+      if (status) {
+        const cnt = glFormatEventCount(analysis);
+        status.textContent = analysis.running
+          ? `Analyse en cours — ${cnt}`
+          : `Analyse arrêtée — ${cnt}`;
+      }
+      glDrawHistogram(analysis.histogram || glBuildHistogram(analysis.histogram_series));
+      const tbody = document.getElementById('gl-events-tbody');
+      const wrap = document.getElementById('gl-events-table-wrap');
+      const meta = document.getElementById('gl-events-meta');
+      const events = analysis.events_recent || [];
+      const panelMax = analysis.events_panel_max ?? 50;
+      const totalRam = analysis.event_count_total ?? events.length;
+      const declOnly = glIsDeclenchementsOnlyFilter(analysis);
+      if (meta) {
+        if (!totalRam && !events.length) {
+          meta.textContent = declOnly
+            ? 'Aucun déclenchement en mémoire.'
+            : 'Aucun événement en mémoire.';
+        } else {
+          const shown = events.length;
+          const ram = totalRam || events.length;
+          const kind = declOnly ? 'déclenchement(s)' : 'événement(s)';
+          meta.textContent = `${shown} affiché(s) sur ${Math.min(panelMax, ram)} max · ${ram} ${kind} en RAM (téléchargement)`;
+        }
+      }
+      if (!tbody) return;
+      const scrollTop = wrap?.scrollTop ?? 0;
+      if (!events.length) {
+        const total = analysis.event_count_total ?? 0;
+        const msg = declOnly
+          ? (total > 0 ? 'Aucun déclenchement récent à afficher.' : 'Aucun déclenchement détecté.')
+          : (total > 0 ? 'Aucun événement récent à afficher.' : 'Aucun déclenchement détecté.');
+        tbody.innerHTML = `<tr><td colspan="6" class="status">${escapeHtml(msg)}</td></tr>`;
+        if (wrap) wrap.scrollTop = scrollTop;
+        return;
+      }
+      const recent = events.slice().reverse();
+      tbody.innerHTML = recent.map(e => {
+        const d = new Date(e.ts_goose * 1000);
+        const tsLocal = d.toLocaleString('fr-FR', {
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+        const tsUnix = (e.ts_goose ?? 0).toFixed(6);
+        const kind = e.event_kind || 'inconnu';
+        const label = e.event_label || 'Inconnu';
+        const detail = e.change_detail || '';
+        return `<tr>
+          <td title="ts unix: ${tsUnix}">${escapeHtml(tsLocal)}</td>
+          <td class="gl-event-kind ${escapeHtml(kind)}" title="${escapeHtml(detail)}">${escapeHtml(label)}</td>
+          <td>${escapeHtml(e.gocb_ref)}</td>
+          <td>${escapeHtml(e.go_id || '—')}</td>
+          <td>${e.st_num}</td>
+          <td>${e.delta_net_ms.toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+      if (wrap) wrap.scrollTop = scrollTop;
+    }
+
+    function glRenderServiceStatus(data) {
+      const el = document.getElementById('gl-service-status');
+      if (!el) return;
+      const iface = data.iface || '—';
+      const cap = data.capture_running ? 'capture active' : 'capture ARRÊTÉE';
+      const mode = data.mode || 'idle';
+      const q = data.capture?.queue_size ?? 0;
+      const drops = data.capture?.drops ?? 0;
+      let msg = `${iface} · ${cap} · mode ${mode} · file ${q}`;
+      if (drops > 0) msg += ` · ${drops} drop(s)`;
+      if (data.last_error) msg += ` · ${data.last_error}`;
+      el.textContent = msg;
+      el.className = (data.capture_running && !data.last_error && drops === 0)
+        ? 'status'
+        : 'status error-msg';
+    }
+
+    function glRenderStatus(data) {
+      document.getElementById('gl-unconfigured').style.display = 'none';
+      document.getElementById('gl-root').style.display = 'block';
+      glRenderServiceStatus(data);
+      glRenderScan(data.scan || {});
+      const analysis = data.analysis || {};
+      if (analysis.targets && analysis.targets.length) {
+        glTargets = analysis.targets.map(t => ({
+          gocb_ref: t.gocb_ref,
+          go_id: t.go_id || '',
+          delay_ms: t.delay_ms || 0,
+        }));
+        glRenderTargets();
+      }
+      glRenderAnalysis(analysis);
+      glRenderProblems(analysis);
+    }
+
+    async function glPoll() {
+      const seq = ++glPollSeq;
+      try {
+        const data = await glFetchJson('/status');
+        if (seq !== glPollSeq) return;
+        glRenderStatus(data);
+        const needPoll = (data.scan && data.scan.running) || (data.analysis && data.analysis.running);
+        if (!glTabActive && !needPoll && glRefreshTimer) {
+          clearInterval(glRefreshTimer);
+          glRefreshTimer = null;
+        }
+      } catch (e) {
+        if (seq !== glPollSeq) return;
+        const unconf = document.getElementById('gl-unconfigured');
+        const root = document.getElementById('gl-root');
+        if (e.message === 'unconfigured') {
+          if (unconf) unconf.style.display = 'block';
+          if (root) root.style.display = 'none';
+        } else {
+          const el = document.getElementById('gl-service-status');
+          if (el) {
+            el.textContent = `Erreur API : ${e.message}`;
+            el.className = 'status error-msg';
+          }
+        }
+      }
+    }
+
+    async function glLoad() {
+      if (glRefreshTimer) clearInterval(glRefreshTimer);
+      glRenderTargets();
+      await glPoll();
+      glRefreshTimer = setInterval(glPoll, 2000);
+    }
+
+    document.getElementById('gl-discovery-toggle')?.addEventListener('click', () => {
+      glSetDiscoveryVisible(glDiscoveryHidden);
+    });
+
+    document.getElementById('gl-hist-log-y')?.addEventListener('click', () => {
+      glSetHistLogY(!glHistLogY);
+    });
+
+    document.getElementById('gl-events-download')?.addEventListener('click', async () => {
+      try {
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        await glDownloadExport('/analysis/events/export', `goose-events-${ts}.txt`);
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-problems-download')?.addEventListener('click', async () => {
+      try {
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        await glDownloadExport('/analysis/problems/export', `goose-problems-${ts}.txt`);
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-scan-filter')?.addEventListener('input', () => {
+      if (glScanFilterTimer) clearTimeout(glScanFilterTimer);
+      glScanFilterTimer = setTimeout(() => glRenderScanTable(), 120);
+    });
+    document.getElementById('gl-scan-filter')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.target.value = '';
+        glRenderScanTable();
+      }
+    });
+
+    document.getElementById('gl-scan-btn')?.addEventListener('click', async () => {
+      const dur = Number(document.getElementById('gl-scan-duration')?.value) || 5;
+      try {
+        await glFetchJson('/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ duration_s: dur }),
+        });
+        if (!glRefreshTimer) glRefreshTimer = setInterval(glPoll, 2000);
+        await glPoll();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-add-selected-btn')?.addEventListener('click', () => {
+      document.querySelectorAll('.gl-scan-cb:checked').forEach(cb => {
+        const t = { gocb_ref: cb.dataset.gocb, go_id: cb.dataset.goid || '', delay_ms: 0 };
+        const k = glTargetKey(t);
+        if (!glTargets.some(x => glTargetKey(x) === k)) glTargets.push(t);
+      });
+      glRenderTargets();
+    });
+
+    function glScheduleProblemConfig() {
+      if (glProblemConfigTimer) clearTimeout(glProblemConfigTimer);
+      glProblemConfigTimer = setTimeout(async () => {
+        try {
+          await glPostProblemConfig();
+          await glPoll();
+        } catch (e) {
+          alert(e.message);
+        }
+      }, 300);
+    }
+    document.getElementById('gl-problem-cycle')?.addEventListener('input', glScheduleProblemConfig);
+    document.getElementById('gl-problem-threshold')?.addEventListener('input', glScheduleProblemConfig);
+
+    document.getElementById('gl-event-filter')?.addEventListener('change', async () => {
+      const event_filter = document.getElementById('gl-event-filter')?.value || 'declenchements_only';
+      try {
+        await glFetchJson('/analysis/filter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event_filter }),
+        });
+        await glPoll();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-start-btn')?.addEventListener('click', async () => {
+      if (!glTargets.length) { alert('Ajoutez au moins un flux.'); return; }
+      const event_filter = document.getElementById('gl-event-filter')?.value || 'declenchements_only';
+      try {
+        await glPostProblemConfig();
+        await glFetchJson('/analysis/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targets: glTargets, event_filter }),
+        });
+        if (!glRefreshTimer) glRefreshTimer = setInterval(glPoll, 2000);
+        await glPoll();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-stop-btn')?.addEventListener('click', async () => {
+      try {
+        await glFetchJson('/analysis/stop', { method: 'POST' });
+        await glPoll();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
 
   </script>
 </body>

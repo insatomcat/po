@@ -9,6 +9,7 @@ Routes:
   - /api/goose/*       -> API GOOSE (streams, recent, restart)
   - /api/sv/*          -> API SV (flows, recents)
   - /api/svview/*      -> proxy vers SV Listener (si --svview-interface)
+  - /api/gooselistener/* -> GOOSE Listener (si --svview-interface)
 """
 from __future__ import annotations
 
@@ -36,6 +37,9 @@ from mms.mms_api import handle_mms, serve_logs_sse
 from goose61850.service import GooseService, _handle_api as goose_handle_api
 from svgenerator.sv_api import handle_sv, init_sv_api
 
+sys.path.insert(0, str(ROOT / "goose_listener"))
+from goose_listener_api import configure_goose_listener, handle_goose_listener  # noqa: E402
+
 
 def _send_json(handler: BaseHTTPRequestHandler, status: int, payload: object) -> None:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else b""
@@ -45,6 +49,34 @@ def _send_json(handler: BaseHTTPRequestHandler, status: int, payload: object) ->
     handler.end_headers()
     if body:
         handler.wfile.write(body)
+
+
+def _send_text(handler: BaseHTTPRequestHandler, status: int, text: str, content_type: str) -> None:
+    body = (text or "").encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    if body:
+        handler.wfile.write(body)
+
+
+def _handle_gooselistener_response(handler: BaseHTTPRequestHandler, result: object) -> None:
+    if (
+        isinstance(result, tuple)
+        and len(result) == 3
+        and isinstance(result[0], int)
+        and isinstance(result[1], str)
+        and isinstance(result[2], str)
+    ):
+        status, body, content_type = result
+        if status == HTTPStatus.OK:
+            _send_text(handler, status, body, content_type)
+        else:
+            _send_json(handler, status, {"error": body})
+        return
+    status, payload = result  # type: ignore[misc]
+    _send_json(handler, status, payload)
 
 
 class UnifiedHandler(BaseHTTPRequestHandler):
@@ -118,6 +150,11 @@ class UnifiedHandler(BaseHTTPRequestHandler):
                     json.dumps(result, ensure_ascii=False).encode("utf-8")
                 )
             return
+        if path.startswith("/api/gooselistener/"):
+            sub = path[len("/api/gooselistener"):] or "/"
+            result = handle_goose_listener(sub, "GET", None)
+            _handle_gooselistener_response(self, result)
+            return
         if path.startswith("/api/sv/"):
             sub = path[len("/api/sv"):] or "/"
             status, result = handle_sv(sub, "GET", None)
@@ -153,6 +190,11 @@ class UnifiedHandler(BaseHTTPRequestHandler):
                 self.wfile.write(
                     json.dumps(result, ensure_ascii=False).encode("utf-8")
                 )
+            return
+        if path.startswith("/api/gooselistener/"):
+            sub = path[len("/api/gooselistener"):] or "/"
+            status, result = handle_goose_listener(sub, "POST", body)
+            _send_json(self, status, result)
             return
         if path.startswith("/api/sv/"):
             sub = path[len("/api/sv"):] or "/"
@@ -327,7 +369,9 @@ def main() -> int:
         t = threading.Thread(target=run_svview, daemon=True)
         t.start()
         UnifiedHandler.svview_port = svview_port
+        configure_goose_listener(args.svview_interface)
         print(f"[+] SV Listener sur http://127.0.0.1:{svview_port} (proxy /api/svview)", file=sys.stderr)
+        print(f"[+] GOOSE Listener sur {args.svview_interface} (/api/gooselistener)", file=sys.stderr)
 
     manager = SubscriptionManager(
         vm_url=args.victoriametrics_url,
