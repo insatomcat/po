@@ -16,7 +16,7 @@ for p in (str(ROOT), str(GOOSE_ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from goose61850.transport import GooseSubscriber  # noqa: E402
+from goose61850.transport import GooseSubscriber, nic_rx_stats  # noqa: E402
 from goose61850.types import GooseFrame  # noqa: E402
 from trigger_classify import classify_trigger  # noqa: E402
 
@@ -489,8 +489,10 @@ class GooseListenerManager:
         repr=False,
     )
     _status_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _analysis_capture_baseline: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     MAX_EVENTS = 10000
+    CAPTURE_QUEUE_WARN = 100
 
     def _ensure_capture_if_needed(self) -> None:
         with self._lock:
@@ -503,6 +505,7 @@ class GooseListenerManager:
         snap: _PollSnapshot,
         now: float,
     ) -> Tuple[Any, ...]:
+        cap = self._capture_reliability(analysis_running=snap.analysis_running)
         return (
             snap.events_rev,
             snap.event_filter,
@@ -511,6 +514,9 @@ class GooseListenerManager:
             snap.analysis_running,
             int(now // PROBLEMS_TIME_BUCKET_S),
             tuple(sorted(snap.targets.keys())),
+            cap.get("drops_since_analysis_start", 0),
+            cap.get("queue_size", 0),
+            cap.get("reliable", True),
         )
 
     def _poll_snapshot(self, *, load_events: bool = True) -> _PollSnapshot:
@@ -594,16 +600,16 @@ class GooseListenerManager:
             return
 
         key = _stream_key(pdu.gocb_ref, pdu.go_id)
-
         mode = self._mode
         if mode == "idle":
             return
         if mode == "analyze" and key not in self._targets_frozen:
             return
 
-        with self._lock:
-            mode = self._mode
-            if mode == "scan":
+        if mode == "scan":
+            with self._lock:
+                if self._mode != "scan":
+                    return
                 ent = self._scan_entries.get(key)
                 if ent is None:
                     ent = ScanEntry(
@@ -613,17 +619,23 @@ class GooseListenerManager:
                     )
                     self._scan_entries[key] = ent
                 ent.frames += 1
-                return
+            return
 
-            if mode != "analyze":
-                return
+        prev_data_copy: Optional[list] = None
+        pdu_data_copy: Optional[list] = None
+        delay_ms = 0.0
+        is_trigger = False
 
+        with self._lock:
+            if self._mode != "analyze":
+                return
             target = self._targets.get(key)
             if target is None:
                 return
 
             prev_st = self._last_st_num.get(key)
-            prev_data = self._last_all_data.get(key)
+            prev_raw = self._last_all_data.get(key)
+            prev_data_copy = list(prev_raw) if prev_raw is not None else None
             self._last_st_num[key] = pdu.st_num
 
             if not is_trigger_event(
@@ -640,10 +652,14 @@ class GooseListenerManager:
 
             delay_ms = target.delay_ms
             pdu_data_copy = list(pdu.all_data) if pdu.all_data else None
+            is_trigger = True
+
+        if not is_trigger:
+            return
 
         ts_pile = math.floor(ts_goose)
         delta_ms = (ts_goose - ts_pile) * 1000.0 - delay_ms
-        kind, label, detail = classify_trigger(prev_data, pdu_data_copy)
+        kind, label, detail = classify_trigger(prev_data_copy, pdu_data_copy)
         evt = TriggerEvent(
             ts_goose=ts_goose,
             gocb_ref=pdu.gocb_ref,
@@ -766,6 +782,7 @@ class GooseListenerManager:
             self._analysis_poll_cache.key = None
             self._last_error = None
         self._ensure_capture()
+        self._analysis_capture_baseline = self._snapshot_capture_baseline()
         return None
 
     def stop_analysis(self) -> None:
@@ -854,6 +871,26 @@ class GooseListenerManager:
             cache.filtered_count = filtered_count
             cache.events_recent = events_recent
 
+        capture_rel = self._capture_reliability(analysis_running=running)
+        if running and not capture_rel["reliable"]:
+            problems_all = [
+                {
+                    "kind": "capture_unreliable",
+                    "gocb_ref": "",
+                    "go_id": "",
+                    "ts_goose": None,
+                    "ts_expected": now,
+                    "delta_net_ms": None,
+                    "st_num": None,
+                    "sq_num": None,
+                    "message": (
+                        "Capture non fiable — mesures invalides : "
+                        f"{capture_rel['invalid_reason']}"
+                    ),
+                },
+                *problems_all,
+            ]
+
         problems_recent = sorted(
             problems_all,
             key=_problem_sort_key,
@@ -863,6 +900,7 @@ class GooseListenerManager:
             "running": running,
             "targets": targets,
             "event_filter": event_filter,
+            "capture": capture_rel,
             "event_count": filtered_count,
             "event_count_total": snap.events_total,
             "events_rev": snap.events_rev,
@@ -922,13 +960,81 @@ class GooseListenerManager:
         header = f"# GOOSE Listener — {len(ordered)} problème(s)\n"
         return header + "\n".join(_problem_export_line(p) for p in ordered) + "\n"
 
-    def _capture_debug_stats(self) -> Dict[str, Any]:
+    def _subscriber_stats(self) -> Dict[str, Any]:
         sub = self._subscriber
         if sub is None:
-            return {"queue_size": 0, "drops": 0}
+            return {
+                "backend": "pcapy",
+                "queue_size": 0,
+                "drops": 0,
+                "packets": 0,
+                "nic": nic_rx_stats(self.iface),
+            }
+        stats = sub.stats()
+        stats["backend"] = "pcapy"
+        stats["nic"] = nic_rx_stats(self.iface)
+        return stats
+
+    def _snapshot_capture_baseline(self) -> Dict[str, Any]:
+        stats = self._subscriber_stats()
         return {
-            "queue_size": int(sub._queue.qsize()),
-            "drops": int(sub._drops),
+            "drops": int(stats.get("drops", 0)),
+            "nic": dict(stats.get("nic", {})),
+        }
+
+    def _capture_reliability(self, *, analysis_running: bool) -> Dict[str, Any]:
+        stats = self._subscriber_stats()
+        baseline = self._analysis_capture_baseline
+        drops_delta = max(0, int(stats.get("drops", 0)) - int(baseline.get("drops", 0)))
+        nic_base = baseline.get("nic") or {}
+        nic_now = stats.get("nic") or {}
+        nic_delta: Dict[str, int] = {}
+        for name in set(nic_base) | set(nic_now):
+            nic_delta[name] = max(0, int(nic_now.get(name, 0)) - int(nic_base.get(name, 0)))
+
+        queue_size = int(stats.get("queue_size", 0))
+        reasons: List[str] = []
+        if drops_delta:
+            reasons.append(f"{drops_delta} paquet(s) perdus (file Python)")
+        if queue_size > self.CAPTURE_QUEUE_WARN:
+            reasons.append(f"file capture {queue_size} (retard traitement)")
+        missed = nic_delta.get("rx_missed_errors", 0)
+        if missed:
+            reasons.append(f"NIC rx_missed_errors +{missed}")
+        rx_drop = nic_delta.get("rx_dropped", 0)
+        if rx_drop:
+            reasons.append(f"NIC rx_dropped +{rx_drop}")
+
+        reliable = not reasons
+        if not analysis_running:
+            reliable = True
+            reasons = []
+
+        return {
+            "reliable": reliable,
+            "backend": stats.get("backend", "pcapy"),
+            "drops_total": int(stats.get("drops", 0)),
+            "drops_since_analysis_start": drops_delta,
+            "packets": int(stats.get("packets", 0)),
+            "queue_size": queue_size,
+            "queue_warn": self.CAPTURE_QUEUE_WARN,
+            "nic": nic_now,
+            "nic_delta_since_analysis_start": nic_delta,
+            "invalid_reason": "; ".join(reasons) if reasons else None,
+        }
+
+    def _capture_debug_stats(self) -> Dict[str, Any]:
+        rel = self._capture_reliability(analysis_running=self._mode == "analyze")
+        return {
+            "backend": rel["backend"],
+            "queue_size": rel["queue_size"],
+            "drops": rel["drops_total"],
+            "drops_since_analysis_start": rel["drops_since_analysis_start"],
+            "packets": rel["packets"],
+            "reliable": rel["reliable"],
+            "invalid_reason": rel["invalid_reason"],
+            "nic": rel["nic"],
+            "nic_delta_since_analysis_start": rel["nic_delta_since_analysis_start"],
         }
 
     def status(self) -> Dict[str, Any]:

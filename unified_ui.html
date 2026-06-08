@@ -695,6 +695,7 @@
     .gl-problem-kind.missing { color: var(--danger); }
     .gl-problem-kind.delay_exceeded { color: #e0af68; }
     .gl-problem-kind.capture_incomplete { color: #7dcfff; }
+    .gl-problem-kind.capture_unreliable { color: #f7768e; }
     .gl-problem-sqnum { text-align: center; font-variant-numeric: tabular-nums; }
     .gl-problem-sqnum.lost { color: var(--danger); font-weight: 600; }
     .gl-problem-diag td {
@@ -2431,6 +2432,7 @@
       const nMissing = problems.filter(p => p.kind === 'missing').length;
       const nDelay = problems.filter(p => p.kind === 'delay_exceeded').length;
       const nCapture = problems.filter(p => p.kind === 'capture_incomplete').length;
+      const nUnreliable = problems.filter(p => p.kind === 'capture_unreliable').length;
 
       const totalProblems = analysis.problem_count ?? problems.length;
       const panelMax = analysis.problems_panel_max ?? 50;
@@ -2444,7 +2446,8 @@
           const shown = problems.length;
           const trunc = totalProblems > shown ? ` · ${shown} affiché(s) sur ${totalProblems}` : '';
           const capNote = nCapture ? ` · ${nCapture} capture(s)` : '';
-          status.textContent = `${totalProblems} problème(s) : ${nMissing} manquant(s) · ${nDelay} délai(s) > seuil${capNote}${trunc}`;
+          const relNote = nUnreliable ? ' · capture NON FIABLE' : '';
+          status.textContent = `${totalProblems} problème(s) : ${nMissing} manquant(s) · ${nDelay} délai(s) > seuil${capNote}${relNote}${trunc}`;
         }
       }
 
@@ -2461,6 +2464,7 @@
         missing: 'Manquant',
         delay_exceeded: 'Δ > seuil',
         capture_incomplete: 'Capture',
+        capture_unreliable: 'Fiabilité',
       };
 
       function glFmtDiagContext(p) {
@@ -2545,9 +2549,17 @@
       const status = document.getElementById('gl-analysis-status');
       if (status) {
         const cnt = glFormatEventCount(analysis);
-        status.textContent = analysis.running
+        const cap = analysis.capture || {};
+        let line = analysis.running
           ? `Analyse en cours — ${cnt}`
           : `Analyse arrêtée — ${cnt}`;
+        if (analysis.running && cap.reliable === false && cap.invalid_reason) {
+          line += ` — capture non fiable (${cap.invalid_reason})`;
+        }
+        status.textContent = line;
+        status.className = (analysis.running && cap.reliable === false)
+          ? 'status error-msg'
+          : 'status';
       }
       glDrawHistogram(analysis.histogram || glBuildHistogram(analysis.histogram_series));
       const tbody = document.getElementById('gl-events-tbody');
@@ -2609,15 +2621,22 @@
       const iface = data.iface || '—';
       const cap = data.capture_running ? 'capture active' : 'capture ARRÊTÉE';
       const mode = data.mode || 'idle';
-      const q = data.capture?.queue_size ?? 0;
-      const drops = data.capture?.drops ?? 0;
-      let msg = `${iface} · ${cap} · mode ${mode} · file ${q}`;
-      if (drops > 0) msg += ` · ${drops} drop(s)`;
+      const c = data.capture || {};
+      const backend = c.backend || 'pcapy';
+      const q = c.queue_size ?? 0;
+      const drops = c.drops ?? 0;
+      const dropsRun = c.drops_since_analysis_start ?? 0;
+      const reliable = c.reliable !== false;
+      let msg = `${iface} · ${cap} · ${backend} · mode ${mode} · file ${q}`;
+      if (drops > 0) msg += ` · ${drops} drop(s) total`;
+      if (dropsRun > 0) msg += ` · ${dropsRun} drop(s) analyse`;
+      if (!reliable && c.invalid_reason) msg += ` · ${c.invalid_reason}`;
+      const nic = c.nic_delta_since_analysis_start || {};
+      if (nic.rx_missed_errors > 0) msg += ` · NIC missed +${nic.rx_missed_errors}`;
       if (data.last_error) msg += ` · ${data.last_error}`;
       el.textContent = msg;
-      el.className = (data.capture_running && !data.last_error && drops === 0)
-        ? 'status'
-        : 'status error-msg';
+      const ok = data.capture_running && !data.last_error && reliable;
+      el.className = ok ? 'status' : 'status error-msg';
     }
 
     function glRenderStatus(data) {

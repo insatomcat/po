@@ -80,7 +80,7 @@ goose_listener/
 ├── trigger_classify.py         # Classification défaut / fin défaut
 └── README.md                   # Ce fichier
 
-goose/goose61850/transport.py   # GooseSubscriber (BPF, file, AsyncSniffer)
+goose/goose61850/transport.py   # GooseSubscriber (pcapy, BPF, file bytes bruts)
 goose/examples/listen_goose.py  # CLI diagnostic et écoute
 unified_ui.html                 # Onglet GOOSE Listener
 ```
@@ -89,7 +89,9 @@ unified_ui.html                 # Onglet GOOSE Listener
 
 - Interface : celle passée à `po_service` via **`--svview-interface`** (souvent `processbus`)
 - **Filtre BPF kernel** : trames GOOSE uniquement (`0x88b8`), optionnellement par **APPID**
-- **AsyncSniffer** + **file d’attente** : une seule session libpcap continue (évite les trous entre redémarrages `sniff`)
+- **pcapy** + **file d’attente** (`bytes` bruts, pas d’objet Scapy) : une seule session libpcap continue
+- **Worker** dédié : décodage GOOSE hors thread de capture
+- **Fiabilité** : compteurs `drops`, file, NIC (`rx_missed_errors`) ; analyse marquée **non fiable** si perte depuis le début de session
 - Le timestamp de mesure vient de **`pkt.time`**
 
 ### Modes du gestionnaire
@@ -158,13 +160,22 @@ Bouton **Télécharger (.txt)** : export de **tous** les problèmes calculés.
 
 ```json
 "capture": {
+  "backend": "pcapy",
   "queue_size": 0,
-  "drops": 0
+  "drops": 0,
+  "drops_since_analysis_start": 0,
+  "packets": 1234,
+  "reliable": true,
+  "invalid_reason": null,
+  "nic": { "rx_missed_errors": 0 },
+  "nic_delta_since_analysis_start": {}
 }
 ```
 
-- `queue_size` élevé → traitement en retard
-- `drops` > 0 → paquets GOOSE perdus (file pleine)
+- `queue_size` > 100 → traitement en retard (mesure non fiable)
+- `drops_since_analysis_start` > 0 → paquets GOOSE perdus (file Python pleine)
+- `nic_delta_since_analysis_start.rx_missed_errors` > 0 → pertes noyau/NIC avant libpcap
+- `reliable: false` → problème `capture_unreliable` ; les Δ ne sont pas validables
 
 Chaque événement expose aussi `processing_lag_ms` (écart traitement − réception pcap).
 
@@ -341,7 +352,7 @@ Souvent :
 
 ## Dépendances
 
-- **scapy** (capture GOOSE via `GooseSubscriber`)
+- **pcapy** (capture GOOSE via `GooseSubscriber`) ; **scapy** reste utilisé pour la publication
 - **goose61850** (décodage PDU, dans `goose/`)
 - **iec_data.py** (types `allData`, racine du dépôt)
 - Même interface réseau que le SV Listener (`--svview-interface`)

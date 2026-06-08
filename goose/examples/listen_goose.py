@@ -869,9 +869,10 @@ def main() -> None:
     except KeyboardInterrupt:
         capture_stop["flag"] = True
     finally:
-        if sub._drops:
+        drop_n = sub.stats().get("drops", sub._drops)
+        if drop_n:
             print(
-                f"⚠ {sub._drops} paquet(s) GOOSE perdus (file de capture pleine).",
+                f"⚠ {drop_n} paquet(s) GOOSE perdus (file de capture pleine).",
                 file=sys.stderr,
             )
         close_epoch()
