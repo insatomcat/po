@@ -17,7 +17,7 @@ Plateforme logicielle pour **MMS** (reports), **GOOSE** et **Sampled Values (SV)
 
 - **Python 3.10+**
 - Pour MMS : stdlib uniquement (pas de `pip install`)
-- Pour GOOSE : stdlib (capture / listener : **scapy** via `goose61850.transport`)
+- Pour GOOSE : **pcapy** (capture) + **scapy** (publication) via `goose61850.transport`
 - Pour SV Generator : voir [svgenerator/requirements.txt](svgenerator/requirements.txt) (FastAPI, Pydantic, etc.)
 - Pour SV Listener View : `pcapy`, Flask (voir [svlistener_view/](svlistener_view/README.md))
 
