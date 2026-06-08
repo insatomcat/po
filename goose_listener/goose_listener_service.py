@@ -40,6 +40,7 @@ DEFAULT_PROBLEM_THRESHOLD_MS = 40.0
 PROBLEMS_TIME_BUCKET_S = 10.0
 PROBLEMS_CONTEXT_MAX = 30
 HIST_BIN_MS = 1.0
+NIC_DELTA_SANITY_MAX = 10_000_000
 
 
 def _stream_key(gocb_ref: str, go_id: Optional[str]) -> Key:
@@ -48,6 +49,24 @@ def _stream_key(gocb_ref: str, go_id: Optional[str]) -> Key:
 
 def _missing_grace_s(cycle_s: float) -> float:
     return min(5.0, cycle_s * 0.25)
+
+
+def _nic_counter_delta(baseline: Dict[str, int], current: Dict[str, int]) -> Dict[str, int]:
+    """Delta entre deux lectures sysfs (gère reset compteur, ignore écarts absurdes)."""
+    out: Dict[str, int] = {}
+    if not baseline:
+        return out
+    for name in set(baseline) | set(current):
+        prev = int(baseline.get(name, 0))
+        now = int(current.get(name, 0))
+        if now < prev:
+            continue
+        delta = now - prev
+        if delta > NIC_DELTA_SANITY_MAX:
+            continue
+        if delta > 0:
+            out[name] = delta
+    return out
 
 
 def is_trigger_event(
@@ -490,6 +509,7 @@ class GooseListenerManager:
     )
     _status_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _analysis_capture_baseline: Dict[str, Any] = field(default_factory=dict, repr=False)
+    _analysis_baseline_active: bool = field(default=False, repr=False)
 
     MAX_EVENTS = 10000
     CAPTURE_QUEUE_WARN = 100
@@ -506,6 +526,7 @@ class GooseListenerManager:
         now: float,
     ) -> Tuple[Any, ...]:
         cap = self._capture_reliability(analysis_running=snap.analysis_running)
+        mux = cap.get("mux") or {}
         return (
             snap.events_rev,
             snap.event_filter,
@@ -517,6 +538,9 @@ class GooseListenerManager:
             cap.get("drops_since_analysis_start", 0),
             cap.get("queue_size", 0),
             cap.get("reliable", True),
+            mux.get("pcap_drop", 0),
+            mux.get("pcap_ifdrop", 0),
+            mux.get("bpf_mode"),
         )
 
     def _poll_snapshot(self, *, load_events: bool = True) -> _PollSnapshot:
@@ -783,6 +807,7 @@ class GooseListenerManager:
             self._last_error = None
         self._ensure_capture()
         self._analysis_capture_baseline = self._snapshot_capture_baseline()
+        self._analysis_baseline_active = True
         return None
 
     def stop_analysis(self) -> None:
@@ -790,6 +815,8 @@ class GooseListenerManager:
             if self._mode == "analyze":
                 self._mode = "idle"
             self._targets_frozen = frozenset()
+            self._analysis_baseline_active = False
+            self._analysis_capture_baseline = {}
             self._stop_capture_if_idle()
 
     def _scan_from_snapshot(self, snap: _PollSnapshot, now: float) -> Dict[str, Any]:
@@ -960,55 +987,107 @@ class GooseListenerManager:
         header = f"# GOOSE Listener — {len(ordered)} problème(s)\n"
         return header + "\n".join(_problem_export_line(p) for p in ordered) + "\n"
 
+    def _mux_stats(self) -> Dict[str, Any]:
+        try:
+            root = str(ROOT)
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            from processbus_capture import ProcessbusCapture  # noqa: WPS433
+
+            return ProcessbusCapture.get(self.iface).stats()
+        except Exception:
+            return {}
+
     def _subscriber_stats(self) -> Dict[str, Any]:
         sub = self._subscriber
         if sub is None:
-            return {
+            base = {
                 "backend": "pcapy",
                 "queue_size": 0,
                 "drops": 0,
                 "packets": 0,
                 "nic": nic_rx_stats(self.iface),
             }
-        stats = sub.stats()
-        stats["backend"] = "pcapy"
-        stats["nic"] = nic_rx_stats(self.iface)
-        return stats
+        else:
+            base = sub.stats()
+            base["backend"] = "pcapy"
+            base["nic"] = nic_rx_stats(self.iface)
+        mux = self._mux_stats()
+        base["multiplexed"] = bool(mux.get("multiplexed"))
+        base["mux"] = mux
+        return base
 
     def _snapshot_capture_baseline(self) -> Dict[str, Any]:
         stats = self._subscriber_stats()
+        mux = stats.get("mux") or {}
         return {
             "drops": int(stats.get("drops", 0)),
             "nic": dict(stats.get("nic", {})),
+            "pcap_drop": int(mux.get("pcap_drop", 0)),
+            "pcap_ifdrop": int(mux.get("pcap_ifdrop", 0)),
+            "sv_queue_drops": int(mux.get("sv_queue_drops", 0)),
         }
 
     def _capture_reliability(self, *, analysis_running: bool) -> Dict[str, Any]:
         stats = self._subscriber_stats()
-        baseline = self._analysis_capture_baseline
-        drops_delta = max(0, int(stats.get("drops", 0)) - int(baseline.get("drops", 0)))
-        nic_base = baseline.get("nic") or {}
+        mux = stats.get("mux") or {}
         nic_now = stats.get("nic") or {}
-        nic_delta: Dict[str, int] = {}
-        for name in set(nic_base) | set(nic_now):
-            nic_delta[name] = max(0, int(nic_now.get(name, 0)) - int(nic_base.get(name, 0)))
-
         queue_size = int(stats.get("queue_size", 0))
-        reasons: List[str] = []
-        if drops_delta:
-            reasons.append(f"{drops_delta} paquet(s) perdus (file Python)")
-        if queue_size > self.CAPTURE_QUEUE_WARN:
-            reasons.append(f"file capture {queue_size} (retard traitement)")
-        missed = nic_delta.get("rx_missed_errors", 0)
-        if missed:
-            reasons.append(f"NIC rx_missed_errors +{missed}")
-        rx_drop = nic_delta.get("rx_dropped", 0)
-        if rx_drop:
-            reasons.append(f"NIC rx_dropped +{rx_drop}")
+        track_deltas = analysis_running and self._analysis_baseline_active
+        baseline = self._analysis_capture_baseline if track_deltas else {}
 
-        reliable = not reasons
-        if not analysis_running:
-            reliable = True
-            reasons = []
+        drops_delta = 0
+        pcap_drop_delta = 0
+        pcap_ifdrop_delta = 0
+        sv_q_drop_delta = 0
+        nic_delta: Dict[str, int] = {}
+        nic_notes: List[str] = []
+        reasons: List[str] = []
+
+        if track_deltas:
+            drops_delta = max(0, int(stats.get("drops", 0)) - int(baseline.get("drops", 0)))
+            nic_delta = _nic_counter_delta(
+                {k: int(v) for k, v in (baseline.get("nic") or {}).items()},
+                {k: int(v) for k, v in nic_now.items()},
+            )
+            pcap_drop_delta = max(
+                0,
+                int(mux.get("pcap_drop", 0)) - int(baseline.get("pcap_drop", 0)),
+            )
+            pcap_ifdrop_delta = max(
+                0,
+                int(mux.get("pcap_ifdrop", 0)) - int(baseline.get("pcap_ifdrop", 0)),
+            )
+            sv_q_drop_delta = max(
+                0,
+                int(mux.get("sv_queue_drops", 0)) - int(baseline.get("sv_queue_drops", 0)),
+            )
+            if drops_delta:
+                reasons.append(f"{drops_delta} paquet(s) perdus (file Python GOOSE)")
+            if queue_size > self.CAPTURE_QUEUE_WARN:
+                reasons.append(f"file GOOSE {queue_size} (retard traitement)")
+            if pcap_drop_delta:
+                reasons.append(f"libpcap ps_drop +{pcap_drop_delta}")
+            if pcap_ifdrop_delta:
+                reasons.append(f"libpcap ps_ifdrop +{pcap_ifdrop_delta}")
+            if sv_q_drop_delta:
+                reasons.append(f"file SV +{sv_q_drop_delta}")
+            bpf_mode = mux.get("bpf_mode")
+            pcap_ok = pcap_drop_delta == 0 and pcap_ifdrop_delta == 0
+            missed = nic_delta.get("rx_missed_errors", 0)
+            if missed and not (bpf_mode == "goose" and pcap_ok):
+                nic_notes.append(f"rx_missed_errors +{missed}")
+            rx_drop = nic_delta.get("rx_dropped", 0)
+            if rx_drop and bpf_mode != "goose":
+                nic_notes.append(
+                    f"rx_dropped +{rx_drop} (compteur interface, pas libpcap)"
+                )
+            elif rx_drop and bpf_mode == "goose" and not pcap_ok:
+                nic_notes.append(
+                    f"rx_dropped +{rx_drop} (bus chargé + pertes libpcap)"
+                )
+
+        reliable = not reasons if track_deltas else True
 
         return {
             "reliable": reliable,
@@ -1018,13 +1097,18 @@ class GooseListenerManager:
             "packets": int(stats.get("packets", 0)),
             "queue_size": queue_size,
             "queue_warn": self.CAPTURE_QUEUE_WARN,
+            "pcap_drop_delta": pcap_drop_delta,
+            "pcap_ifdrop_delta": pcap_ifdrop_delta,
+            "mux": mux,
             "nic": nic_now,
             "nic_delta_since_analysis_start": nic_delta,
+            "nic_advisory": "; ".join(nic_notes) if nic_notes else None,
             "invalid_reason": "; ".join(reasons) if reasons else None,
         }
 
     def _capture_debug_stats(self) -> Dict[str, Any]:
         rel = self._capture_reliability(analysis_running=self._mode == "analyze")
+        mux = self._mux_stats()
         return {
             "backend": rel["backend"],
             "queue_size": rel["queue_size"],
@@ -1035,6 +1119,11 @@ class GooseListenerManager:
             "invalid_reason": rel["invalid_reason"],
             "nic": rel["nic"],
             "nic_delta_since_analysis_start": rel["nic_delta_since_analysis_start"],
+            "nic_advisory": rel["nic_advisory"],
+            "pcap_drop_delta": rel["pcap_drop_delta"],
+            "pcap_ifdrop_delta": rel["pcap_ifdrop_delta"],
+            "multiplexed": bool(mux.get("multiplexed")),
+            "mux": mux,
         }
 
     def status(self) -> Dict[str, Any]:

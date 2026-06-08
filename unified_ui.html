@@ -2623,19 +2623,27 @@
       const mode = data.mode || 'idle';
       const c = data.capture || {};
       const backend = c.backend || 'pcapy';
+      const mux = c.mux || {};
+      const bpf = mux.bpf_mode ? ` · BPF ${mux.bpf_mode}` : '';
+      const muxLabel = c.multiplexed
+        ? ` · mux${mux.goose_subscribers ? ' GOOSE×' + mux.goose_subscribers : ''}${mux.sv_active ? ' +SV' : ''}`
+        : '';
       const q = c.queue_size ?? 0;
       const drops = c.drops ?? 0;
       const dropsRun = c.drops_since_analysis_start ?? 0;
+      const pcapDrop = c.pcap_drop_delta ?? 0;
       const reliable = c.reliable !== false;
-      let msg = `${iface} · ${cap} · ${backend} · mode ${mode} · file ${q}`;
-      if (drops > 0) msg += ` · ${drops} drop(s) total`;
-      if (dropsRun > 0) msg += ` · ${dropsRun} drop(s) analyse`;
+      let msg = `${iface} · ${cap} · ${backend}${muxLabel}${bpf} · mode ${mode} · file ${q}`;
+      if (dropsRun > 0) msg += ` · ${dropsRun} drop(s) GOOSE`;
+      if (pcapDrop > 0) msg += ` · libpcap drop +${pcapDrop}`;
       if (!reliable && c.invalid_reason) msg += ` · ${c.invalid_reason}`;
-      const nic = c.nic_delta_since_analysis_start || {};
-      if (nic.rx_missed_errors > 0) msg += ` · NIC missed +${nic.rx_missed_errors}`;
+      const analysisOn = (data.analysis && data.analysis.running) || mode === 'analyze' || mode === 'scan';
+      if (analysisOn && c.nic_advisory) msg += ` · iface: ${c.nic_advisory}`;
+      if (drops > dropsRun && dropsRun === 0) msg += ` · ${drops} drop(s) total`;
       if (data.last_error) msg += ` · ${data.last_error}`;
       el.textContent = msg;
-      const ok = data.capture_running && !data.last_error && reliable;
+      const busy = mode === 'analyze' || mode === 'scan';
+      const ok = !data.last_error && reliable && (!busy || data.capture_running);
       el.className = ok ? 'status' : 'status error-msg';
     }
 
@@ -2676,6 +2684,8 @@
           if (unconf) unconf.style.display = 'block';
           if (root) root.style.display = 'none';
         } else {
+          if (unconf) unconf.style.display = 'none';
+          if (root) root.style.display = 'block';
           const el = document.getElementById('gl-service-status');
           if (el) {
             el.textContent = `Erreur API : ${e.message}`;

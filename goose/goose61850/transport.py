@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import binascii
 import queue
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -170,6 +171,7 @@ class GooseSubscriber:
         self._packets = 0
         self._worker: Optional[threading.Thread] = None
         self._worker_lock = threading.Lock()
+        self._mux: Optional[object] = None
 
     def _ensure_worker(self) -> None:
         with self._worker_lock:
@@ -242,12 +244,51 @@ class GooseSubscriber:
             "packets": int(self._packets),
         }
 
+    def _use_processbus_mux(self) -> bool:
+        """Multiplexeur partagé GOOSE+SV (une socket par interface)."""
+        try:
+            root = Path(__file__).resolve().parents[2]
+            root_str = str(root)
+            if root_str not in sys.path:
+                sys.path.insert(0, root_str)
+            from processbus_capture import ProcessbusCapture  # noqa: WPS433
+
+            self._mux = ProcessbusCapture.get(self.iface)
+            return True
+        except Exception:
+            return False
+
+    def _on_mux_packet(self, ts_rx: float, raw: bytes) -> None:
+        parsed = parse_ethernet_goose(raw)
+        if parsed is None:
+            return
+        _, _, app_id, _, _, _ = parsed
+        if self.app_id is not None and app_id != self.app_id:
+            return
+        self._packets += 1
+        self._enqueue_raw(ts_rx, raw)
+
     def run_until(
         self,
         should_stop: Callable[[], bool],
         poll_s: float = 0.05,
     ) -> int:
-        """Capture continue (session libpcap unique) jusqu'à should_stop() == True."""
+        """Capture continue jusqu'à should_stop() == True (multiplexeur processbus)."""
+        self._ensure_worker()
+
+        if self._use_processbus_mux():
+            from processbus_capture import ProcessbusCapture  # noqa: WPS433
+
+            mux = ProcessbusCapture.get(self.iface)
+            unsubscribe = mux.subscribe_goose(self._on_mux_packet)
+            try:
+                while not should_stop():
+                    time.sleep(poll_s)
+            finally:
+                unsubscribe()
+            self._drain_queue()
+            return self._drops
+
         try:
             import pcapy
         except ImportError as exc:
@@ -255,7 +296,6 @@ class GooseSubscriber:
                 "pcapy requis pour la capture GOOSE fiable : pip install pcapy"
             ) from exc
 
-        self._ensure_worker()
         bpf = goose_bpf_filter(self.app_id)
         cap = pcapy.open_live(self.iface, _PCAP_SNAPLEN, 1, _PCAP_READ_TIMEOUT_MS)
         try:
