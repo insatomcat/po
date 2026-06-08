@@ -61,20 +61,35 @@ def _send_text(handler: BaseHTTPRequestHandler, status: int, text: str, content_
         handler.wfile.write(body)
 
 
+def _send_bytes(handler: BaseHTTPRequestHandler, status: int, body: bytes, content_type: str) -> None:
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    if body:
+        handler.wfile.write(body)
+
+
 def _handle_gooselistener_response(handler: BaseHTTPRequestHandler, result: object) -> None:
     if (
         isinstance(result, tuple)
         and len(result) == 3
         and isinstance(result[0], int)
-        and isinstance(result[1], str)
         and isinstance(result[2], str)
     ):
         status, body, content_type = result
-        if status == HTTPStatus.OK:
-            _send_text(handler, status, body, content_type)
-        else:
-            _send_json(handler, status, {"error": body})
-        return
+        if isinstance(body, bytes):
+            if status == HTTPStatus.OK:
+                _send_bytes(handler, status, body, content_type)
+            else:
+                _send_json(handler, status, {"error": "Erreur binaire"})
+            return
+        if isinstance(body, str):
+            if status == HTTPStatus.OK:
+                _send_text(handler, status, body, content_type)
+            else:
+                _send_json(handler, status, {"error": body})
+            return
     status, payload = result  # type: ignore[misc]
     _send_json(handler, status, payload)
 

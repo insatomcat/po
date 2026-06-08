@@ -5,7 +5,9 @@ import queue
 import threading
 import traceback
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional, Set, Tuple
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Set, Tuple
+import sys
 
 GOOSE_ETHERTYPE = 0x88B8
 SV_ETHERTYPE = 0x88BA
@@ -93,6 +95,39 @@ class ProcessbusCapture:
         self._bpf_generation = 0
         self._applied_bpf_gen = -1
         self._sv_queue: queue.Queue[Tuple[object, bytes, float]] = queue.Queue(maxsize=SV_QUEUE_MAX)
+        self._goose_ring: Optional[object] = None
+
+    def enable_goose_ring(self, window_s: float = 4.0) -> None:
+        gl_dir = str(Path(__file__).resolve().parent / "goose_listener")
+        if gl_dir not in sys.path:
+            sys.path.insert(0, gl_dir)
+        from goose_ring_pcap import GooseRingBuffer
+
+        with self._lock:
+            if self._goose_ring is None:
+                self._goose_ring = GooseRingBuffer(window_s)
+            else:
+                self._goose_ring.set_window(window_s)
+
+    def disable_goose_ring(self) -> None:
+        with self._lock:
+            self._goose_ring = None
+
+    def snapshot_goose_ring(self) -> List[Tuple[float, bytes]]:
+        with self._lock:
+            ring = self._goose_ring
+        if ring is None:
+            return []
+        return ring.snapshot()
+
+    def goose_ring_stats(self) -> Dict[str, object]:
+        with self._lock:
+            ring = self._goose_ring
+        if ring is None:
+            return {"enabled": False}
+        s = ring.stats()
+        s["enabled"] = True
+        return s
 
     def stats(self) -> Dict[str, object]:
         """Compteurs mis à jour par le thread capture (pas d'appel cap.stats() ici)."""
@@ -314,6 +349,10 @@ class ProcessbusCapture:
             if etype == GOOSE_ETHERTYPE:
                 with self._stats_lock:
                     self._stats.goose_packets += 1
+                with self._lock:
+                    ring = self._goose_ring
+                if ring is not None:
+                    ring.add(ts_rx, raw)
                 for handler in goose_handlers:
                     try:
                         handler(ts_rx, raw)

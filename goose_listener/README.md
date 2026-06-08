@@ -77,7 +77,9 @@ Les alertes **Δ > seuil** et la détection de **manquants** ne portent que sur 
 goose_listener/
 ├── goose_listener_service.py   # Capture, scan, analyse, histogramme, problèmes
 ├── goose_listener_api.py       # Routes REST pour po_service
+├── goose_ring_pcap.py          # Tampon glissant GOOSE + export PCAP
 ├── trigger_classify.py         # Classification défaut / fin défaut
+├── dumps/                      # PCAP auto (4 s avant chaque problème, gitignored)
 └── README.md                   # Ce fichier
 
 goose/goose61850/transport.py   # GooseSubscriber (pcapy, BPF, file bytes bruts)
@@ -92,6 +94,7 @@ unified_ui.html                 # Onglet GOOSE Listener
 - **pcapy** + **file d’attente** (`bytes` bruts, pas d’objet Scapy) : une seule session libpcap continue
 - **Worker** dédié : décodage GOOSE hors thread de capture
 - **Fiabilité** : compteurs `drops`, file, NIC (`rx_missed_errors`) ; analyse marquée **non fiable** si perte depuis le début de session
+- **Tampon PCAP** : pendant l’analyse, les **4 dernières secondes** de trafic GOOSE sont conservées en mémoire ; à chaque **nouveau** problème détecté, un fichier `.pcap` est écrit dans `goose_listener/dumps/` (téléchargeable via le bouton **PCAP** ou `GET /api/gooselistener/analysis/dumps/{id}/pcap`)
 - Le timestamp de mesure vient de **`pkt.time`**
 
 ### Modes du gestionnaire
@@ -211,6 +214,8 @@ Base : **`/api/gooselistener`**
 | POST | `/analysis/problems` | `{ "cycle_s": 4, "threshold_ms": 40 }` |
 | GET | `/analysis/events/export` | Téléchargement texte de tous les événements en RAM |
 | GET | `/analysis/problems/export` | Téléchargement texte de tous les problèmes |
+| GET | `/analysis/dumps` | Liste des PCAP auto (ring buffer 4 s) |
+| GET | `/analysis/dumps/{id}/pcap` | Téléchargement binaire d’un dump PCAP |
 
 ### Exemple : démarrer une analyse
 
@@ -327,6 +332,8 @@ Même source de problèmes que l’onglet GUI.
 **Fiabilité** : invalidation sur `libpcap ps_drop` / file Python, pas sur `rx_dropped` interface (compteur global du bus, peut monter même si la capture GOOSE est saine).
 
 Éviter toutefois une **deuxième** capture externe (`tcpdump` lourd, CLI `listen_goose` direct en double). Préférer **`--from-api`** si l’analyse GUI tourne.
+
+Pendant l’analyse GOOSE, le multiplexeur conserve un **ring buffer** des 4 dernières secondes : équivalent à un `tcpdump` continu, mais sans processus séparé. Chaque problème (manquant, Δ hors seuil, capture non fiable…) déclenche un snapshot PCAP exploitable avec Wireshark / `tcpdump -r`.
 
 ### Perte de paquets dans la rafale (sqNum 0–3)
 

@@ -494,6 +494,7 @@
             <p class="status" id="gl-problems-status">—</p>
             <p class="status" style="margin-top:0.25rem;font-size:0.82rem">
               En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements (diagnostic).
+              À chaque nouveau problème, les <strong>4 dernières secondes</strong> de trafic GOOSE sont enregistrées (bouton PCAP).
             </p>
             <div class="table-wrap gl-problems-scroll" id="gl-problems-table-wrap">
               <table class="gl-problems-table">
@@ -2047,13 +2048,27 @@
       return data;
     }
 
-    function glDownloadBlob(text, filename) {
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    function glDownloadBlob(data, filename, mime) {
+      const blob = new Blob([data], { type: mime || 'text/plain;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = filename;
       a.click();
       URL.revokeObjectURL(a.href);
+    }
+
+    async function glDownloadPcap(dumpId) {
+      const r = await fetch(`${API.gooselistener}/analysis/dumps/${encodeURIComponent(dumpId)}/pcap`);
+      if (r.status === 503) throw new Error('GOOSE Listener non configuré');
+      if (!r.ok) {
+        let msg = r.statusText;
+        try {
+          const err = await r.json();
+          msg = err.error || msg;
+        } catch (_) { /* binaire */ }
+        throw new Error(msg);
+      }
+      glDownloadBlob(await r.arrayBuffer(), `${dumpId}.pcap`, 'application/vnd.tcpdump.pcap');
     }
 
     async function glDownloadExport(path, filename) {
@@ -2502,13 +2517,16 @@
           sqCell = `<span class="gl-problem-sqnum${sqLost ? ' lost' : ''}" title="${sqLost ? 'sqNum=0 manqué en capture' : 'Déclenchement sqNum=0'}">${escapeHtml(String(p.sq_num))}</span>`;
         }
         const diag = glFmtDiagContext(p);
+        const pcapBtn = p.dump_id
+          ? `<button type="button" class="btn btn--small gl-pcap-btn" data-dump-id="${escapeHtml(p.dump_id)}" title="Télécharger les 4 dernières secondes de trafic GOOSE (${p.dump_packets ?? '?'} paquets)">PCAP</button>`
+          : '';
         const main = `<tr>
           <td class="gl-problem-kind ${escapeHtml(kind)}">${escapeHtml(label)}</td>
           <td>${escapeHtml(glFmtProblemTs(ts))}</td>
           <td>${escapeHtml(p.go_id || '—')}</td>
           <td>${delta}</td>
           <td>${sqCell}</td>
-          <td>${escapeHtml(p.message || '')}</td>
+          <td>${escapeHtml(p.message || '')}${pcapBtn ? ' ' + pcapBtn : ''}</td>
         </tr>`;
         if (!diag) return main;
         return `${main}<tr class="gl-problem-diag"><td colspan="6"><pre>${escapeHtml(diag)}</pre></td></tr>`;
@@ -2725,6 +2743,19 @@
         await glDownloadExport('/analysis/problems/export', `goose-problems-${ts}.txt`);
       } catch (e) {
         alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-problems-table-wrap')?.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.gl-pcap-btn');
+      if (!btn) return;
+      e.preventDefault();
+      const dumpId = btn.getAttribute('data-dump-id');
+      if (!dumpId) return;
+      try {
+        await glDownloadPcap(dumpId);
+      } catch (err) {
+        alert(err.message);
       }
     });
 

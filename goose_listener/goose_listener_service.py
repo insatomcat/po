@@ -41,6 +41,9 @@ PROBLEMS_TIME_BUCKET_S = 10.0
 PROBLEMS_CONTEXT_MAX = 30
 HIST_BIN_MS = 1.0
 NIC_DELTA_SANITY_MAX = 10_000_000
+RING_WINDOW_S = 4.0
+MAX_RING_DUMPS = 80
+DUMPS_DIR = Path(__file__).resolve().parent / "dumps"
 
 
 def _stream_key(gocb_ref: str, go_id: Optional[str]) -> Key:
@@ -510,6 +513,9 @@ class GooseListenerManager:
     _status_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _analysis_capture_baseline: Dict[str, Any] = field(default_factory=dict, repr=False)
     _analysis_baseline_active: bool = field(default=False, repr=False)
+    _problem_snapshot_keys: Set[Tuple[Any, ...]] = field(default_factory=set, repr=False)
+    _ring_dump_records: List[Dict[str, Any]] = field(default_factory=list, repr=False)
+    _ring_dump_seq: int = field(default=0, repr=False)
 
     MAX_EVENTS = 10000
     CAPTURE_QUEUE_WARN = 100
@@ -805,7 +811,9 @@ class GooseListenerManager:
             self._targets_frozen = frozenset(self._targets.keys())
             self._analysis_poll_cache.key = None
             self._last_error = None
+            self._problem_snapshot_keys.clear()
         self._ensure_capture()
+        self._enable_ring_capture()
         self._analysis_capture_baseline = self._snapshot_capture_baseline()
         self._analysis_baseline_active = True
         return None
@@ -817,7 +825,9 @@ class GooseListenerManager:
             self._targets_frozen = frozenset()
             self._analysis_baseline_active = False
             self._analysis_capture_baseline = {}
+            self._problem_snapshot_keys.clear()
             self._stop_capture_if_idle()
+        self._disable_ring_capture()
 
     def _scan_from_snapshot(self, snap: _PollSnapshot, now: float) -> Dict[str, Any]:
         remaining = (
@@ -899,6 +909,7 @@ class GooseListenerManager:
             cache.events_recent = events_recent
 
         capture_rel = self._capture_reliability(analysis_running=running)
+        capture_rel = {**capture_rel, "ring_buffer": self._goose_ring_stats()}
         if running and not capture_rel["reliable"]:
             problems_all = [
                 {
@@ -917,6 +928,8 @@ class GooseListenerManager:
                 },
                 *problems_all,
             ]
+
+        problems_all = self._attach_ring_dumps_for_new_problems(problems_all)
 
         problems_recent = sorted(
             problems_all,
@@ -986,6 +999,153 @@ class GooseListenerManager:
         ordered = sorted(problems, key=_problem_sort_key)
         header = f"# GOOSE Listener — {len(ordered)} problème(s)\n"
         return header + "\n".join(_problem_export_line(p) for p in ordered) + "\n"
+
+    def _enable_ring_capture(self) -> None:
+        try:
+            from processbus_capture import ProcessbusCapture  # noqa: WPS433
+
+            ProcessbusCapture.get(self.iface).enable_goose_ring(RING_WINDOW_S)
+        except Exception:
+            pass
+
+    def _disable_ring_capture(self) -> None:
+        try:
+            from processbus_capture import ProcessbusCapture  # noqa: WPS433
+
+            ProcessbusCapture.get(self.iface).disable_goose_ring()
+        except Exception:
+            pass
+
+    def _ring_snapshot_packets(self) -> List[Tuple[float, bytes]]:
+        try:
+            from processbus_capture import ProcessbusCapture  # noqa: WPS433
+
+            return ProcessbusCapture.get(self.iface).snapshot_goose_ring()
+        except Exception:
+            return []
+
+    def _goose_ring_stats(self) -> Dict[str, Any]:
+        try:
+            from processbus_capture import ProcessbusCapture  # noqa: WPS433
+
+            return ProcessbusCapture.get(self.iface).goose_ring_stats()
+        except Exception:
+            return {"enabled": False}
+
+    def _problem_snapshot_key(self, problem: Dict[str, Any]) -> Tuple[Any, ...]:
+        kind = problem.get("kind")
+        if kind == "capture_unreliable":
+            return ("capture_unreliable",)
+        return (
+            kind,
+            problem.get("go_id") or "",
+            problem.get("ts_goose"),
+            problem.get("ts_expected"),
+            problem.get("st_num"),
+        )
+
+    def _attach_ring_dumps_for_new_problems(
+        self,
+        problems: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for raw in problems:
+            p = dict(raw)
+            key = self._problem_snapshot_key(p)
+            if key not in self._problem_snapshot_keys:
+                meta = self._save_ring_snapshot(p)
+                if meta is not None:
+                    p["dump_id"] = meta["dump_id"]
+                    p["dump_packets"] = meta["packet_count"]
+                self._problem_snapshot_keys.add(key)
+            elif p.get("dump_id"):
+                pass
+            else:
+                for rec in reversed(self._ring_dump_records):
+                    if rec.get("problem_key") == key:
+                        p["dump_id"] = rec["dump_id"]
+                        p["dump_packets"] = rec.get("packet_count")
+                        break
+            out.append(p)
+        return out
+
+    def _save_ring_snapshot(self, problem: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        packets = self._ring_snapshot_packets()
+        if not packets:
+            return None
+        gl_dir = str(Path(__file__).resolve().parent)
+        if gl_dir not in sys.path:
+            sys.path.insert(0, gl_dir)
+        from goose_ring_pcap import write_pcap, _safe_slug  # noqa: WPS433
+
+        kind = str(problem.get("kind") or "problem")
+        go_id = str(problem.get("go_id") or "")
+        self._ring_dump_seq += 1
+        slug = _safe_slug(go_id or kind)
+        dump_id = (
+            f"{self._ring_dump_seq:04d}_"
+            f"{time.strftime('%Y%m%d_%H%M%S')}_{kind}_{slug}"
+        )
+        path = DUMPS_DIR / f"{dump_id}.pcap"
+        count = write_pcap(path, packets)
+        meta = {
+            "dump_id": dump_id,
+            "path": path,
+            "created_at": time.time(),
+            "reason": kind,
+            "packet_count": count,
+            "window_s": RING_WINDOW_S,
+            "go_id": go_id,
+            "problem_key": self._problem_snapshot_key(problem),
+        }
+        self._ring_dump_records.append(meta)
+        self._prune_ring_dumps()
+        return meta
+
+    def _prune_ring_dumps(self) -> None:
+        while len(self._ring_dump_records) > MAX_RING_DUMPS:
+            old = self._ring_dump_records.pop(0)
+            p = old.get("path")
+            if isinstance(p, Path):
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def list_ring_dumps(self) -> Dict[str, Any]:
+        dumps = [
+            {
+                "dump_id": rec["dump_id"],
+                "created_at": rec["created_at"],
+                "reason": rec.get("reason"),
+                "go_id": rec.get("go_id") or "",
+                "packet_count": rec.get("packet_count"),
+                "window_s": rec.get("window_s", RING_WINDOW_S),
+            }
+            for rec in reversed(self._ring_dump_records)
+        ]
+        return {
+            "window_s": RING_WINDOW_S,
+            "count": len(dumps),
+            "max_dumps": MAX_RING_DUMPS,
+            "ring_buffer": self._goose_ring_stats(),
+            "dumps": dumps,
+        }
+
+    def read_ring_dump_bytes(self, dump_id: str) -> Optional[bytes]:
+        safe = (dump_id or "").strip()
+        if not safe or "/" in safe or "\\" in safe or ".." in safe:
+            return None
+        for rec in self._ring_dump_records:
+            if rec.get("dump_id") == safe:
+                path = rec.get("path")
+                if isinstance(path, Path) and path.is_file():
+                    return path.read_bytes()
+                return None
+        path = DUMPS_DIR / f"{safe}.pcap"
+        if path.is_file():
+            return path.read_bytes()
+        return None
 
     def _mux_stats(self) -> Dict[str, Any]:
         try:

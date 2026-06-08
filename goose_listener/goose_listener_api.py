@@ -5,7 +5,11 @@ import json
 from http import HTTPStatus
 from typing import Any, Optional, Union
 
-GooseListenerResponse = Union[tuple[int, Any], tuple[int, str, str]]
+GooseListenerResponse = Union[
+    tuple[int, Any],
+    tuple[int, str, str],
+    tuple[int, bytes, str],
+]
 
 from goose_listener_service import (
     AnalysisTarget,
@@ -101,6 +105,16 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
 
     if path == "/analysis/problems/export" and method == "GET":
         return HTTPStatus.OK, mgr.export_problems_txt(), "text/plain; charset=utf-8"
+
+    if path == "/analysis/dumps" and method == "GET":
+        return HTTPStatus.OK, mgr.list_ring_dumps()
+
+    if method == "GET" and path.startswith("/analysis/dumps/") and path.endswith("/pcap"):
+        dump_id = path[len("/analysis/dumps/") : -len("/pcap")]
+        data = mgr.read_ring_dump_bytes(dump_id)
+        if data is None:
+            return HTTPStatus.NOT_FOUND, {"error": "Dump introuvable"}
+        return HTTPStatus.OK, data, "application/vnd.tcpdump.pcap"
 
     return HTTPStatus.NOT_FOUND, {"error": "Route inconnue"}
 
