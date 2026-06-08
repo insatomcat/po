@@ -314,9 +314,19 @@ Même source de problèmes que l’onglet GUI.
 
 ## Capture : bonnes pratiques et dépannage
 
-### Un seul consommateur sur `processbus`
+### Capture unique `processbus` (GOOSE + SV)
 
-Deux captures GOOSE simultanées (GUI + CLI direct) se partagent mal la socket : une peut recevoir **zéro** trame. Préférer **`--from-api`** si l’analyse GUI tourne.
+`processbus_capture.py` : **une socket libpcap** par interface, **BPF adaptatif** :
+
+| Abonnés actifs | Filtre kernel |
+|----------------|---------------|
+| GOOSE seul | `0x88b8` uniquement — le trafic SV (~2400 pkt/s) n’est **pas** copié vers Python |
+| SV seul | `0x88ba` uniquement |
+| GOOSE + SV | les deux |
+
+**Fiabilité** : invalidation sur `libpcap ps_drop` / file Python, pas sur `rx_dropped` interface (compteur global du bus, peut monter même si la capture GOOSE est saine).
+
+Éviter toutefois une **deuxième** capture externe (`tcpdump` lourd, CLI `listen_goose` direct en double). Préférer **`--from-api`** si l’analyse GUI tourne.
 
 ### Perte de paquets dans la rafale (sqNum 0–3)
 
