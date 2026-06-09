@@ -1057,6 +1057,9 @@ class GooseListenerManager:
                 if meta is not None:
                     p["dump_id"] = meta["dump_id"]
                     p["dump_packets"] = meta["packet_count"]
+                    p["dump_problem_ts"] = meta.get("problem_ts")
+                    p["dump_oldest_ts"] = meta.get("packet_oldest_ts")
+                    p["dump_newest_ts"] = meta.get("packet_newest_ts")
                 self._problem_snapshot_keys.add(key)
             elif p.get("dump_id"):
                 pass
@@ -1065,6 +1068,9 @@ class GooseListenerManager:
                     if rec.get("problem_key") == key:
                         p["dump_id"] = rec["dump_id"]
                         p["dump_packets"] = rec.get("packet_count")
+                        p["dump_problem_ts"] = rec.get("problem_ts")
+                        p["dump_oldest_ts"] = rec.get("packet_oldest_ts")
+                        p["dump_newest_ts"] = rec.get("packet_newest_ts")
                         break
             out.append(p)
         return out
@@ -1087,15 +1093,28 @@ class GooseListenerManager:
             f"{time.strftime('%Y%m%d_%H%M%S')}_{kind}_{slug}"
         )
         path = DUMPS_DIR / f"{dump_id}.pcap"
-        count = write_pcap(path, packets)
+        count = write_pcap(
+            path,
+            packets,
+            problem=problem,
+            dump_id=dump_id,
+            window_s=RING_WINDOW_S,
+        )
+        ts_prob = problem.get("ts_goose")
+        if ts_prob is None:
+            ts_prob = problem.get("ts_expected")
         meta = {
             "dump_id": dump_id,
             "path": path,
+            "meta_path": path.with_suffix(".meta.json"),
             "created_at": time.time(),
             "reason": kind,
             "packet_count": count,
             "window_s": RING_WINDOW_S,
             "go_id": go_id,
+            "problem_ts": ts_prob,
+            "packet_oldest_ts": packets[0][0] if packets else None,
+            "packet_newest_ts": packets[-1][0] if packets else None,
             "problem_key": self._problem_snapshot_key(problem),
         }
         self._ring_dump_records.append(meta)
@@ -1105,12 +1124,13 @@ class GooseListenerManager:
     def _prune_ring_dumps(self) -> None:
         while len(self._ring_dump_records) > MAX_RING_DUMPS:
             old = self._ring_dump_records.pop(0)
-            p = old.get("path")
-            if isinstance(p, Path):
-                try:
-                    p.unlink(missing_ok=True)
-                except OSError:
-                    pass
+            for key in ("path", "meta_path"):
+                p = old.get(key)
+                if isinstance(p, Path):
+                    try:
+                        p.unlink(missing_ok=True)
+                    except OSError:
+                        pass
 
     def list_ring_dumps(self) -> Dict[str, Any]:
         dumps = [
@@ -1121,6 +1141,9 @@ class GooseListenerManager:
                 "go_id": rec.get("go_id") or "",
                 "packet_count": rec.get("packet_count"),
                 "window_s": rec.get("window_s", RING_WINDOW_S),
+                "problem_ts": rec.get("problem_ts"),
+                "packet_oldest_ts": rec.get("packet_oldest_ts"),
+                "packet_newest_ts": rec.get("packet_newest_ts"),
             }
             for rec in reversed(self._ring_dump_records)
         ]
