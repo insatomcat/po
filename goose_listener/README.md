@@ -335,6 +335,8 @@ Même source de problèmes que l’onglet GUI.
 
 Pendant l’analyse GOOSE, le multiplexeur conserve un **ring buffer** des 4 dernières secondes : équivalent à un `tcpdump` continu, mais sans processus séparé. Chaque problème (manquant, Δ hors seuil, capture non fiable…) déclenche un snapshot PCAP exploitable avec Wireshark / `tcpdump -r`.
 
+Les dumps sont au format **PCAP-NG** avec **timestamps epoch absolus** (microsecondes depuis 1970, comme libpcap). Wireshark affiche par défaut le temps **relatif au premier paquet** (0,000 s) : pour corréler avec l’heure du problème dans l’UI, passer la colonne Time en **View → Time Display Format → Date and Time of Day**. Le fichier embarque aussi un **commentaire** (propriétés du fichier) et un sidecar `{id}.meta.json` avec `problem_time_local` et la fenêtre de capture.
+
 ### Perte de paquets dans la rafale (sqNum 0–3)
 
 Symptômes :
