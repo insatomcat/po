@@ -181,109 +181,131 @@ def _events_between_indexed(
     return rows
 
 
-def _compute_problems(
+def _problem_delay_exceeded(evt: TriggerEvent, threshold_ms: float) -> Dict[str, Any]:
+    return {
+        "kind": "delay_exceeded",
+        "gocb_ref": evt.gocb_ref,
+        "go_id": evt.go_id,
+        "ts_goose": evt.ts_goose,
+        "ts_expected": None,
+        "delta_net_ms": round(evt.delta_net_ms, 3),
+        "st_num": evt.st_num,
+        "sq_num": evt.sq_num,
+        "message": (
+            f"Δ net {evt.delta_net_ms:.2f} ms > seuil {threshold_ms:.0f} ms"
+        ),
+    }
+
+
+def _problem_capture_incomplete(evt: TriggerEvent) -> Dict[str, Any]:
+    sq = evt.sq_num
+    return {
+        "kind": "capture_incomplete",
+        "gocb_ref": evt.gocb_ref,
+        "go_id": evt.go_id,
+        "ts_goose": evt.ts_goose,
+        "ts_expected": None,
+        "delta_net_ms": round(evt.delta_net_ms, 3),
+        "st_num": evt.st_num,
+        "sq_num": sq,
+        "message": (
+            f"sqNum={sq} (sqNum=0 manqué en capture) — "
+            f"Δ={evt.delta_net_ms:.2f} ms non fiable"
+        ),
+    }
+
+
+def _problem_missing_between(
+    target: AnalysisTarget,
+    *,
+    t_prev: float,
+    t_next: float,
+    ts_exp: float,
+    context: List[Dict[str, Any]],
+    cycle_s: float,
+) -> Dict[str, Any]:
+    gap = t_next - t_prev
+    return {
+        "kind": "missing",
+        "gocb_ref": target.gocb_ref,
+        "go_id": target.go_id,
+        "ts_goose": None,
+        "ts_expected": ts_exp,
+        "delta_net_ms": None,
+        "st_num": None,
+        "message": (
+            f"Déclenchement manquant (cycle {cycle_s:.0f} s, "
+            f"écart {gap:.1f} s)"
+        ),
+        "context": context,
+        "gap_s": round(gap, 3),
+        "declenchement_prev_ts": t_prev,
+        "declenchement_next_ts": t_next,
+    }
+
+
+def _compute_overdue_missing_problems(
     targets: Dict[Key, AnalysisTarget],
     events: List[TriggerEvent],
     *,
     cycle_s: float,
-    threshold_ms: float,
     running: bool,
     now: float,
 ) -> List[Dict[str, Any]]:
+    """Manquants « en retard » depuis le dernier déclenchement (poll périodique)."""
+    if not running:
+        return []
     problems: List[Dict[str, Any]] = []
     cycle_s = max(1.0, float(cycle_s))
-    threshold_ms = max(0.0, float(threshold_ms))
     index = _index_events_by_key(events)
-
     for key, target in targets.items():
-        key_events = index.get(key, ())
         declenchements = _declenchements_from_index(index, key)
-
-        for evt in declenchements:
-            sq = evt.sq_num
-            if sq != 0:
-                problems.append({
-                    "kind": "capture_incomplete",
-                    "gocb_ref": evt.gocb_ref,
-                    "go_id": evt.go_id,
-                    "ts_goose": evt.ts_goose,
-                    "ts_expected": None,
-                    "delta_net_ms": round(evt.delta_net_ms, 3),
-                    "st_num": evt.st_num,
-                    "sq_num": sq,
-                    "message": (
-                        f"sqNum={sq} (sqNum=0 manqué en capture) — "
-                        f"Δ={evt.delta_net_ms:.2f} ms non fiable"
-                    ),
-                })
-                continue
-            if evt.delta_net_ms > threshold_ms:
-                problems.append({
-                    "kind": "delay_exceeded",
-                    "gocb_ref": evt.gocb_ref,
-                    "go_id": evt.go_id,
-                    "ts_goose": evt.ts_goose,
-                    "ts_expected": None,
-                    "delta_net_ms": round(evt.delta_net_ms, 3),
-                    "st_num": evt.st_num,
-                    "sq_num": sq,
-                    "message": (
-                        f"Δ net {evt.delta_net_ms:.2f} ms > seuil {threshold_ms:.0f} ms"
-                    ),
-                })
-
-        for i in range(len(declenchements) - 1):
-            t_prev = declenchements[i].ts_goose
-            t_next = declenchements[i + 1].ts_goose
-            context = _events_between_indexed(key_events, t_prev, t_next)
-            gap = t_next - t_prev
-            for ts_exp in _missing_slots_between(t_prev, t_next, cycle_s):
-                problems.append({
-                    "kind": "missing",
-                    "gocb_ref": target.gocb_ref,
-                    "go_id": target.go_id,
-                    "ts_goose": None,
-                    "ts_expected": ts_exp,
-                    "delta_net_ms": None,
-                    "st_num": None,
-                    "message": (
-                        f"Déclenchement manquant (cycle {cycle_s:.0f} s, "
-                        f"écart {gap:.1f} s)"
-                    ),
-                    "context": context,
-                    "gap_s": round(gap, 3),
-                    "declenchement_prev_ts": t_prev,
-                    "declenchement_next_ts": t_next,
-                })
-
-        if declenchements and running:
-            t_last = declenchements[-1].ts_goose
-            grace = _missing_grace_s(cycle_s)
-            gap = now - t_last
-            if gap > cycle_s + grace:
-                n_overdue = int((gap - grace) // cycle_s)
-                if n_overdue >= 1:
-                    ts_exp = t_last + n_overdue * cycle_s
-                    context = _events_between_indexed(key_events, t_last, now)
-                    problems.append({
-                        "kind": "missing",
-                        "gocb_ref": target.gocb_ref,
-                        "go_id": target.go_id,
-                        "ts_goose": None,
-                        "ts_expected": ts_exp,
-                        "delta_net_ms": None,
-                        "st_num": None,
-                        "message": (
-                            f"Déclenchement manquant (cycle {cycle_s:.0f} s, "
-                            f"écart {gap:.1f} s) — en retard"
-                        ),
-                        "context": context,
-                        "gap_s": round(gap, 3),
-                        "declenchement_prev_ts": t_last,
-                        "declenchement_next_ts": None,
-                    })
-
+        if not declenchements:
+            continue
+        key_events = index.get(key, ())
+        t_last = declenchements[-1].ts_goose
+        grace = _missing_grace_s(cycle_s)
+        gap = now - t_last
+        if gap <= cycle_s + grace:
+            continue
+        n_overdue = int((gap - grace) // cycle_s)
+        if n_overdue < 1:
+            continue
+        ts_exp = t_last + n_overdue * cycle_s
+        context = _events_between_indexed(key_events, t_last, now)
+        problems.append({
+            "kind": "missing",
+            "gocb_ref": target.gocb_ref,
+            "go_id": target.go_id,
+            "ts_goose": None,
+            "ts_expected": ts_exp,
+            "delta_net_ms": None,
+            "st_num": None,
+            "message": (
+                f"Déclenchement manquant (cycle {cycle_s:.0f} s, "
+                f"écart {gap:.1f} s) — en retard"
+            ),
+            "context": context,
+            "gap_s": round(gap, 3),
+            "declenchement_prev_ts": t_last,
+            "declenchement_next_ts": None,
+        })
     return _dedupe_problems(problems)
+
+
+def _problem_identity_key(p: Dict[str, Any]) -> Tuple[Any, ...]:
+    """Clé stable pour déduplication et persistance session."""
+    kind = p.get("kind")
+    go_id = str(p.get("go_id") or "")
+    if kind == "capture_unreliable":
+        return ("capture_unreliable",)
+    if kind == "missing":
+        return ("missing", go_id, p.get("ts_expected"))
+    if kind == "delay_exceeded":
+        return ("delay_exceeded", go_id, p.get("ts_goose"), p.get("st_num"))
+    if kind == "capture_incomplete":
+        return ("capture_incomplete", go_id, p.get("ts_goose"), p.get("st_num"))
+    return (kind, go_id, p.get("ts_goose"), p.get("ts_expected"), p.get("st_num"))
 
 
 def _problem_sort_key(p: Dict[str, Any]) -> float:
@@ -401,16 +423,7 @@ def _dedupe_problems(problems: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     deduped: List[Dict[str, Any]] = []
     seen: Set[Tuple[Any, ...]] = set()
     for p in sorted(problems, key=_problem_sort_key, reverse=True):
-        kind = p.get("kind")
-        go_id = str(p.get("go_id") or "")
-        if kind == "missing":
-            key_d: Tuple[Any, ...] = ("missing", go_id, p.get("ts_expected"))
-        elif kind == "delay_exceeded":
-            key_d = ("delay", go_id, p.get("ts_goose"), p.get("st_num"))
-        elif kind == "capture_incomplete":
-            key_d = ("capture", go_id, p.get("ts_goose"), p.get("st_num"))
-        else:
-            key_d = (kind, go_id, p.get("ts_goose"), p.get("ts_expected"), p.get("st_num"))
+        key_d = _problem_identity_key(p)
         if key_d in seen:
             continue
         seen.add(key_d)
@@ -456,7 +469,6 @@ class _PollSnapshot:
 @dataclass
 class _AnalysisPollCache:
     key: Optional[Tuple[Any, ...]] = None
-    problems_all: List[Dict[str, Any]] = field(default_factory=list)
     filtered_count: int = 0
     events_recent: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -513,7 +525,9 @@ class GooseListenerManager:
     _status_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _analysis_capture_baseline: Dict[str, Any] = field(default_factory=dict, repr=False)
     _analysis_baseline_active: bool = field(default=False, repr=False)
-    _problem_snapshot_keys: Set[Tuple[Any, ...]] = field(default_factory=set, repr=False)
+    _problems_ram: List[Dict[str, Any]] = field(default_factory=list, repr=False)
+    _problem_identity_keys: Set[Tuple[Any, ...]] = field(default_factory=set, repr=False)
+    _last_declenchement_ts: Dict[Key, float] = field(default_factory=dict, repr=False)
     _ring_dump_records: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     _ring_dump_seq: int = field(default=0, repr=False)
 
@@ -713,10 +727,17 @@ class GooseListenerManager:
             _hist_buckets_add(self._hist_all_buckets, key, delta_ms)
             if kind == "declenchement":
                 _hist_buckets_add(self._hist_declenchement_buckets, key, delta_ms)
+            pending_problems: List[Dict[str, Any]] = []
+            if kind == "declenchement":
+                pending_problems = self._problems_for_declenchement_unlocked(
+                    key, evt, target
+                )
             if self._event_passes_filter_unlocked(evt):
                 self._events.append(evt)
                 self._events_rev += 1
                 self._events_by_key.setdefault(key, []).append(delta_ms)
+        if pending_problems:
+            self._accumulate_problems(pending_problems)
 
     def start_scan(self, duration_s: float = 5.0) -> Optional[str]:
         duration_s = max(0.5, min(float(duration_s), 120.0))
@@ -807,11 +828,13 @@ class GooseListenerManager:
             self._events_by_key.clear()
             self._hist_all_buckets.clear()
             self._hist_declenchement_buckets.clear()
+            self._problems_ram.clear()
+            self._problem_identity_keys.clear()
+            self._last_declenchement_ts.clear()
             self._events_rev = 0
             self._targets_frozen = frozenset(self._targets.keys())
             self._analysis_poll_cache.key = None
             self._last_error = None
-            self._problem_snapshot_keys.clear()
         self._ensure_capture()
         self._enable_ring_capture()
         self._analysis_capture_baseline = self._snapshot_capture_baseline()
@@ -825,7 +848,6 @@ class GooseListenerManager:
             self._targets_frozen = frozenset()
             self._analysis_baseline_active = False
             self._analysis_capture_baseline = {}
-            self._problem_snapshot_keys.clear()
             self._stop_capture_if_idle()
         self._disable_ring_capture()
 
@@ -872,11 +894,9 @@ class GooseListenerManager:
         cache = self._analysis_poll_cache
         histogram = _build_histogram_from_buckets(snap.hist_buckets, targets_snap)
         if cache.key == cache_key:
-            problems_all = cache.problems_all
             filtered_count = cache.filtered_count
             events_recent = cache.events_recent
         else:
-
             filtered_events = list(all_events)
             filtered_count = len(filtered_events)
             events_recent = [
@@ -895,23 +915,22 @@ class GooseListenerManager:
                 }
                 for e in filtered_events[-PANEL_EVENTS_MAX:]
             ]
-            problems_all = _compute_problems(
+            live_problems = _compute_overdue_missing_problems(
                 targets_snap,
                 all_events,
                 cycle_s=cycle_s,
-                threshold_ms=threshold_ms,
                 running=running,
                 now=now,
             )
+            self._accumulate_problems(live_problems)
             cache.key = cache_key
-            cache.problems_all = problems_all
             cache.filtered_count = filtered_count
             cache.events_recent = events_recent
 
         capture_rel = self._capture_reliability(analysis_running=running)
         capture_rel = {**capture_rel, "ring_buffer": self._goose_ring_stats()}
         if running and not capture_rel["reliable"]:
-            problems_all = [
+            self._accumulate_problems([
                 {
                     "kind": "capture_unreliable",
                     "gocb_ref": "",
@@ -926,10 +945,10 @@ class GooseListenerManager:
                         f"{capture_rel['invalid_reason']}"
                     ),
                 },
-                *problems_all,
-            ]
+            ])
 
-        problems_all = self._attach_ring_dumps_for_new_problems(problems_all)
+        with self._lock:
+            problems_all = list(self._problems_ram)
 
         problems_recent = sorted(
             problems_all,
@@ -979,25 +998,12 @@ class GooseListenerManager:
         return header + "\n".join(_event_export_line(e) for e in events) + "\n"
 
     def export_problems_txt(self) -> str:
-        now = time.time()
         with self._lock:
-            running = self._mode == "analyze"
-            all_events = list(self._events)
-            targets_snap = dict(self._targets)
-            cycle_s = self._problem_cycle_s
-            threshold_ms = self._problem_threshold_ms
-        problems = _compute_problems(
-            targets_snap,
-            all_events,
-            cycle_s=cycle_s,
-            threshold_ms=threshold_ms,
-            running=running,
-            now=now,
-        )
+            problems = list(self._problems_ram)
         if not problems:
             return "# Aucun problème détecté\n"
         ordered = sorted(problems, key=_problem_sort_key)
-        header = f"# GOOSE Listener — {len(ordered)} problème(s)\n"
+        header = f"# GOOSE Listener — {len(ordered)} problème(s) (session)\n"
         return header + "\n".join(_problem_export_line(p) for p in ordered) + "\n"
 
     def _enable_ring_capture(self) -> None:
@@ -1032,48 +1038,64 @@ class GooseListenerManager:
         except Exception:
             return {"enabled": False}
 
-    def _problem_snapshot_key(self, problem: Dict[str, Any]) -> Tuple[Any, ...]:
-        kind = problem.get("kind")
-        if kind == "capture_unreliable":
-            return ("capture_unreliable",)
-        return (
-            kind,
-            problem.get("go_id") or "",
-            problem.get("ts_goose"),
-            problem.get("ts_expected"),
-            problem.get("st_num"),
-        )
-
-    def _attach_ring_dumps_for_new_problems(
+    def _problems_for_declenchement_unlocked(
         self,
-        problems: List[Dict[str, Any]],
+        key: Key,
+        evt: TriggerEvent,
+        target: AnalysisTarget,
     ) -> List[Dict[str, Any]]:
+        """Détecte Δ/sqNum/manquants à la réception (comme l'histogramme)."""
         out: List[Dict[str, Any]] = []
-        for raw in problems:
-            p = dict(raw)
-            key = self._problem_snapshot_key(p)
-            if key not in self._problem_snapshot_keys:
-                meta = self._save_ring_snapshot(p)
-                if meta is not None:
-                    p["dump_id"] = meta["dump_id"]
-                    p["dump_packets"] = meta["packet_count"]
-                    p["dump_problem_ts"] = meta.get("problem_ts")
-                    p["dump_oldest_ts"] = meta.get("packet_oldest_ts")
-                    p["dump_newest_ts"] = meta.get("packet_newest_ts")
-                self._problem_snapshot_keys.add(key)
-            elif p.get("dump_id"):
-                pass
-            else:
-                for rec in reversed(self._ring_dump_records):
-                    if rec.get("problem_key") == key:
-                        p["dump_id"] = rec["dump_id"]
-                        p["dump_packets"] = rec.get("packet_count")
-                        p["dump_problem_ts"] = rec.get("problem_ts")
-                        p["dump_oldest_ts"] = rec.get("packet_oldest_ts")
-                        p["dump_newest_ts"] = rec.get("packet_newest_ts")
-                        break
-            out.append(p)
+        cycle_s = max(1.0, float(self._problem_cycle_s))
+        threshold_ms = max(0.0, float(self._problem_threshold_ms))
+        t_next = evt.ts_goose
+        t_prev = self._last_declenchement_ts.get(key)
+        if t_prev is not None:
+            key_events = [
+                e for e in self._events
+                if _stream_key(e.gocb_ref, e.go_id) == key
+            ]
+            context = _events_between_indexed(key_events, t_prev, t_next)
+            for ts_exp in _missing_slots_between(t_prev, t_next, cycle_s):
+                out.append(
+                    _problem_missing_between(
+                        target,
+                        t_prev=t_prev,
+                        t_next=t_next,
+                        ts_exp=ts_exp,
+                        context=context,
+                        cycle_s=cycle_s,
+                    )
+                )
+        self._last_declenchement_ts[key] = t_next
+
+        if evt.sq_num != 0:
+            out.append(_problem_capture_incomplete(evt))
+        elif evt.delta_net_ms > threshold_ms:
+            out.append(_problem_delay_exceeded(evt, threshold_ms))
         return out
+
+    def _accumulate_problems(self, live: List[Dict[str, Any]]) -> None:
+        """Ajoute les nouveaux problèmes à la liste session (indépendante des 10k événements)."""
+        new_entries: List[Dict[str, Any]] = []
+        with self._lock:
+            for p in live:
+                key = _problem_identity_key(p)
+                if key in self._problem_identity_keys:
+                    continue
+                entry = dict(p)
+                self._problems_ram.append(entry)
+                self._problem_identity_keys.add(key)
+                new_entries.append(entry)
+        for entry in new_entries:
+            meta = self._save_ring_snapshot(entry)
+            if meta is None:
+                continue
+            entry["dump_id"] = meta["dump_id"]
+            entry["dump_packets"] = meta["packet_count"]
+            entry["dump_problem_ts"] = meta.get("problem_ts")
+            entry["dump_oldest_ts"] = meta.get("packet_oldest_ts")
+            entry["dump_newest_ts"] = meta.get("packet_newest_ts")
 
     def _save_ring_snapshot(self, problem: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         packets = self._ring_snapshot_packets()
@@ -1115,7 +1137,7 @@ class GooseListenerManager:
             "problem_ts": ts_prob,
             "packet_oldest_ts": packets[0][0] if packets else None,
             "packet_newest_ts": packets[-1][0] if packets else None,
-            "problem_key": self._problem_snapshot_key(problem),
+            "problem_key": _problem_identity_key(problem),
         }
         self._ring_dump_records.append(meta)
         self._prune_ring_dumps()

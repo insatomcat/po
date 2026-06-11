@@ -151,7 +151,8 @@ Types d’anomalies :
 - **`missing`** : trou dans le cycle défaut ; détail des GOOSE reçus entre les deux défauts
 
 Affichage : **50 derniers** problèmes, **~10 lignes visibles** avec défilement.  
-Bouton **Télécharger (.txt)** : export de **tous** les problèmes calculés.
+Les problèmes sont **accumulés dans une liste RAM dédiée** (`_problems_ram`) à la **réception de chaque déclenchement** (même chemin que l'histogramme), puis conservés pour toute la session — indépendamment de la rotation des 10 000 événements.  
+Bouton **Télécharger (.txt)** : export de **tous** les problèmes de la session.
 
 ### Histogramme & derniers événements
 
@@ -188,11 +189,14 @@ Chaque événement expose aussi `processing_lag_ms` (écart traitement − réce
 
 | Structure | Capacité | Persistance |
 |-----------|----------|-------------|
-| `_events` | **10 000** événements max (`deque`) | RAM uniquement |
+| `_events` | **10 000** événements max (`deque`) | RAM uniquement ; les plus anciens sont éjectés |
+| `_problems_ram` | Liste session (sans plafond) | Accumulation à la détection ; non liée à `_events` |
+| `_hist_*_buckets` | Compteurs par bin Δ | Session entière (comme les problèmes) |
 | Panneau UI | 50 derniers affichés | — |
-| Export `.txt` | Tout le contenu de `_events` | Téléchargement navigateur |
+| Export `.txt` événements | Tout le contenu de `_events` | Téléchargement navigateur |
+| Export `.txt` problèmes | Tout `_problems_ram` | Téléchargement navigateur |
 
-- **Nouvelle analyse** → historique effacé
+- **Nouvelle analyse** → événements, histogramme et problèmes effacés
 - **Redémarrage `po_service`** → tout perdu
 - Pas de fichier ni base de données
 
