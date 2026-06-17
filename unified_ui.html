@@ -781,6 +781,11 @@
       '#cfc9c2','#565f89','#2ac3de','#fab387','#a6e3a1','#f38ba8','#89b4fa','#cba6f7',
       '#94e2d5','#eba0ac','#ffd700','#ff4500','#00ced1','#9370db','#32cd32','#dc143c',
     ];
+    /** Défauts par préfixe (dernière ligne palette : vert #32cd32, rouge #dc143c). */
+    const GL_HIST_SERIES_DEFAULTS = [
+      { prefix: 'VMC7', color: GL_HIST_PALETTE[22] },
+      { prefix: 'SSC600', color: GL_HIST_PALETTE[23] },
+    ];
     const GL_HIST_COLORS_STORAGE_KEY = 'gl-hist-series-colors-v1';
     let glHistSeriesColors = {};
     let glHistColorPickerKey = null;
@@ -802,10 +807,18 @@
       return `${s.gocb_ref || ''}\x1e${s.go_id || ''}`;
     }
 
+    function glSeriesPresetColor(s) {
+      const fields = [s.go_id, s.gocb_ref, s.label].filter(Boolean).map(String);
+      for (const rule of GL_HIST_SERIES_DEFAULTS) {
+        if (fields.some(f => f.startsWith(rule.prefix))) return rule.color;
+      }
+      return null;
+    }
+
     function glSeriesColor(s) {
       const key = glSeriesKey(s);
       if (glHistSeriesColors[key]) return glHistSeriesColors[key];
-      return GL_COLORS[s.color_index % GL_COLORS.length];
+      return glSeriesPresetColor(s) || GL_COLORS[s.color_index % GL_COLORS.length];
     }
 
     function glSetHistSeriesColor(seriesKey, color) {
