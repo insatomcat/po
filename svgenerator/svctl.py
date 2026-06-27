@@ -1,3 +1,6 @@
+# Copyright (C) 2026 RTE
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import argparse
@@ -76,6 +79,10 @@ def cmd_list(args: argparse.Namespace) -> None:
         print(f"  fault_v_peak  : {f.get('fault_v_peak')}")
         print(f"  fault_phase_d : {f.get('fault_phase_deg')}")
         print(f"  fault_cycle_s : {f.get('fault_cycle_s')}")
+        print(f"  rt_isolation  : {f.get('seapath_isolation')}")
+        print(f"  rt_scheduler  : {f.get('seapath_scheduler')}")
+        print(f"  rt_priority   : {f.get('seapath_priority')}")
+        print(f"  rt_cpu        : {f.get('seapath_cpu_cores')}")
         print()
 
 
@@ -112,6 +119,14 @@ def cmd_create(args: argparse.Namespace) -> None:
         payload["fault_phase_deg"] = args.fault_phase
     if args.fault_cycle is not None:
         payload["fault_cycle_s"] = args.fault_cycle
+    if args.rt_priority is not None:
+        payload["seapath_priority"] = args.rt_priority
+    if args.rt_cpu is not None:
+        payload["seapath_cpu_cores"] = args.rt_cpu
+    if args.rt_isolation is not None:
+        payload["seapath_isolation"] = args.rt_isolation
+    if args.rt_scheduler is not None:
+        payload["seapath_scheduler"] = args.rt_scheduler
     p = _sv_api_path(args.base_url, "/flows")
     resp = requests.post(f"{args.base_url.rstrip('/')}{p}", json=payload, timeout=5.0)
     if resp.status_code >= 400:
@@ -157,6 +172,14 @@ def cmd_update(args: argparse.Namespace) -> None:
         payload["fault_phase_deg"] = args.fault_phase
     if args.fault_cycle is not None:
         payload["fault_cycle_s"] = args.fault_cycle
+    if args.rt_priority is not None:
+        payload["seapath_priority"] = args.rt_priority
+    if args.rt_cpu is not None:
+        payload["seapath_cpu_cores"] = args.rt_cpu
+    if args.rt_isolation is not None:
+        payload["seapath_isolation"] = args.rt_isolation
+    if args.rt_scheduler is not None:
+        payload["seapath_scheduler"] = args.rt_scheduler
     p = _sv_api_path(args.base_url, f"/flows/{args.name}")
     resp = requests.put(f"{args.base_url.rstrip('/')}{p}", json=payload, timeout=5.0)
     if resp.status_code >= 400:
@@ -229,6 +252,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("--fault-v-peak", type=float)
     p_create.add_argument("--fault-phase", type=float)
     p_create.add_argument("--fault-cycle", type=float)
+    p_create.add_argument("--rt-priority", type=int, metavar="1-99", help="Priorité RT FIFO/RR (défaut: 80)")
+    p_create.add_argument("--rt-cpu", metavar="CORES", help="CPU(s) pour le fallback taskset, ex: '4' ou '4,5'")
+    p_create.add_argument("--rt-isolation", choices=["exclusive_logical", "exclusive_physical", "shared"], help="Mode d'isolation seapath-alloc")
+    p_create.add_argument("--rt-scheduler", choices=["FIFO", "RR", "OTHER"], help="Ordonnanceur RT (défaut: FIFO)")
     p_create.set_defaults(func=cmd_create)
 
     p_update = sub.add_parser("update", help="Update an existing flow")
@@ -251,6 +278,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--fault-v-peak", type=float)
     p_update.add_argument("--fault-phase", type=float)
     p_update.add_argument("--fault-cycle", type=float)
+    p_update.add_argument("--rt-priority", type=int, metavar="1-99", help="Priorité RT FIFO/RR (défaut: 80)")
+    p_update.add_argument("--rt-cpu", metavar="CORES", help="CPU(s) pour le fallback taskset, ex: '4' ou '4,5'")
+    p_update.add_argument("--rt-isolation", choices=["exclusive_logical", "exclusive_physical", "shared"], help="Mode d'isolation seapath-alloc")
+    p_update.add_argument("--rt-scheduler", choices=["FIFO", "RR", "OTHER"], help="Ordonnanceur RT (défaut: FIFO)")
     p_update.set_defaults(func=cmd_update)
 
     p_delete = sub.add_parser("delete", help="Delete a flow")

@@ -22,6 +22,7 @@ RestartSec=5
 User=root
 Group=root
 NoNewPrivileges=true
+AmbientCapabilities=CAP_SYS_NICE
 KillMode=process
 StandardOutput=journal
 StandardError=journal

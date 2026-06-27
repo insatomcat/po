@@ -11,7 +11,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
-#include <sched.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -411,12 +410,6 @@ int main(int argc, char **argv) {
 
     if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0)
         perror("mlockall");
-
-    struct sched_param sp;
-    memset(&sp, 0, sizeof(sp));
-    sp.sched_priority = 80;
-    if (sched_setscheduler(0, SCHED_FIFO, &sp) != 0)
-        perror("sched_setscheduler");
 
     int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (sock < 0) {
