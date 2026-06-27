@@ -1,3 +1,6 @@
+# Copyright (C) 2026 RTE
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import json
@@ -8,6 +11,16 @@ import threading
 import time
 from subprocess import Popen
 from typing import Dict, Optional
+
+try:
+    import sys as _sys
+    _sys.path.insert(0, '/usr/lib/seapath')
+    from seapath_hook.claim import claim as _seapath_claim, release as _seapath_release
+    _SEAPATH_ALLOC_AVAILABLE = True
+except ImportError:
+    _seapath_claim = None
+    _seapath_release = None
+    _SEAPATH_ALLOC_AVAILABLE = False
 
 import subprocess
 from fastapi import APIRouter, FastAPI, HTTPException
@@ -67,6 +80,26 @@ class FlowConfig(BaseModel):
         1.0, description="Durée d'un demi-cycle normal/fault en s pour --fault-cycle"
     )
 
+    # Allocation CPU temps réel (seapath-alloc ou fallback taskset/chrt)
+    seapath_alloc: bool = Field(
+        False,
+        description="Active l'allocation CPU temps réel via seapath-alloc ou fallback taskset/chrt",
+    )
+    seapath_isolation: str = Field(
+        "exclusive_logical",
+        description="Mode d'isolation seapath-alloc : exclusive_logical, exclusive_physical, shared",
+    )
+    seapath_scheduler: str = Field(
+        "FIFO", description="Ordonnanceur RT pour seapath-alloc et chrt : FIFO, RR, OTHER"
+    )
+    seapath_priority: int = Field(
+        80, ge=0, le=99, description="Priorité RT 0-99 (0 pour OTHER, 1-99 pour FIFO/RR)"
+    )
+    seapath_cpu_cores: Optional[str] = Field(
+        None,
+        description="Cores CPU pour le fallback taskset (ex. '7' ou '6,7') ; ignoré si seapath-alloc disponible",
+    )
+
 
 class FlowState(BaseModel):
     """
@@ -92,6 +125,11 @@ class FlowState(BaseModel):
     fault_v_peak: Optional[float]
     fault_phase_deg: Optional[float]
     fault_cycle_s: float
+    seapath_alloc: bool
+    seapath_isolation: str
+    seapath_scheduler: str
+    seapath_priority: int
+    seapath_cpu_cores: Optional[str]
     running: bool
 
 
@@ -274,16 +312,38 @@ def _try_adopt_flow(cfg: FlowConfig) -> Optional[FlowRuntime]:
 
 def start_flow_process(cfg: FlowConfig) -> Popen:
     cmd = build_rt_sender_cmd(cfg)
-    # start_new_session=True: le processus survit au redémarrage du service po.
-    # Les capacités temps réel (SCHED_FIFO, mlockall) sont dans le binaire C.
-    proc = Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    _write_pidfile(cfg.name, proc.pid)
-    return proc
+    label = f"rt-sender-{cfg.name}"
+    _claimed = False
+    if cfg.seapath_alloc:
+        if _SEAPATH_ALLOC_AVAILABLE:
+            _seapath_claim(
+                label=label,
+                isolation=cfg.seapath_isolation,
+                scheduler=cfg.seapath_scheduler,
+                priority=cfg.seapath_priority,
+                target_pid=0,
+                no_apply=False,
+            )
+            _claimed = True
+        elif cfg.seapath_cpu_cores is not None:
+            cmd = (
+                ["taskset", "-c", cfg.seapath_cpu_cores,
+                 "chrt", "-f", str(cfg.seapath_priority)]
+                + cmd
+            )
+    try:
+        # start_new_session=True: le processus survit au redémarrage du service po.
+        proc = Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        _write_pidfile(cfg.name, proc.pid)
+        return proc
+    finally:
+        if _claimed:
+            _seapath_release(label)
 
 
 def stop_flow_process(fr: FlowRuntime) -> None:
@@ -510,6 +570,11 @@ def _webui_html() -> str:
         ['fault_v_peak', f.fault_v_peak],
         ['fault_phase_deg', f.fault_phase_deg],
         ['fault_cycle_s', f.fault_cycle_s],
+        ['seapath_alloc', f.seapath_alloc],
+        ['seapath_isolation', f.seapath_isolation],
+        ['seapath_scheduler', f.seapath_scheduler],
+        ['seapath_priority', f.seapath_priority],
+        ['seapath_cpu_cores', f.seapath_cpu_cores],
       ];
       return kv.filter(([,v]) => v !== undefined && v !== null)
         .map(([k,v]) => '<dt>' + escapeHtml(k) + '</dt><dd>' + escapeHtml(String(v)) + '</dd>').join('');
@@ -681,6 +746,11 @@ def list_flows() -> list[FlowState]:
                     fault_v_peak=fr.config.fault_v_peak,
                     fault_phase_deg=fr.config.fault_phase_deg,
                     fault_cycle_s=fr.config.fault_cycle_s,
+                    seapath_alloc=fr.config.seapath_alloc,
+                    seapath_isolation=fr.config.seapath_isolation,
+                    seapath_scheduler=fr.config.seapath_scheduler,
+                    seapath_priority=fr.config.seapath_priority,
+                    seapath_cpu_cores=fr.config.seapath_cpu_cores,
                     running=running,
                 )
             )
@@ -719,6 +789,11 @@ def create_flow(cfg: FlowConfig) -> FlowState:
         fault_v_peak=cfg.fault_v_peak,
         fault_phase_deg=cfg.fault_phase_deg,
         fault_cycle_s=cfg.fault_cycle_s,
+        seapath_alloc=cfg.seapath_alloc,
+        seapath_isolation=cfg.seapath_isolation,
+        seapath_scheduler=cfg.seapath_scheduler,
+        seapath_priority=cfg.seapath_priority,
+        seapath_cpu_cores=cfg.seapath_cpu_cores,
         running=True,
     )
 
@@ -758,6 +833,11 @@ def update_flow(name: str, cfg: FlowConfig) -> FlowState:
         fault_v_peak=cfg.fault_v_peak,
         fault_phase_deg=cfg.fault_phase_deg,
         fault_cycle_s=cfg.fault_cycle_s,
+        seapath_alloc=cfg.seapath_alloc,
+        seapath_isolation=cfg.seapath_isolation,
+        seapath_scheduler=cfg.seapath_scheduler,
+        seapath_priority=cfg.seapath_priority,
+        seapath_cpu_cores=cfg.seapath_cpu_cores,
         running=True,
     )
 
