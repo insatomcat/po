@@ -88,6 +88,10 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
                         fault_v_peak=fr.config.fault_v_peak,
                         fault_phase_deg=fr.config.fault_phase_deg,
                         fault_cycle_s=fr.config.fault_cycle_s,
+                        seapath_isolation=fr.config.seapath_isolation,
+                        seapath_scheduler=fr.config.seapath_scheduler,
+                        seapath_priority=fr.config.seapath_priority,
+                        seapath_cpu_cores=fr.config.seapath_cpu_cores,
                         running=running,
                     ).dict()
                 )
@@ -134,6 +138,10 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
             fault_v_peak=cfg.fault_v_peak,
             fault_phase_deg=cfg.fault_phase_deg,
             fault_cycle_s=cfg.fault_cycle_s,
+            seapath_isolation=cfg.seapath_isolation,
+            seapath_scheduler=cfg.seapath_scheduler,
+            seapath_priority=cfg.seapath_priority,
+            seapath_cpu_cores=cfg.seapath_cpu_cores,
             running=True,
         ).dict()
 
@@ -176,6 +184,10 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
             fault_v_peak=cfg.fault_v_peak,
             fault_phase_deg=cfg.fault_phase_deg,
             fault_cycle_s=cfg.fault_cycle_s,
+            seapath_isolation=cfg.seapath_isolation,
+            seapath_scheduler=cfg.seapath_scheduler,
+            seapath_priority=cfg.seapath_priority,
+            seapath_cpu_cores=cfg.seapath_cpu_cores,
             running=True,
         ).dict()
 
