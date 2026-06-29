@@ -12,15 +12,9 @@ import time
 from subprocess import Popen
 from typing import Dict, Optional
 
-try:
-    import sys as _sys
-    _sys.path.insert(0, '/usr/lib/seapath')
-    from seapath_hook.claim import claim as _seapath_claim, release as _seapath_release
-    _SEAPATH_ALLOC_AVAILABLE = True
-except ImportError:
-    _seapath_claim = None
-    _seapath_release = None
-    _SEAPATH_ALLOC_AVAILABLE = False
+import shutil
+_SEAPATH_RUN = shutil.which("seapath-run")
+_SEAPATH_ALLOC_AVAILABLE = _SEAPATH_RUN is not None
 
 import subprocess
 from fastapi import APIRouter, FastAPI, HTTPException
@@ -360,20 +354,10 @@ def _find_free_isolated_cpu() -> Optional[int]:
 def start_flow_process(cfg: FlowConfig) -> Popen:
     cmd = build_rt_sender_cmd(cfg)
     label = f"rt-sender-{cfg.name}"
-    _claimed = False
     if _SEAPATH_ALLOC_AVAILABLE:
-        _seapath_claim(
-            label=label,
-            isolation=cfg.seapath_isolation,
-            scheduler=cfg.seapath_scheduler,
-            priority=cfg.seapath_priority,
-            target_pid=0,
-            no_apply=False,
-        )
-        _claimed = True
+        cmd = [_SEAPATH_RUN, label, cfg.seapath_isolation,
+               cfg.seapath_scheduler, str(cfg.seapath_priority), "--"] + cmd
     else:
-        # CPU pinning : config explicite, puis auto-détection du premier CPU isolé libre.
-        # Toujours actif : le pinning sur CPU isolé est le comportement par défaut.
         cores = cfg.seapath_cpu_cores
         if cores is None:
             cpu = _find_free_isolated_cpu()
@@ -381,19 +365,15 @@ def start_flow_process(cfg: FlowConfig) -> Popen:
                 cores = str(cpu)
         if cores is not None:
             cmd = ["taskset", "-c", cores, "chrt", "-f", str(cfg.seapath_priority)] + cmd
-    try:
-        # start_new_session=True: le processus survit au redémarrage du service po.
-        proc = Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        _write_pidfile(cfg.name, proc.pid)
-        return proc
-    finally:
-        if _claimed:
-            _seapath_release(label)
+    # start_new_session=True: le processus survit au redémarrage du service po.
+    proc = Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    _write_pidfile(cfg.name, proc.pid)
+    return proc
 
 
 def stop_flow_process(fr: FlowRuntime) -> None:
