@@ -365,13 +365,16 @@ def start_flow_process(cfg: FlowConfig) -> Popen:
                 cores = str(cpu)
         if cores is not None:
             cmd = ["taskset", "-c", cores, "chrt", "-f", str(cfg.seapath_priority)] + cmd
+    log_path = PIDS_DIR / f"{cfg.name}.log"
+    print(f"[sv] start: {' '.join(cmd)}", flush=True)
     # start_new_session=True: le processus survit au redémarrage du service po.
-    proc = Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    with log_path.open("a") as log:
+        proc = Popen(
+            cmd,
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
+        )
     _write_pidfile(cfg.name, proc.pid)
     return proc
 
