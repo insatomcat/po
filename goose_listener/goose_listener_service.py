@@ -546,7 +546,7 @@ class GooseListenerManager:
         now: float,
     ) -> Tuple[Any, ...]:
         cap = self._capture_reliability(analysis_running=snap.analysis_running)
-        mux = cap.get("mux") or {}
+        mux = cap.get("processbus") or cap.get("mux") or {}
         return (
             snap.events_rev,
             snap.event_filter,
@@ -1218,13 +1218,13 @@ class GooseListenerManager:
             base["backend"] = "pcapy"
             base["nic"] = nic_rx_stats(self.iface)
         mux = self._mux_stats()
-        base["multiplexed"] = bool(mux.get("multiplexed"))
-        base["mux"] = mux
+        base["processbus"] = mux
+        base["processbus_active"] = bool(mux.get("running"))
         return base
 
     def _snapshot_capture_baseline(self) -> Dict[str, Any]:
         stats = self._subscriber_stats()
-        mux = stats.get("mux") or {}
+        mux = stats.get("processbus") or stats.get("mux") or {}
         return {
             "drops": int(stats.get("drops", 0)),
             "nic": dict(stats.get("nic", {})),
@@ -1235,7 +1235,7 @@ class GooseListenerManager:
 
     def _capture_reliability(self, *, analysis_running: bool) -> Dict[str, Any]:
         stats = self._subscriber_stats()
-        mux = stats.get("mux") or {}
+        mux = stats.get("processbus") or stats.get("mux") or {}
         nic_now = stats.get("nic") or {}
         queue_size = int(stats.get("queue_size", 0))
         track_deltas = analysis_running and self._analysis_baseline_active
@@ -1304,7 +1304,7 @@ class GooseListenerManager:
             "queue_warn": self.CAPTURE_QUEUE_WARN,
             "pcap_drop_delta": pcap_drop_delta,
             "pcap_ifdrop_delta": pcap_ifdrop_delta,
-            "mux": mux,
+            "processbus": mux,
             "nic": nic_now,
             "nic_delta_since_analysis_start": nic_delta,
             "nic_advisory": "; ".join(nic_notes) if nic_notes else None,
@@ -1327,8 +1327,8 @@ class GooseListenerManager:
             "nic_advisory": rel["nic_advisory"],
             "pcap_drop_delta": rel["pcap_drop_delta"],
             "pcap_ifdrop_delta": rel["pcap_ifdrop_delta"],
-            "multiplexed": bool(mux.get("multiplexed")),
-            "mux": mux,
+            "processbus": mux,
+            "processbus_active": bool(mux.get("running")),
         }
 
     def status(self) -> Dict[str, Any]:

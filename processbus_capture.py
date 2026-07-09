@@ -16,6 +16,7 @@ PCAP_SNAPLEN = 65535
 PCAP_READ_TIMEOUT_MS = 50
 PCAP_BUFFER_BYTES = 4 * 1024 * 1024
 SV_QUEUE_MAX = 20_000
+GOOSE_QUEUE_MAX = 20_000
 
 GOOSE_BPF = "(ether proto 0x88b8) or (vlan and ether proto 0x88b8)"
 SV_BPF = "(ether proto 0x88ba) or (vlan and ether proto 0x88ba)"
@@ -38,11 +39,17 @@ def frame_ethertype(frame: bytes) -> Optional[int]:
 
 
 def bpf_for_modes(*, goose: bool, sv: bool) -> Tuple[str, str]:
-    """Retourne (filtre BPF, libellé mode)."""
+    """Retourne (filtre BPF kernel, libellé abonnés actifs).
+
+    Dès qu'un abonné GOOSE est actif, le filtre kernel inclut aussi les SV
+    (0x88ba). Sinon un GOOSE listener démarré avant le SV listener laisse le
+    filtre sur GOOSE seul et les trames SV ne passent plus.
+    Le dispatch GOOSE vs SV reste en userspace.
+    """
     if goose and sv:
         return PROCESSBUS_BPF, "goose+sv"
     if goose:
-        return GOOSE_BPF, "goose"
+        return PROCESSBUS_BPF, "goose"
     if sv:
         return SV_BPF, "sv"
     return GOOSE_BPF, "idle"
@@ -54,6 +61,7 @@ class ProcessbusCaptureStats:
     goose_packets: int = 0
     sv_packets: int = 0
     sv_queue_drops: int = 0
+    goose_queue_drops: int = 0
     loop_errors: int = 0
     last_error: Optional[str] = None
     bpf_mode: str = "idle"
@@ -88,6 +96,7 @@ class ProcessbusCapture:
         self._sv_sub: Optional[_SvSubscription] = None
         self._thread: Optional[threading.Thread] = None
         self._sv_worker: Optional[threading.Thread] = None
+        self._goose_worker: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._stats = ProcessbusCaptureStats()
         self._stats_lock = threading.Lock()
@@ -95,6 +104,7 @@ class ProcessbusCapture:
         self._bpf_generation = 0
         self._applied_bpf_gen = -1
         self._sv_queue: queue.Queue[Tuple[object, bytes, float]] = queue.Queue(maxsize=SV_QUEUE_MAX)
+        self._goose_queue: queue.Queue[Tuple[bytes, float]] = queue.Queue(maxsize=GOOSE_QUEUE_MAX)
         self._goose_ring: Optional[object] = None
 
     def enable_goose_ring(self, window_s: float = 4.0) -> None:
@@ -138,7 +148,7 @@ class ProcessbusCapture:
                 sv_on = self._sv_sub is not None
                 running = self._thread is not None and self._thread.is_alive()
             return {
-                "multiplexed": True,
+                "processbus_goose": True,
                 "iface": self.iface,
                 "running": running,
                 "goose_subscribers": goose_n,
@@ -149,6 +159,8 @@ class ProcessbusCapture:
                 "sv_packets": s.sv_packets,
                 "sv_queue_size": int(self._sv_queue.qsize()),
                 "sv_queue_drops": s.sv_queue_drops,
+                "goose_queue_size": int(self._goose_queue.qsize()),
+                "goose_queue_drops": s.goose_queue_drops,
                 "pcap_recv": s.pcap_recv,
                 "pcap_drop": s.pcap_drop,
                 "pcap_ifdrop": s.pcap_ifdrop,
@@ -163,7 +175,10 @@ class ProcessbusCapture:
             self._goose_handlers[sub_id] = handler
             self._bpf_generation += 1
             self._ensure_thread_locked()
-            return lambda: self._unsubscribe_goose(sub_id)
+            self._ensure_goose_worker_locked()
+            cap = self._cap
+        self._flush_bpf(cap)
+        return lambda: self._unsubscribe_goose(sub_id)
 
     def subscribe_sv(self, handler: SvHandler) -> Callable[[], None]:
         with self._lock:
@@ -173,21 +188,27 @@ class ProcessbusCapture:
             self._bpf_generation += 1
             self._ensure_thread_locked()
             self._ensure_sv_worker_locked()
-            return self._unsubscribe_sv
+            cap = self._cap
+        self._flush_bpf(cap)
+        return self._unsubscribe_sv
 
     def _unsubscribe_goose(self, sub_id: int) -> None:
         with self._lock:
             self._goose_handlers.pop(sub_id, None)
             if self._has_consumers_locked():
                 self._bpf_generation += 1
+            cap = self._cap
             self._maybe_stop_locked()
+        self._flush_bpf(cap)
 
     def _unsubscribe_sv(self) -> None:
         with self._lock:
             self._sv_sub = None
             if self._has_consumers_locked():
                 self._bpf_generation += 1
+            cap = self._cap
             self._maybe_stop_locked()
+        self._flush_bpf(cap)
 
     def _has_consumers_locked(self) -> bool:
         return bool(self._goose_handlers) or self._sv_sub is not None
@@ -216,6 +237,16 @@ class ProcessbusCapture:
         )
         self._sv_worker.start()
 
+    def _ensure_goose_worker_locked(self) -> None:
+        if self._goose_worker is not None and self._goose_worker.is_alive():
+            return
+        self._goose_worker = threading.Thread(
+            target=self._goose_worker_loop,
+            daemon=True,
+            name=f"processbus-goose-worker-{self.iface}",
+        )
+        self._goose_worker.start()
+
     def _maybe_stop_locked(self) -> None:
         if self._has_consumers_locked():
             return
@@ -231,6 +262,10 @@ class ProcessbusCapture:
             self._stats.pcap_drop = int(drop)
             self._stats.pcap_ifdrop = int(ifdrop)
 
+    def _flush_bpf(self, cap: Optional[object]) -> None:
+        if cap is not None:
+            self._apply_bpf_if_needed(cap)
+
     def _apply_bpf_if_needed(self, cap: object) -> None:
         with self._lock:
             gen = self._bpf_generation
@@ -238,16 +273,47 @@ class ProcessbusCapture:
                 return
             goose, sv = self._modes_locked()
             bpf, mode = bpf_for_modes(goose=goose, sv=sv)
-            self._applied_bpf_gen = gen
         try:
             cap.setfilter(bpf)  # type: ignore[attr-defined]
-            with self._stats_lock:
-                self._stats.bpf_mode = mode
-            print(f"[processbus] BPF {self.iface} → {mode} ({bpf})", flush=True)
         except Exception as exc:
             with self._stats_lock:
                 self._stats.loop_errors += 1
                 self._stats.last_error = f"setfilter: {exc}"
+            print(f"[processbus] BPF {self.iface} ERREUR: {exc}", flush=True)
+            return
+        with self._lock:
+            self._applied_bpf_gen = gen
+        with self._stats_lock:
+            self._stats.bpf_mode = mode
+        print(f"[processbus] BPF {self.iface} → {mode} ({bpf})", flush=True)
+
+    def _goose_worker_loop(self) -> None:
+        """Ring buffer + handlers GOOSE hors du thread pcap (ne pas bloquer les SV)."""
+        while not self._stop.is_set() or not self._goose_queue.empty():
+            try:
+                raw, ts_rx = self._goose_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            with self._lock:
+                handlers = list(self._goose_handlers.values())
+                ring = self._goose_ring
+            if ring is not None:
+                try:
+                    ring.add(ts_rx, raw)
+                except Exception:
+                    traceback.print_exc()
+            for handler in handlers:
+                try:
+                    handler(ts_rx, raw)
+                except Exception:
+                    traceback.print_exc()
+
+    def _enqueue_goose(self, raw: bytes, ts_rx: float) -> None:
+        try:
+            self._goose_queue.put_nowait((raw, ts_rx))
+        except queue.Full:
+            with self._stats_lock:
+                self._stats.goose_queue_drops += 1
 
     def _sv_worker_loop(self) -> None:
         while not self._stop.is_set() or not self._sv_queue.empty():
@@ -343,21 +409,12 @@ class ProcessbusCapture:
                 self._poll_pcap_stats(cap)
 
             with self._lock:
-                goose_handlers = list(self._goose_handlers.values())
                 sv_active = self._sv_sub is not None
 
             if etype == GOOSE_ETHERTYPE:
                 with self._stats_lock:
                     self._stats.goose_packets += 1
-                with self._lock:
-                    ring = self._goose_ring
-                if ring is not None:
-                    ring.add(ts_rx, raw)
-                for handler in goose_handlers:
-                    try:
-                        handler(ts_rx, raw)
-                    except Exception:
-                        traceback.print_exc()
+                self._enqueue_goose(raw, ts_rx)
             elif etype == SV_ETHERTYPE and sv_active:
                 with self._stats_lock:
                     self._stats.sv_packets += 1

@@ -50,6 +50,10 @@ except ImportError:
 ETH_HEADER_LEN = 14
 ETH_VLAN_LEN = 4
 ETH_P_61850_SV = 0x88BA
+PCAP_SNAPLEN = 65535
+PCAP_READ_TIMEOUT_MS = 50
+PCAP_BUFFER_BYTES = 4 * 1024 * 1024
+SV_BPF = "ether proto 0x88ba or (vlan and ether proto 0x88ba)"
 I_SCALE = 1000
 V_SCALE = 100
 SEQDATA_6I3U = 72   # 6 I + 3 U
@@ -464,7 +468,8 @@ class CaptureManager:
         return {"running": False, "stopped": True}
 
     def _run(self) -> None:
-        capture_loop_multiplexed(
+        # Socket pcapy dédiée SV : ne pas partager le multiplexeur GOOSE (saturation/BPF).
+        capture_loop(
             self.interface,
             self.samples,
             self.samples_lock,
@@ -498,6 +503,7 @@ def create_flask_app(
             svids = sorted(seen_svids)
         with stats_lock:
             debug = {
+                "capture_mode": stats.get("capture_mode", "dedicated"),
                 "capture_running": bool(stats.get("capture_running")),
                 "capture_heartbeat": stats.get("capture_heartbeat"),
                 "capture_packets": int(stats.get("capture_packets", 0)),
@@ -724,12 +730,13 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                  stop_event: threading.Event) -> None:
     with stats_lock:
         stats["capture_running"] = True
+        stats["capture_mode"] = "dedicated"
     cap = None
     try:
         while not stop_event.is_set():
             if cap is None:
                 try:
-                    cap = pcapy.open_live(iface, 512, 1, 100)
+                    cap = pcapy.open_live(iface, PCAP_SNAPLEN, 1, PCAP_READ_TIMEOUT_MS)
                 except Exception as e:
                     err = f"{type(e).__name__}: {e}"
                     with stats_lock:
@@ -742,7 +749,11 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                     continue
 
                 try:
-                    cap.setfilter("ether proto 0x88ba or (vlan and ether proto 0x88ba)")
+                    cap.setbuff(PCAP_BUFFER_BYTES)
+                except Exception:
+                    pass
+                try:
+                    cap.setfilter(SV_BPF)
                 except Exception as e:
                     print(f"[capture] setfilter: {e}", file=sys.stderr)
 
@@ -750,9 +761,9 @@ def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
                     stats["last_error"] = None
                     stats["last_error_at"] = None
                 print(
-                    f"[+] Capture sur {iface} (0x88ba)"
+                    f"[capture] SV socket dédiée sur {iface} ({SV_BPF})"
                     + (f", svID={config.get('svid')}" if config.get("svid") else ""),
-                    file=sys.stderr,
+                    flush=True,
                 )
 
             try:
@@ -842,6 +853,7 @@ def create_svview_app(
         "misses_events": deque(maxlen=50000),  # (ts_sec, gap)
         "last_smpcnt": None,
         "capture_running": False,
+        "capture_mode": "dedicated",
         "capture_heartbeat": None,
         "capture_packets": 0,
         "sv_packets": 0,

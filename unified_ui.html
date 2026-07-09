@@ -2784,17 +2784,17 @@
       const mode = data.mode || 'idle';
       const c = data.capture || {};
       const backend = c.backend || 'pcapy';
-      const mux = c.mux || {};
-      const bpf = mux.bpf_mode ? ` · BPF ${mux.bpf_mode}` : '';
-      const muxLabel = c.multiplexed
-        ? ` · mux${mux.goose_subscribers ? ' GOOSE×' + mux.goose_subscribers : ''}${mux.sv_active ? ' +SV' : ''}`
+      const pb = c.processbus || {};
+      const bpf = pb.bpf_mode ? ` · BPF ${pb.bpf_mode}` : '';
+      const pbLabel = c.processbus_active
+        ? ` · processbus GOOSE${pb.goose_subscribers ? ' ×' + pb.goose_subscribers : ''}`
         : '';
       const q = c.queue_size ?? 0;
       const drops = c.drops ?? 0;
       const dropsRun = c.drops_since_analysis_start ?? 0;
       const pcapDrop = c.pcap_drop_delta ?? 0;
       const reliable = c.reliable !== false;
-      let msg = `${iface} · ${cap} · ${backend}${muxLabel}${bpf} · mode ${mode} · file ${q}`;
+      let msg = `${iface} · ${cap} · ${backend}${pbLabel}${bpf} · mode ${mode} · file ${q}`;
       if (dropsRun > 0) msg += ` · ${dropsRun} drop(s) GOOSE`;
       if (pcapDrop > 0) msg += ` · libpcap drop +${pcapDrop}`;
       if (!reliable && c.invalid_reason) msg += ` · ${c.invalid_reason}`;

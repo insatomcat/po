@@ -289,6 +289,11 @@ class GooseSubscriber:
             self._drain_queue()
             return self._drops
 
+        print(
+            f"[goose] ATTENTION: capture directe sur {self.iface} "
+            f"(multiplexeur processbus indisponible) — BPF GOOSE seul",
+            flush=True,
+        )
         try:
             import pcapy
         except ImportError as exc:
