@@ -197,6 +197,10 @@ def _problem_delay_exceeded(evt: TriggerEvent, threshold_ms: float) -> Dict[str,
     }
 
 
+def _problem_excludes_histogram_delta(p: Dict[str, Any]) -> bool:
+    return p.get("kind") in ("delay_exceeded", "capture_incomplete")
+
+
 def _problem_capture_incomplete(evt: TriggerEvent) -> Dict[str, Any]:
     sq = evt.sq_num
     return {
@@ -724,14 +728,18 @@ class GooseListenerManager:
             if pdu_data_copy is not None:
                 self._last_all_data[key] = pdu_data_copy
             self._last_trigger_st[key] = pdu.st_num
-            _hist_buckets_add(self._hist_all_buckets, key, delta_ms)
-            if kind == "declenchement":
-                _hist_buckets_add(self._hist_declenchement_buckets, key, delta_ms)
             pending_problems: List[Dict[str, Any]] = []
             if kind == "declenchement":
                 pending_problems = self._problems_for_declenchement_unlocked(
                     key, evt, target
                 )
+            exclude_from_hist = any(
+                _problem_excludes_histogram_delta(p) for p in pending_problems
+            )
+            if not exclude_from_hist:
+                _hist_buckets_add(self._hist_all_buckets, key, delta_ms)
+                if kind == "declenchement":
+                    _hist_buckets_add(self._hist_declenchement_buckets, key, delta_ms)
             if self._event_passes_filter_unlocked(evt):
                 self._events.append(evt)
                 self._events_rev += 1
