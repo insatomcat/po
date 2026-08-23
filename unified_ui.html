@@ -500,7 +500,10 @@
           <div class="gl-card">
             <div class="gl-panel-head">
               <h2 data-i18n="gl.problems">Problèmes</h2>
-              <button type="button" class="btn btn--small" id="gl-problems-download" data-i18n="gl.downloadTxt">Télécharger (.txt)</button>
+              <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+                <button type="button" class="btn btn--small" id="gl-demo-delay-btn" data-i18n="gl.simulateDelay" disabled title="Injecte un déclenchement fictif au-delà du seuil, sans envoyer de GOOSE sur le bus">Simuler un retard</button>
+                <button type="button" class="btn btn--small" id="gl-problems-download" data-i18n="gl.downloadTxt">Télécharger (.txt)</button>
+              </div>
             </div>
             <div class="gl-problems-config" style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;margin-bottom:0.75rem">
               <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
@@ -918,6 +921,10 @@
         "gl.startAnalysis": "Lancer l'analyse",
         "gl.problems": "Problèmes",
         "gl.downloadTxt": "Télécharger (.txt)",
+        "gl.simulateDelay": "Simuler un retard",
+        "gl.simulateDelayTitle": "Injecte un déclenchement fictif au-delà du seuil Δ, sans envoyer de GOOSE sur le bus.",
+        "gl.needAnalysis": "Lancez d'abord une analyse.",
+        "gl.msg.delayDemo": "Δ net {delta} ms > seuil {th} ms (démo)",
         "gl.cycle": "Cycle déclenchement (s)",
         "gl.threshold": "Seuil Δ (ms)",
         "gl.problemsHelp": "En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements (diagnostic). À chaque nouveau problème, les <strong>4 dernières secondes</strong> de trafic GOOSE sont enregistrées (bouton PCAP).",
@@ -1158,6 +1165,10 @@
         "gl.startAnalysis": "Start analysis",
         "gl.problems": "Problems",
         "gl.downloadTxt": "Download (.txt)",
+        "gl.simulateDelay": "Simulate a delay",
+        "gl.simulateDelayTitle": "Injects a fake trip beyond the Delta threshold, without sending GOOSE on the bus.",
+        "gl.needAnalysis": "Start an analysis first.",
+        "gl.msg.delayDemo": "Net Δ {delta} ms > threshold {th} ms (demo)",
         "gl.cycle": "Trip cycle (s)",
         "gl.threshold": "Δ threshold (ms)",
         "gl.problemsHelp": "When a trip is missing, the details list GOOSE frames received between two trips (diagnostics). Each new problem records the <strong>last 4 seconds</strong> of GOOSE traffic (PCAP button).",
@@ -2836,7 +2847,8 @@
       const cycle = cfg?.cycle_s ?? '';
       const gap = p.gap_s != null ? Number(p.gap_s).toFixed(1) : '';
       if (kind === 'delay_exceeded') {
-        return t('gl.msg.delay', { delta: (p.delta_net_ms ?? 0).toFixed(2), th: cfg?.threshold_ms ?? '' });
+        const key = p.demo ? 'gl.msg.delayDemo' : 'gl.msg.delay';
+        return t(key, { delta: (p.delta_net_ms ?? 0).toFixed(2), th: cfg?.threshold_ms ?? '' });
       }
       if (kind === 'capture_incomplete') {
         return t('gl.msg.captureIncomplete', { sq: p.sq_num, delta: (p.delta_net_ms ?? 0).toFixed(2) });
@@ -3320,6 +3332,11 @@
           ? 'declenchements_only'
           : analysis.event_filter;
       }
+      const demoBtn = document.getElementById('gl-demo-delay-btn');
+      if (demoBtn) {
+        demoBtn.disabled = !analysis.running;
+        demoBtn.title = t('gl.simulateDelayTitle');
+      }
       const status = document.getElementById('gl-analysis-status');
       if (status) {
         const cnt = glFormatEventCount(analysis);
@@ -3608,6 +3625,23 @@
         await glPoll();
       } catch (e) {
         alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-demo-delay-btn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('gl-demo-delay-btn');
+      if (btn?.disabled) { alert(t('gl.needAnalysis')); return; }
+      try {
+        if (btn) btn.disabled = true;
+        await glFetchJson('/analysis/demo-delay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        await glPoll();
+      } catch (e) {
+        alert(e.message);
+        if (btn) btn.disabled = false;
       }
     });
 

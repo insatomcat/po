@@ -93,6 +93,15 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
             return HTTPStatus.BAD_REQUEST, {"error": err}
         return HTTPStatus.OK, mgr.analysis_status()
 
+    if path == "/analysis/demo-delay" and method == "POST":
+        err = mgr.inject_demo_delay(
+            gocb_ref=str(data.get("gocb_ref") or "").strip() or None,
+            go_id=str(data.get("go_id") or "").strip() or None,
+        )
+        if err:
+            return HTTPStatus.CONFLICT, {"error": err}
+        return HTTPStatus.OK, mgr.analysis_status()
+
     if path == "/analysis/stop" and method == "POST":
         mgr.stop_analysis()
         return HTTPStatus.OK, mgr.analysis_status()

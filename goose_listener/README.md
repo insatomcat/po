@@ -153,6 +153,7 @@ Types d’anomalies :
 Affichage : **50 derniers** problèmes, **~10 lignes visibles** avec défilement.  
 Les problèmes sont **accumulés dans une liste RAM dédiée** (`_problems_ram`) à la **réception de chaque déclenchement** (même chemin que l'histogramme), puis conservés pour toute la session — indépendamment de la rotation des 10 000 événements.  
 Bouton **Télécharger (.txt)** : export de **tous** les problèmes de la session.
+Bouton **Simuler un retard** : injecte un déclenchement fictif avec Δ > seuil sur un flux d'analyse tiré au sort, **sans envoyer de GOOSE** sur le process bus (démo du panneau, de l'événement et du PCAP des 4 dernières secondes de trafic réel).
 
 ### Histogramme & derniers événements
 
@@ -216,6 +217,7 @@ Base : **`/api/gooselistener`**
 | GET | `/analysis` | État analyse (événements, histogramme, problèmes) |
 | POST | `/analysis/filter` | `{ "event_filter": "defauts_only" \| "all" }` |
 | POST | `/analysis/problems` | `{ "cycle_s": 4, "threshold_ms": 40 }` |
+| POST | `/analysis/demo-delay` | Injecte un `delay_exceeded` de démo (analyse en cours, pas d'émission GOOSE) |
 | GET | `/analysis/events/export` | Téléchargement texte de tous les événements en RAM |
 | GET | `/analysis/problems/export` | Téléchargement texte de tous les problèmes |
 | GET | `/analysis/dumps` | Liste des PCAP auto (ring buffer 4 s) |

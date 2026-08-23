@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import random
 import sys
 import threading
 import time
@@ -37,6 +38,7 @@ def _normalize_event_filter(event_filter: str) -> str:
 
 DEFAULT_PROBLEM_CYCLE_S = 4.0
 DEFAULT_PROBLEM_THRESHOLD_MS = 40.0
+DEMO_DELAY_MARGIN_MS = 45.0
 PROBLEMS_TIME_BUCKET_S = 10.0
 PROBLEMS_CONTEXT_MAX = 30
 HIST_BIN_MS = 1.0
@@ -804,6 +806,66 @@ class GooseListenerManager:
                     return "Le seuil doit être ≥ 0 ms."
                 self._problem_threshold_ms = float(threshold_ms)
             self._analysis_poll_cache.key = None
+        return None
+
+
+    def inject_demo_delay(
+        self,
+        gocb_ref: Optional[str] = None,
+        go_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Injecte un déclenchement fictif avec delta > seuil (démo UI, pas d'émission réseau)."""
+        problem: Optional[Dict[str, Any]] = None
+        with self._lock:
+            if self._mode != "analyze":
+                return "Lancez une analyse avant de simuler un retard."
+            if not self._targets:
+                return "Aucun flux en analyse."
+            want_gocb = (gocb_ref or "").strip()
+            want_go = (go_id or "").strip()
+            if want_gocb:
+                target = self._targets.get(_stream_key(want_gocb, want_go))
+                if target is None:
+                    return "Flux introuvable dans l'analyse en cours."
+            else:
+                target = random.choice(list(self._targets.values()))
+            key = _stream_key(target.gocb_ref, target.go_id)
+            threshold_ms = max(0.0, float(self._problem_threshold_ms))
+            delay_ms = float(target.delay_ms)
+            offset_ms = min(max(delay_ms + threshold_ms + DEMO_DELAY_MARGIN_MS, 1.0), 900.0)
+            now = time.time()
+            sec = math.floor(now)
+            ts_goose = sec + offset_ms / 1000.0
+            if ts_goose > now:
+                ts_goose -= 1.0
+            ts_pile = math.floor(ts_goose)
+            delta_ms = (ts_goose - ts_pile) * 1000.0 - delay_ms
+            scan_ent = self._scan_entries.get(key)
+            app_id = scan_ent.app_id if scan_ent is not None else 0
+            st_num = int(self._last_st_num.get(key) or 0) + 1
+            evt = TriggerEvent(
+                ts_goose=ts_goose,
+                gocb_ref=target.gocb_ref,
+                go_id=target.go_id,
+                app_id=app_id,
+                st_num=st_num,
+                sq_num=0,
+                ts_seconde_pile=ts_pile,
+                delta_net_ms=delta_ms,
+                processing_lag_ms=0.0,
+                event_kind="declenchement",
+                event_label="Déclenchement",
+                change_detail="démo (injection UI)",
+            )
+            if self._event_passes_filter_unlocked(evt):
+                self._events.append(evt)
+                self._events_rev += 1
+                self._events_by_key.setdefault(key, []).append(delta_ms)
+            self._analysis_poll_cache.key = None
+            problem = _problem_delay_exceeded(evt, threshold_ms)
+            problem["demo"] = True
+        if problem:
+            self._accumulate_problems([problem])
         return None
 
     def start_analysis(
