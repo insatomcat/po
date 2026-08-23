@@ -3560,6 +3560,7 @@
 
     document.getElementById('gl-scan-btn')?.addEventListener('click', async () => {
       const dur = Number(document.getElementById('gl-scan-duration')?.value) || 5;
+      document.getElementById('gl-scan-filter')?.focus();
       try {
         await glFetchJson('/scan', {
           method: 'POST',
