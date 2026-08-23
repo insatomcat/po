@@ -41,3 +41,4 @@ goose/recents.json
 svgenerator/flows.json
 svgenerator/recents.json
 svgenerator/pids/
+stress/hosts.json

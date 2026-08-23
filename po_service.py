@@ -10,6 +10,7 @@ Routes:
   - /api/sv/*          -> API SV (flows, recents)
   - /api/svview/*      -> proxy vers SV Listener (si --svview-interface)
   - /api/gooselistener/* -> GOOSE Listener (si --svview-interface)
+  - /api/stress/*      -> Stress-test nœuds (SSH + stress-ng)
 """
 from __future__ import annotations
 
@@ -39,6 +40,9 @@ from svgenerator.sv_api import handle_sv, init_sv_api
 
 sys.path.insert(0, str(ROOT / "goose_listener"))
 from goose_listener_api import configure_goose_listener, handle_goose_listener  # noqa: E402
+
+from stress.stress_api import handle_stress  # noqa: E402
+from stress.stress_service import get_stress_manager  # noqa: E402
 
 
 def _send_json(handler: BaseHTTPRequestHandler, status: int, payload: object) -> None:
@@ -170,6 +174,11 @@ class UnifiedHandler(BaseHTTPRequestHandler):
             result = handle_goose_listener(sub, "GET", None)
             _handle_gooselistener_response(self, result)
             return
+        if path.startswith("/api/stress/"):
+            sub = path[len("/api/stress"):] or "/"
+            status, result = handle_stress(sub, "GET", None)
+            _send_json(self, status, result)
+            return
         if path.startswith("/api/sv/"):
             sub = path[len("/api/sv"):] or "/"
             status, result = handle_sv(sub, "GET", None)
@@ -211,6 +220,11 @@ class UnifiedHandler(BaseHTTPRequestHandler):
             status, result = handle_goose_listener(sub, "POST", body)
             _send_json(self, status, result)
             return
+        if path.startswith("/api/stress/"):
+            sub = path[len("/api/stress"):] or "/"
+            status, result = handle_stress(sub, "POST", body)
+            _send_json(self, status, result)
+            return
         if path.startswith("/api/sv/"):
             sub = path[len("/api/sv"):] or "/"
             status, result = handle_sv(sub, "POST", body)
@@ -242,6 +256,11 @@ class UnifiedHandler(BaseHTTPRequestHandler):
             self.wfile.write(
                 json.dumps(result, ensure_ascii=False).encode("utf-8")
             )
+            return
+        if path.startswith("/api/stress/"):
+            sub = path[len("/api/stress"):] or "/"
+            status, result = handle_stress(sub, "PUT", body)
+            _send_json(self, status, result)
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -406,7 +425,7 @@ def main() -> int:
     httpd = ThreadingHTTPServer(server_address, UnifiedHandler)
     print(
         f"Service PO démarré sur http://{args.listen_host}:{args.listen_port} "
-        f"(MMS, GOOSE, SV)"
+        f"(MMS, GOOSE, SV, Stress)"
     )
     try:
         httpd.serve_forever()
@@ -414,6 +433,7 @@ def main() -> int:
         print("\n[Interrupt] Arrêt demandé.")
     finally:
         goose.stop()
+        get_stress_manager().shutdown()
         httpd.server_close()
     return 0
 
