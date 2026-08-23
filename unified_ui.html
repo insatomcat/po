@@ -2,6 +2,20 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('unified-ui-lang');
+        var lang = (saved === 'fr' || saved === 'en') ? saved : null;
+        if (!lang) {
+          var nav = String((navigator.languages && navigator.languages[0]) || navigator.language || '').toLowerCase();
+          lang = nav.indexOf('fr') === 0 ? 'fr' : 'en';
+        }
+        document.documentElement.lang = lang;
+        document.documentElement.classList.add('i18n-pending');
+      } catch (e) {}
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PO – MMS | GOOSE | SV</title>
   <style>
@@ -16,6 +30,7 @@
       --svview-chart-h: 17vw;
     }
     html { font-size: 70%; }
+    html.i18n-pending body { visibility: hidden; }
     * { box-sizing: border-box; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -33,7 +48,9 @@
       padding-bottom: 0;
     }
     .tabs-left { display: flex; gap: 0.25rem; flex-wrap: wrap; }
-    .tabs-right { margin-left: auto; display: flex; align-items: center; }
+    .tabs-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
+    .lang-switch { display: flex; gap: 0.15rem; }
+    .lang-btn.is-active { background: var(--accent); color: var(--bg); }
     .tab {
       padding: 0.6rem 1rem;
       background: transparent;
@@ -241,90 +258,94 @@
       <button type="button" class="tab active" data-tab="mms">MMS</button>
       <button type="button" class="tab" data-tab="goose">GOOSE</button>
       <button type="button" class="tab" data-tab="sv">SV</button>
-      <button type="button" class="tab" data-tab="svview">SV Listener</button>
-      <button type="button" class="tab" data-tab="gooselistener">GOOSE Listener</button>
+      <button type="button" class="tab" data-tab="svview" data-i18n="tab.svview">SV Listener</button>
+      <button type="button" class="tab" data-tab="gooselistener" data-i18n="tab.gooselistener">GOOSE Listener</button>
     </div>
     <div class="tabs-right">
-      <button type="button" class="btn btn--small" id="iframe-tabs-settings-btn">Paramètres</button>
+      <div class="lang-switch" role="group" data-i18n-aria="lang.switch">
+        <button type="button" class="btn btn--small lang-btn" data-lang="fr">FR</button>
+        <button type="button" class="btn btn--small lang-btn" data-lang="en">EN</button>
+      </div>
+      <button type="button" class="btn btn--small" id="iframe-tabs-settings-btn" data-i18n="settings">Paramètres</button>
     </div>
   </div>
 
   <div id="panel-mms" class="panel active">
-    <h1>Flux MMS</h1>
+    <h1 data-i18n="mms.title">Flux MMS</h1>
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0">Flux en cours</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-streams">Afficher</button>
+      <h2 style="margin:0" data-i18n="mms.streams">Flux en cours</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-streams" data-i18n="common.show">Afficher</button>
     </div>
     <div id="mms-streams-body" style="display:none">
       <div class="toolbar">
-        <button type="button" class="btn btn--accent" id="mms-refresh">Actualiser</button>
-        <button type="button" class="btn btn--danger" id="mms-purge">Tout supprimer</button>
+        <button type="button" class="btn btn--accent" id="mms-refresh" data-i18n="common.refresh">Actualiser</button>
+        <button type="button" class="btn btn--danger" id="mms-purge" data-i18n="common.deleteAll">Tout supprimer</button>
         <span id="mms-loading"></span>
       </div>
       <div id="mms-streams-table-wrap">
-        <table><thead><tr><th></th><th>Id</th><th>Domaine</th><th>IED</th><th>Debug</th><th>Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
+        <table><thead><tr><th></th><th data-i18n="mms.col.id">Id</th><th data-i18n="mms.col.domain">Domaine</th><th data-i18n="mms.col.ied">IED</th><th data-i18n="mms.col.debug">Debug</th><th data-i18n="common.actions">Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
       </div>
     </div>
 
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0">Flux récents</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-recents-panel">Afficher</button>
+      <h2 style="margin:0" data-i18n="mms.recents">Flux récents</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-recents-panel" data-i18n="common.show">Afficher</button>
     </div>
     <section class="recents-section" id="mms-recents-section" style="display:none"><div id="mms-recents"></div></section>
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0">Nouvelle commandes MMS</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-new-cmds">Afficher</button>
+      <h2 style="margin:0" data-i18n="mms.newCmds">Nouvelle commandes MMS</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-new-cmds" data-i18n="common.show">Afficher</button>
     </div>
     <div id="mms-new-cmds-body" style="display:none">
       <form id="mms-cmd-form">
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.75rem;align-items:end">
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span>Nom</span>
-            <input type="text" id="mms-cmd-name" name="name" placeholder="Ex: Ouverture TB1" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+            <span data-i18n="mms.field.name">Nom</span>
+            <input type="text" id="mms-cmd-name" name="name" placeholder="Ex: Ouverture TB1" data-i18n-placeholder="mms.ph.name" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span>Position</span>
+            <span data-i18n="mms.field.position">Position</span>
             <select id="mms-cmd-position" name="position" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit">
-              <option value="closed" selected>Fermer</option>
-              <option value="open">Ouvrir</option>
+              <option value="closed" selected data-i18n="mms.field.close">Fermer</option>
+              <option value="open" data-i18n="mms.field.open">Ouvrir</option>
             </select>
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span>IED Host</span>
+            <span data-i18n="mms.field.iedHost">IED Host</span>
             <input type="text" id="mms-cmd-ied-host" name="ied_host" placeholder="10.132.159.191" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span>IED Port</span>
+            <span data-i18n="mms.field.iedPort">IED Port</span>
             <input type="number" id="mms-cmd-ied-port" name="ied_port" min="1" placeholder="102" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span>Domaine (LD)</span>
+            <span data-i18n="mms.field.domainLd">Domaine (LD)</span>
             <input type="text" id="mms-cmd-domain" name="domain" placeholder="VMC7_2BayLD" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span>Objet MMS (ex: CBCSWI1$CO$Pos$Oper)</span>
+            <span data-i18n="mms.field.item">Objet MMS (ex: CBCSWI1$CO$Pos$Oper)</span>
             <input type="text" id="mms-cmd-item" name="item" placeholder="CBCSWI1$CO$Pos$Oper" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
         </div>
         <div class="modal-actions" style="margin-top:0.9rem">
-          <button type="submit" class="btn btn--accent">Enregistrer</button>
-          <button type="button" class="btn btn--small btn--danger" id="mms-cmd-purge">Tout supprimer</button>
+          <button type="submit" class="btn btn--accent" data-i18n="common.save">Enregistrer</button>
+          <button type="button" class="btn btn--small btn--danger" id="mms-cmd-purge" data-i18n="common.deleteAll">Tout supprimer</button>
           <span id="mms-cmd-loading"></span>
         </div>
       </form>
     </div>
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem;flex-wrap:wrap">
-      <h2 style="margin:0">Commandes MMS enregistrées</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-recorded-cmds">Masquer</button>
-      <button type="button" id="mms-blackout-btn" style="display:none;padding:0.4rem 1.1rem;font-weight:700;font-size:0.95rem;background:#111;color:#fff;border:2px solid #fff;border-radius:6px;cursor:pointer;letter-spacing:0.08em;transition:background 0.15s,color 0.15s" title="Envoyer toutes les commandes &quot;Ouvrir&quot; enregistrées">⚡ BLACKOUT</button>
+      <h2 style="margin:0" data-i18n="mms.recordedCmds">Commandes MMS enregistrées</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-recorded-cmds" data-i18n="common.hide">Masquer</button>
+      <button type="button" id="mms-blackout-btn" style="display:none;padding:0.4rem 1.1rem;font-weight:700;font-size:0.95rem;background:#111;color:#fff;border:2px solid #fff;border-radius:6px;cursor:pointer;letter-spacing:0.08em;transition:background 0.15s,color 0.15s" title="Envoyer toutes les commandes &quot;Ouvrir&quot; enregistrées" data-i18n-title="mms.blackoutTitle">⚡ BLACKOUT</button>
       <span id="mms-blackout-status" style="font-size:0.82rem;color:var(--muted)"></span>
     </div>
     <div id="mms-recorded-cmds-body" style="display:block">
       <div id="mms-recorded-table-wrap">
         <table>
-          <thead><tr><th></th><th>Nom</th><th>Domaine</th><th>Objet</th><th>Pos</th><th>Actions</th></tr></thead>
+          <thead><tr><th></th><th data-i18n="common.name">Nom</th><th data-i18n="mms.col.domain">Domaine</th><th data-i18n="mms.col.object">Objet</th><th data-i18n="mms.col.pos">Pos</th><th data-i18n="common.actions">Actions</th></tr></thead>
           <tbody id="mms-cmd-list"></tbody>
         </table>
       </div>
@@ -332,56 +353,56 @@
     </div>
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0">Logs</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-logs-panel">Afficher</button>
+      <h2 style="margin:0" data-i18n="mms.logs">Logs</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-logs-panel" data-i18n="common.show">Afficher</button>
     </div>
     <section class="logs-section" id="mms-logs-section" style="display:none">
       <div style="display:flex;align-items:center;gap:0.75rem">
-        <button type="button" class="btn btn--small" id="mms-logs-pause">Pause</button>
+        <button type="button" class="btn btn--small" id="mms-logs-pause" data-i18n="common.pause">Pause</button>
       </div>
       <pre id="mms-logs"></pre>
     </section>
   </div>
 
   <div id="panel-goose" class="panel">
-    <h1>Flux GOOSE</h1>
+    <h1 data-i18n="goose.title">Flux GOOSE</h1>
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0">Flux en cours</h2>
-      <button type="button" class="btn btn--small" id="goose-toggle-streams">Masquer</button>
+      <h2 style="margin:0" data-i18n="goose.streams">Flux en cours</h2>
+      <button type="button" class="btn btn--small" id="goose-toggle-streams" data-i18n="common.hide">Masquer</button>
     </div>
     <div id="goose-streams-body" style="display:block">
       <div class="toolbar">
-        <button type="button" class="btn btn--accent" id="goose-refresh">Actualiser</button>
+        <button type="button" class="btn btn--accent" id="goose-refresh" data-i18n="common.refresh">Actualiser</button>
         <span id="goose-loading"></span>
       </div>
       <div id="goose-streams-table-wrap">
-        <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th>Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
+        <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>src_mac</th><th>dst_mac</th><th data-i18n="common.actions">Actions</th></tr></thead><tbody id="goose-list"></tbody></table>
       </div>
     </div>
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0">Flux récents</h2>
-      <button type="button" class="btn btn--small" id="goose-toggle-recents-panel">Afficher</button>
+      <h2 style="margin:0" data-i18n="goose.recents">Flux récents</h2>
+      <button type="button" class="btn btn--small" id="goose-toggle-recents-panel" data-i18n="common.show">Afficher</button>
     </div>
     <section class="recents-section" id="goose-recents-section" style="display:none">
       <div id="goose-recents-table-wrap">
-        <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th>Actions</th></tr></thead><tbody id="goose-recents"></tbody></table>
+        <table><thead><tr><th></th><th>ID</th><th>gocbRef</th><th>goID</th><th data-i18n="common.actions">Actions</th></tr></thead><tbody id="goose-recents"></tbody></table>
       </div>
     </section>
 
     <div id="goose-edit-modal" class="modal" style="display:none">
       <div class="modal-content">
-        <h2>Modifier le flux GOOSE</h2>
+        <h2 data-i18n="goose.editTitle">Modifier le flux GOOSE</h2>
         <div class="modal-details" id="goose-edit-details"></div>
         <form id="goose-edit-form">
           <input type="hidden" id="goose-edit-id" name="id">
-          <label>TTL (ms)</label>
+          <label data-i18n="goose.ttl">TTL (ms)</label>
           <input type="number" id="goose-edit-ttl" name="ttl" min="1">
-          <label>allData (JSON)</label>
+          <label data-i18n="goose.allData">allData (JSON)</label>
           <textarea id="goose-edit-alldata" name="all_data" rows="12" style="font-family:monospace;font-size:0.85rem"></textarea>
           <div class="modal-actions">
-            <button type="submit" class="btn btn--accent">Enregistrer</button>
-            <button type="button" class="btn goose-edit-cancel">Annuler</button>
+            <button type="submit" class="btn btn--accent" data-i18n="common.save">Enregistrer</button>
+            <button type="button" class="btn goose-edit-cancel" data-i18n="common.cancel">Annuler</button>
           </div>
         </form>
       </div>
@@ -389,119 +410,119 @@
   </div>
 
   <div id="panel-sv" class="panel">
-    <h1>SV Generator</h1>
+    <h1 data-i18n="sv.title">SV Generator</h1>
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0">Flux en cours</h2>
-      <button type="button" class="btn btn--small" id="sv-toggle-streams">Masquer</button>
+      <h2 style="margin:0" data-i18n="sv.streams">Flux en cours</h2>
+      <button type="button" class="btn btn--small" id="sv-toggle-streams" data-i18n="common.hide">Masquer</button>
     </div>
     <div id="sv-streams-body" style="display:block">
       <div class="toolbar">
-        <button type="button" class="btn btn--accent" id="sv-refresh">Actualiser</button>
-        <button type="button" class="btn btn--danger" id="sv-purge">Tout supprimer</button>
+        <button type="button" class="btn btn--accent" id="sv-refresh" data-i18n="common.refresh">Actualiser</button>
+        <button type="button" class="btn btn--danger" id="sv-purge" data-i18n="common.deleteAll">Tout supprimer</button>
         <span id="sv-msg"></span>
       </div>
       <div id="sv-streams-table-wrap">
-        <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
+        <table><thead><tr><th></th><th data-i18n="common.name">Nom</th><th data-i18n="common.interface">Interface</th><th data-i18n="sv.col.macs">src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
       </div>
     </div>
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0">Récents</h2>
-      <button type="button" class="btn btn--small" id="sv-toggle-recents-panel">Afficher</button>
+      <h2 style="margin:0" data-i18n="sv.recents">Récents</h2>
+      <button type="button" class="btn btn--small" id="sv-toggle-recents-panel" data-i18n="common.show">Afficher</button>
     </div>
     <section class="recents-section" id="sv-recents-section" style="display:none">
       <div id="sv-recents-table-wrap">
-        <table><thead><tr><th></th><th>Nom</th><th>Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table>
+        <table><thead><tr><th></th><th data-i18n="common.name">Nom</th><th data-i18n="common.interface">Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table>
       </div>
     </section>
   </div>
 
   <div id="panel-gooselistener" class="panel">
-    <h1>GOOSE Listener – Délais de déclenchement</h1>
+    <h1 data-i18n="gl.title">GOOSE Listener – Délais de déclenchement</h1>
     <p class="status" id="gl-service-status">—</p>
     <div id="gl-unconfigured" class="gl-card" style="display:none;max-width:560px">
-      <p class="status">GOOSE Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> (même interface que SV / sv_generator).</p>
+      <p class="status" data-i18n-html="gl.unconfigured">GOOSE Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> (même interface que SV / sv_generator).</p>
     </div>
     <div id="gl-root" style="display:none">
       <div class="gl-layout">
         <div class="gl-col">
           <div class="gl-card" id="gl-discovery-card">
             <div class="gl-panel-head">
-              <h2>Découverte</h2>
-              <button type="button" class="btn btn--small" id="gl-discovery-toggle" aria-expanded="true">Masquer</button>
+              <h2 data-i18n="gl.discovery">Découverte</h2>
+              <button type="button" class="btn btn--small" id="gl-discovery-toggle" aria-expanded="true" data-i18n="common.hide">Masquer</button>
             </div>
             <div id="gl-discovery-body">
             <div class="toolbar" style="align-items:center;gap:0.75rem;flex-wrap:wrap">
               <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
-                <span>Durée scan (s)</span>
+                <span data-i18n="gl.scanDuration">Durée scan (s)</span>
                 <input type="number" id="gl-scan-duration" value="5" min="0.5" max="120" step="0.5" style="width:5rem">
               </label>
-              <button type="button" class="btn btn--accent" id="gl-scan-btn">Scan</button>
+              <button type="button" class="btn btn--accent" id="gl-scan-btn" data-i18n="gl.scan">Scan</button>
               <span class="status" id="gl-scan-status"></span>
             </div>
             <label class="gl-scan-filter-label">
-              <span class="status">Rechercher</span>
-              <input type="search" id="gl-scan-filter" placeholder="gocbRef, goID, APPID…" autocomplete="off">
+              <span class="status" data-i18n="gl.search">Rechercher</span>
+              <input type="search" id="gl-scan-filter" placeholder="gocbRef, goID, APPID…" data-i18n-placeholder="gl.searchPh" autocomplete="off">
             </label>
             <div class="table-wrap gl-scan-scroll" id="gl-scan-table-wrap">
               <table class="gl-scan-table">
                 <thead><tr>
-                  <th></th><th>gocbRef</th><th>goID</th><th>APPID</th><th>Trames</th>
+                  <th></th><th>gocbRef</th><th>goID</th><th>APPID</th><th data-i18n="gl.col.frames">Trames</th>
                 </tr></thead>
-                <tbody id="gl-scan-tbody"><tr><td colspan="5" class="status">Aucun scan effectué.</td></tr></tbody>
+                <tbody id="gl-scan-tbody"><tr><td colspan="5" class="status" data-i18n="gl.noScan">Aucun scan effectué.</td></tr></tbody>
               </table>
             </div>
-            <button type="button" class="btn btn--small" id="gl-add-selected-btn" style="margin-top:0.5rem">Ajouter la sélection →</button>
+            <button type="button" class="btn btn--small" id="gl-add-selected-btn" style="margin-top:0.5rem" data-i18n="gl.addSelected">Ajouter la sélection →</button>
             </div>
           </div>
           <div class="gl-card">
-            <h2>Analyse</h2>
-            <p class="status" id="gl-analysis-status">Analyse arrêtée.</p>
+            <h2 data-i18n="gl.analysis">Analyse</h2>
+            <p class="status" id="gl-analysis-status" data-i18n="gl.analysisStopped">Analyse arrêtée.</p>
             <div class="table-wrap" id="gl-targets-table-wrap">
               <table>
                 <thead><tr>
-                  <th></th><th>gocbRef</th><th>goID</th><th>Temporisation (ms)</th>
+                  <th></th><th>gocbRef</th><th>goID</th><th data-i18n="gl.col.delay">Temporisation (ms)</th>
                 </tr></thead>
-                <tbody id="gl-targets-tbody"><tr><td colspan="4" class="status">Sélectionnez des flux depuis le scan.</td></tr></tbody>
+                <tbody id="gl-targets-tbody"><tr><td colspan="4" class="status" data-i18n="gl.selectFromScan">Sélectionnez des flux depuis le scan.</td></tr></tbody>
               </table>
             </div>
             <label class="gl-event-filter-label" style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap">
-              <span class="status">Afficher</span>
+              <span class="status" data-i18n="gl.show">Afficher</span>
               <select id="gl-event-filter" style="min-width:12rem;padding:0.4rem 0.5rem;border-radius:6px;border:1px solid var(--surface);background:var(--bg);color:var(--text);font:inherit">
-                <option value="declenchements_only" selected>Seulement les déclenchements</option>
-                <option value="all">Tous (déclenchements + retombées…)</option>
+                <option value="declenchements_only" selected data-i18n="gl.filter.triggers">Seulement les déclenchements</option>
+                <option value="all" data-i18n="gl.filter.all">Tous (déclenchements + retombées…)</option>
               </select>
             </label>
             <div class="toolbar" style="margin-top:0.75rem">
-              <button type="button" class="btn btn--accent" id="gl-start-btn">Lancer l'analyse</button>
-              <button type="button" class="btn btn--danger" id="gl-stop-btn">Arrêter</button>
+              <button type="button" class="btn btn--accent" id="gl-start-btn" data-i18n="gl.startAnalysis">Lancer l'analyse</button>
+              <button type="button" class="btn btn--danger" id="gl-stop-btn" data-i18n="common.stop">Arrêter</button>
             </div>
           </div>
           <div class="gl-card">
             <div class="gl-panel-head">
-              <h2>Problèmes</h2>
-              <button type="button" class="btn btn--small" id="gl-problems-download">Télécharger (.txt)</button>
+              <h2 data-i18n="gl.problems">Problèmes</h2>
+              <button type="button" class="btn btn--small" id="gl-problems-download" data-i18n="gl.downloadTxt">Télécharger (.txt)</button>
             </div>
             <div class="gl-problems-config" style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;margin-bottom:0.75rem">
               <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
-                <span class="status">Cycle déclenchement (s)</span>
+                <span class="status" data-i18n="gl.cycle">Cycle déclenchement (s)</span>
                 <input type="number" id="gl-problem-cycle" value="4" min="1" max="600" step="1" style="width:5rem">
               </label>
               <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
-                <span class="status">Seuil Δ (ms)</span>
+                <span class="status" data-i18n="gl.threshold">Seuil Δ (ms)</span>
                 <input type="number" id="gl-problem-threshold" value="40" min="0" max="5000" step="1" style="width:5rem">
               </label>
             </div>
             <p class="status" id="gl-problems-status">—</p>
-            <p class="status" style="margin-top:0.25rem;font-size:0.82rem">
+            <p class="status" style="margin-top:0.25rem;font-size:0.82rem" data-i18n-html="gl.problemsHelp">
               En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements (diagnostic).
               À chaque nouveau problème, les <strong>4 dernières secondes</strong> de trafic GOOSE sont enregistrées (bouton PCAP).
             </p>
             <div class="table-wrap gl-problems-scroll" id="gl-problems-table-wrap">
               <table class="gl-problems-table">
                 <thead><tr>
-                  <th>Type</th><th>Heure</th><th>goID</th><th>Δ (ms)</th><th>sqNum</th><th>Détail</th>
+                  <th data-i18n="gl.col.type">Type</th><th data-i18n="gl.col.time">Heure</th><th>goID</th><th>Δ (ms)</th><th>sqNum</th><th data-i18n="gl.col.detail">Détail</th>
                 </tr></thead>
-                <tbody id="gl-problems-tbody"><tr><td colspan="6" class="status">Aucun problème détecté.</td></tr></tbody>
+                <tbody id="gl-problems-tbody"><tr><td colspan="6" class="status" data-i18n="gl.noProblems">Aucun problème détecté.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -509,30 +530,30 @@
         <div class="gl-col">
           <div class="gl-card">
             <div class="gl-panel-head">
-              <h2>Histogramme des délais</h2>
-              <button type="button" class="btn btn--small" id="gl-hist-log-y" aria-pressed="false">Y logarithmique</button>
+              <h2 data-i18n="gl.histogram">Histogramme des délais</h2>
+              <button type="button" class="btn btn--small" id="gl-hist-log-y" aria-pressed="false" data-i18n="gl.yLog">Y logarithmique</button>
             </div>
             <p class="status" id="gl-hist-meta">—</p>
             <div id="gl-histogram" class="gl-histogram"></div>
             <ul id="gl-legend" class="gl-legend"></ul>
-            <div id="gl-hist-color-picker" class="gl-hist-color-picker" hidden role="dialog" aria-label="Couleur de la série">
-              <p class="gl-hist-color-picker-title">Couleur de la série</p>
+            <div id="gl-hist-color-picker" class="gl-hist-color-picker" hidden role="dialog" aria-label="Couleur de la série" data-i18n-aria="gl.seriesColor">
+              <p class="gl-hist-color-picker-title" data-i18n="gl.seriesColor">Couleur de la série</p>
               <div id="gl-hist-color-palette" class="gl-hist-color-palette"></div>
               <label class="gl-hist-color-custom">
-                <span>Personnalisée</span>
+                <span data-i18n="gl.customColor">Personnalisée</span>
                 <input type="color" id="gl-hist-color-custom" value="#7aa2f7">
               </label>
             </div>
           </div>
           <div class="gl-card">
             <div class="gl-panel-head">
-              <h2>Derniers événements</h2>
-              <button type="button" class="btn btn--small" id="gl-events-download">Télécharger (.txt)</button>
+              <h2 data-i18n="gl.recentEvents">Derniers événements</h2>
+              <button type="button" class="btn btn--small" id="gl-events-download" data-i18n="gl.downloadTxt">Télécharger (.txt)</button>
             </div>
             <p class="status" id="gl-events-meta" style="margin:0 0 0.5rem">—</p>
             <div class="table-wrap gl-events-scroll" id="gl-events-table-wrap">
               <table class="gl-events-table">
-                <thead><tr><th>Réception GOOSE</th><th>Type</th><th>gocbRef</th><th>goID</th><th>stNum</th><th>Δ net (ms)</th></tr></thead>
+                <thead><tr><th data-i18n="gl.col.rx">Réception GOOSE</th><th data-i18n="gl.col.type">Type</th><th>gocbRef</th><th>goID</th><th>stNum</th><th>Δ net (ms)</th></tr></thead>
                 <tbody id="gl-events-tbody"><tr><td colspan="6" class="status">—</td></tr></tbody>
               </table>
             </div>
@@ -543,19 +564,19 @@
   </div>
 
   <div id="panel-svview" class="panel">
-    <h1>SV Listener – Phasors U & I</h1>
+    <h1 data-i18n="svview.title">SV Listener – Phasors U & I</h1>
     <div id="svview-unconfigured" class="svview-card" style="display:none;max-width:500px">
-      <p class="status">SV Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> pour capturer les flux SV (0x88ba).</p>
+      <p class="status" data-i18n-html="svview.unconfigured">SV Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> pour capturer les flux SV (0x88ba).</p>
     </div>
     <div id="svview-modal" class="modal" style="display:none">
       <div class="modal-content">
-        <h2>Choisir un svID</h2>
+        <h2 data-i18n="svview.chooseSvid">Choisir un svID</h2>
         <ul class="svview-modal-svids" id="svview-modal-svids" style="list-style:none;padding:0;margin:0;max-height:300px;overflow-y:auto"></ul>
-        <button type="button" class="btn modal-close" id="svview-modal-close">Fermer</button>
+        <button type="button" class="btn modal-close" id="svview-modal-close" data-i18n="common.close">Fermer</button>
       </div>
     </div>
     <div id="svview-root">
-      <div class="svview-card"><p class="status">Chargement...</p></div>
+      <div class="svview-card"><p class="status" data-i18n="svview.loading">Chargement...</p></div>
     </div>
   </div>
 
@@ -563,16 +584,16 @@
 
   <div id="iframe-tabs-settings-modal" class="modal" style="display:none">
     <div class="modal-content">
-      <h2>Paramètres des onglets supplémentaires</h2>
-      <p class="modal-details">Ajoutez ou supprimez les onglets iframe (MMS, GOOSE, SV, SV Listener restent fixes).</p>
+      <h2 data-i18n="iframe.title">Paramètres des onglets supplémentaires</h2>
+      <p class="modal-details" data-i18n="iframe.details">Ajoutez ou supprimez les onglets iframe (MMS, GOOSE, SV, SV Listener restent fixes).</p>
       <form id="iframe-tab-form">
-        <label for="iframe-tab-name">Nom de l'onglet</label>
-        <input id="iframe-tab-name" name="name" type="text" placeholder="Ex: Grafana dep6" required>
-        <label for="iframe-tab-url">URL de l'iframe</label>
+        <label for="iframe-tab-name" data-i18n="iframe.tabName">Nom de l'onglet</label>
+        <input id="iframe-tab-name" name="name" type="text" placeholder="Ex: Grafana dep6" data-i18n-placeholder="iframe.phName" required>
+        <label for="iframe-tab-url" data-i18n="iframe.tabUrl">URL de l'iframe</label>
         <input id="iframe-tab-url" name="url" type="url" placeholder="https://..." required>
         <div class="modal-actions">
-          <button type="submit" class="btn btn--accent">Ajouter</button>
-          <button type="button" class="btn" id="iframe-tabs-settings-close">Fermer</button>
+          <button type="submit" class="btn btn--accent" data-i18n="common.add">Ajouter</button>
+          <button type="button" class="btn" id="iframe-tabs-settings-close" data-i18n="common.close">Fermer</button>
         </div>
       </form>
       <div class="iframe-settings-list" id="iframe-settings-list"></div>
@@ -751,6 +772,563 @@
   </style>
 
   <script>
+
+    const I18N_STORAGE_KEY = 'unified-ui-lang';
+    const I18N = {
+      "fr": {
+        "title": "PO – MMS | GOOSE | SV",
+        "lang.switch": "Langue",
+        "settings": "Paramètres",
+        "common.show": "Afficher",
+        "common.hide": "Masquer",
+        "common.refresh": "Actualiser",
+        "common.deleteAll": "Tout supprimer",
+        "common.save": "Enregistrer",
+        "common.cancel": "Annuler",
+        "common.close": "Fermer",
+        "common.add": "Ajouter",
+        "common.delete": "Supprimer",
+        "common.edit": "Modifier",
+        "common.send": "Envoyer",
+        "common.restart": "Relancer",
+        "common.running": "En cours",
+        "common.runningParen": "(en cours)",
+        "common.yes": "Oui",
+        "common.no": "Non",
+        "common.pause": "Pause",
+        "common.resume": "Reprendre",
+        "common.loading": "Chargement…",
+        "common.error": "Erreur: {msg}",
+        "common.actions": "Actions",
+        "common.name": "Nom",
+        "common.interface": "Interface",
+        "common.confirmDelete": "Supprimer ?",
+        "common.confirmDeleteAll": "Supprimer tous les flux ?",
+        "common.noStreams": "Aucun flux.",
+        "common.noRecent": "Aucun flux récent.",
+        "common.apply": "Appliquer",
+        "common.stop": "Arrêter",
+        "tab.svview": "SV Listener",
+        "tab.gooselistener": "GOOSE Listener",
+        "mms.title": "Flux MMS",
+        "mms.streams": "Flux en cours",
+        "mms.recents": "Flux récents",
+        "mms.newCmds": "Nouvelle commandes MMS",
+        "mms.recordedCmds": "Commandes MMS enregistrées",
+        "mms.logs": "Logs",
+        "mms.col.id": "Id",
+        "mms.col.domain": "Domaine",
+        "mms.col.ied": "IED",
+        "mms.col.debug": "Debug",
+        "mms.col.object": "Objet",
+        "mms.col.pos": "Pos",
+        "mms.field.name": "Nom",
+        "mms.field.position": "Position",
+        "mms.field.close": "Fermer",
+        "mms.field.open": "Ouvrir",
+        "mms.field.iedHost": "IED Host",
+        "mms.field.iedPort": "IED Port",
+        "mms.field.domainLd": "Domaine (LD)",
+        "mms.field.item": "Objet MMS (ex: CBCSWI1$CO$Pos$Oper)",
+        "mms.ph.name": "Ex: Ouverture TB1",
+        "mms.debugOn": "Activer debug",
+        "mms.debugOff": "Désactiver debug",
+        "mms.lastError": "Dernière erreur",
+        "mms.rcbList": "RCB list",
+        "mms.rcbBuiltin": "liste intégrée",
+        "mms.reports": "Reports ({n})",
+        "mms.loadingParen": "(chargement…)",
+        "mms.noCommands": "Aucune commande enregistrée.",
+        "mms.sending": "Envoi en cours…",
+        "mms.confirmDeleteCmd": "Supprimer la commande ?",
+        "mms.confirmPurgeCmds": "Supprimer toutes les commandes enregistrées ?",
+        "mms.missingField": "Champ requis manquant: {field}",
+        "mms.saving": "Enregistrement…",
+        "mms.blackoutTitle": "Envoyer toutes les commandes \"Ouvrir\" enregistrées",
+        "mms.blackoutEnabled": "Mode BLACKOUT activé",
+        "mms.blackoutConfirm": "BLACKOUT : envoyer toutes les commandes \"Ouvrir\" enregistrées ?",
+        "mms.blackoutReadError": "Erreur lecture commandes : {msg}",
+        "mms.blackoutNoOpen": "Aucune commande \"Ouvrir\" enregistrée.",
+        "mms.blackoutSending": "Envoi de {n} commande(s)…",
+        "mms.blackoutProgress": "{done}/{total} – ok:{ok} erreurs:{fail}",
+        "mms.blackoutDone": "BLACKOUT terminé – {ok} ok, {fail} erreur(s)",
+        "goose.title": "Flux GOOSE",
+        "goose.streams": "Flux en cours",
+        "goose.recents": "Flux récents",
+        "goose.editTitle": "Modifier le flux GOOSE",
+        "goose.ttl": "TTL (ms)",
+        "goose.allData": "allData (JSON)",
+        "goose.confirmDelete": "Supprimer ce flux ?",
+        "goose.invalidJson": "JSON invalide dans allData",
+        "goose.vlan": "{id} / priorité {prio}",
+        "sv.title": "SV Generator",
+        "sv.streams": "Flux en cours",
+        "sv.recents": "Récents",
+        "sv.col.macs": "src_mac → dst_mac",
+        "sv.confirmDeleteNamed": "Supprimer le flux \"{name}\" ?",
+        "sv.deleted": "Flux supprimé.",
+        "sv.restarted": "Flux relancé.",
+        "sv.allDeleted": "Tous les flux supprimés.",
+        "sv.vlan": "{id} / priorité {prio}",
+        "svview.title": "SV Listener – Phasors U & I",
+        "svview.unconfigured": "SV Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> pour capturer les flux SV (0x88ba).",
+        "svview.chooseSvid": "Choisir un svID",
+        "svview.loading": "Chargement...",
+        "svview.captureOk": "Capture: OK",
+        "svview.captureKo": "Capture: KO",
+        "svview.lastError": "Dernière erreur: {msg}",
+        "svview.svidsSeen": "svIDs vus",
+        "svview.clickSvid": "Cliquez sur un svID pour l'afficher.",
+        "svview.noSvidYet": "Aucun svID pour l'instant.",
+        "svview.noSvidSeen": "Aucun svID vu",
+        "svview.changeSvid": "Cliquer pour changer",
+        "svview.backToList": "Revenir à la liste",
+        "svview.phasors": "Phasors",
+        "svview.sinusU": "U (V) – sinusoïdes",
+        "svview.sinusI": "I (A) – sinusoïdes",
+        "svview.vi": "Tensions & Courants",
+        "svview.phaseShift": "Déphasage U/I",
+        "svview.delayPkts": "Délai inter-paquets (µs)",
+        "svview.sinceStart": "Depuis lancement",
+        "svview.lastSeconds": "Dernières {w}s",
+        "svview.delaySmp": "Délai seconde pile → smpCnt0 (µs)",
+        "svview.params": "Paramètres",
+        "svview.refreshS": "Rafraîchissement (s)",
+        "svview.windowS": "Fenêtre stats (s)",
+        "svview.samplesOk": "{n} échantillons (DFT OK)",
+        "svview.samplesWait": "{n} échantillons (attente 96+)",
+        "svview.samplesTitle": "96+ échantillons requis pour DFT",
+        "gl.title": "GOOSE Listener – Délais de déclenchement",
+        "gl.unconfigured": "GOOSE Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> (même interface que SV / sv_generator).",
+        "gl.discovery": "Découverte",
+        "gl.scanDuration": "Durée scan (s)",
+        "gl.scan": "Scan",
+        "gl.search": "Rechercher",
+        "gl.searchPh": "gocbRef, goID, APPID…",
+        "gl.col.frames": "Trames",
+        "gl.noScan": "Aucun scan effectué.",
+        "gl.addSelected": "Ajouter la sélection →",
+        "gl.analysis": "Analyse",
+        "gl.analysisStopped": "Analyse arrêtée.",
+        "gl.col.delay": "Temporisation (ms)",
+        "gl.selectFromScan": "Sélectionnez des flux depuis le scan.",
+        "gl.show": "Afficher",
+        "gl.filter.triggers": "Seulement les déclenchements",
+        "gl.filter.all": "Tous (déclenchements + retombées…)",
+        "gl.startAnalysis": "Lancer l'analyse",
+        "gl.problems": "Problèmes",
+        "gl.downloadTxt": "Télécharger (.txt)",
+        "gl.cycle": "Cycle déclenchement (s)",
+        "gl.threshold": "Seuil Δ (ms)",
+        "gl.problemsHelp": "En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements (diagnostic). À chaque nouveau problème, les <strong>4 dernières secondes</strong> de trafic GOOSE sont enregistrées (bouton PCAP).",
+        "gl.col.type": "Type",
+        "gl.col.time": "Heure",
+        "gl.col.detail": "Détail",
+        "gl.noProblems": "Aucun problème détecté.",
+        "gl.histogram": "Histogramme des délais",
+        "gl.yLog": "Y logarithmique",
+        "gl.yLinear": "Y linéaire",
+        "gl.seriesColor": "Couleur de la série",
+        "gl.customColor": "Personnalisée",
+        "gl.recentEvents": "Derniers événements",
+        "gl.col.rx": "Réception GOOSE",
+        "gl.pcapTitle": "PCAP 4 s ({n} paquets{range}). Dans Wireshark : Date/heure pour l'horodatage absolu.",
+        "gl.pcapRange": " · capture {from} → {to}",
+        "gl.needTarget": "Ajoutez au moins un flux.",
+        "gl.notConfigured": "GOOSE Listener non configuré",
+        "gl.apiError": "Erreur API : {msg}",
+        "gl.listening": "Écoute en cours…",
+        "gl.noGooseSeen": "Aucun flux GOOSE vu.",
+        "gl.noSearchResults": "Aucun résultat pour cette recherche.",
+        "gl.scanRunning": "Scan en cours… {s}s restantes{extra}",
+        "gl.scanShown": " · {n} affiché(s)",
+        "gl.scanCountFilter": "{total} flux vu(s) · {shown} affiché(s)",
+        "gl.scanCount": "{total} flux vu(s)",
+        "gl.noData": "Pas encore de données.",
+        "gl.histAria": "Histogramme des délais",
+        "gl.histX": "Délai net Δ (ms)",
+        "gl.histY": "Événements",
+        "gl.histYLog": "Événements (log)",
+        "gl.histMeta": "{n} événement(s) cumulé(s) · pas {step} ms · {bins} intervalle(s) [{lo} … {hi}]",
+        "gl.chooseColor": "Choisir la couleur",
+        "gl.chooseColorFor": "Choisir la couleur - {label}",
+        "gl.problemsStart": "Lancez une analyse pour détecter les problèmes.",
+        "gl.problemsNoneCfg": "Aucun problème (cycle {cycle} s · seuil {th} ms).",
+        "gl.problemsTrunc": " · {shown} affiché(s) sur {total}",
+        "gl.problemsCap": " · {n} capture(s)",
+        "gl.problemsUnreliable": " · capture NON FIABLE",
+        "gl.problemsSummary": "{n} problème(s) : {missing} manquant(s) · {delay} délai(s) > seuil{cap}{rel}{trunc}",
+        "gl.kind.missing": "Manquant",
+        "gl.kind.delay": "Δ > seuil",
+        "gl.kind.capture": "Capture",
+        "gl.kind.reliability": "Fiabilité",
+        "gl.diag.header": "GOOSE entre déclenchements :",
+        "gl.diag.prev": "  déclenc. préc. {ts}",
+        "gl.diag.next": "  déclenc. suiv. {ts}",
+        "gl.diag.nextPending": "  déclenc. suiv. (pas encore reçu)",
+        "gl.diag.gap": "  écart {s} s",
+        "gl.sqLost": "sqNum=0 manqué en capture",
+        "gl.sqOk": "Déclenchement sqNum=0",
+        "gl.msg.delay": "Δ net {delta} ms > seuil {th} ms",
+        "gl.msg.captureIncomplete": "sqNum={sq} (sqNum=0 manqué en capture) - Δ={delta} ms non fiable",
+        "gl.msg.missing": "Déclenchement manquant (cycle {cycle} s, écart {gap} s)",
+        "gl.msg.missingLate": "Déclenchement manquant (cycle {cycle} s, écart {gap} s) - en retard",
+        "gl.msg.unreliable": "Capture non fiable - mesures invalides : {reason}",
+        "gl.count.trips": "{n} déclenchement(s)",
+        "gl.count.events": "{n} événement(s)",
+        "gl.analysisRunning": "Analyse en cours - {cnt}",
+        "gl.analysisStoppedCnt": "Analyse arrêtée - {cnt}",
+        "gl.captureUnreliable": " - capture non fiable ({reason})",
+        "gl.noTripsRam": "Aucun déclenchement en mémoire.",
+        "gl.noEventsRam": "Aucun événement en mémoire.",
+        "gl.eventsMeta": "{shown} affiché(s) sur {max} max · {ram} {kind} en RAM (téléchargement)",
+        "gl.kindName.trips": "déclenchement(s)",
+        "gl.kindName.events": "événement(s)",
+        "gl.noRecentTrips": "Aucun déclenchement récent à afficher.",
+        "gl.noTrips": "Aucun déclenchement détecté.",
+        "gl.noRecentEvents": "Aucun événement récent à afficher.",
+        "gl.event.kind.trigger": "Déclenchement",
+        "gl.event.kind.reset": "Retombée",
+        "gl.event.kind.initial": "Premier",
+        "gl.event.kind.mixed": "Mixte",
+        "gl.event.kind.unknown": "Inconnu",
+        "gl.cap.active": "capture active",
+        "gl.cap.stopped": "capture ARRÊTÉE",
+        "gl.mode.idle": "inactif",
+        "gl.mode.scan": "scan",
+        "gl.mode.analyze": "analyse",
+        "gl.status.drops": " · {n} drop(s) GOOSE",
+        "gl.status.pcapDrop": " · libpcap drop +{n}",
+        "gl.status.dropsTotal": " · {n} drop(s) total",
+        "gl.status.iface": " · iface: {note}",
+        "gl.status.queue": "file {n}",
+        "gl.status.mode": "mode {mode}",
+        "iframe.title": "Paramètres des onglets supplémentaires",
+        "iframe.details": "Ajoutez ou supprimez les onglets iframe (MMS, GOOSE, SV, SV Listener restent fixes).",
+        "iframe.tabName": "Nom de l'onglet",
+        "iframe.tabUrl": "URL de l'iframe",
+        "iframe.phName": "Ex: Grafana dep6",
+        "iframe.empty": "Aucun onglet supplémentaire configuré.",
+        "iframe.confirmRemove": "Supprimer l'onglet \"{name}\" ?",
+        "iframe.nameUrlRequired": "Nom et URL requis",
+        "iframe.invalidUrl": "URL invalide",
+        "iframe.urlProtocol": "URL doit commencer par http:// ou https://",
+        "iframe.addError": "Erreur lors de l'ajout de l'onglet"
+      },
+      "en": {
+        "title": "PO – MMS | GOOSE | SV",
+        "lang.switch": "Language",
+        "settings": "Settings",
+        "common.show": "Show",
+        "common.hide": "Hide",
+        "common.refresh": "Refresh",
+        "common.deleteAll": "Delete all",
+        "common.save": "Save",
+        "common.cancel": "Cancel",
+        "common.close": "Close",
+        "common.add": "Add",
+        "common.delete": "Delete",
+        "common.edit": "Edit",
+        "common.send": "Send",
+        "common.restart": "Restart",
+        "common.running": "Running",
+        "common.runningParen": "(running)",
+        "common.yes": "Yes",
+        "common.no": "No",
+        "common.pause": "Pause",
+        "common.resume": "Resume",
+        "common.loading": "Loading…",
+        "common.error": "Error: {msg}",
+        "common.actions": "Actions",
+        "common.name": "Name",
+        "common.interface": "Interface",
+        "common.confirmDelete": "Delete?",
+        "common.confirmDeleteAll": "Delete all streams?",
+        "common.noStreams": "No streams.",
+        "common.noRecent": "No recent streams.",
+        "common.apply": "Apply",
+        "common.stop": "Stop",
+        "tab.svview": "SV Listener",
+        "tab.gooselistener": "GOOSE Listener",
+        "mms.title": "MMS streams",
+        "mms.streams": "Active streams",
+        "mms.recents": "Recent streams",
+        "mms.newCmds": "New MMS commands",
+        "mms.recordedCmds": "Saved MMS commands",
+        "mms.logs": "Logs",
+        "mms.col.id": "Id",
+        "mms.col.domain": "Domain",
+        "mms.col.ied": "IED",
+        "mms.col.debug": "Debug",
+        "mms.col.object": "Object",
+        "mms.col.pos": "Pos",
+        "mms.field.name": "Name",
+        "mms.field.position": "Position",
+        "mms.field.close": "Close",
+        "mms.field.open": "Open",
+        "mms.field.iedHost": "IED Host",
+        "mms.field.iedPort": "IED Port",
+        "mms.field.domainLd": "Domain (LD)",
+        "mms.field.item": "MMS object (e.g. CBCSWI1$CO$Pos$Oper)",
+        "mms.ph.name": "e.g. Open TB1",
+        "mms.debugOn": "Enable debug",
+        "mms.debugOff": "Disable debug",
+        "mms.lastError": "Last error",
+        "mms.rcbList": "RCB list",
+        "mms.rcbBuiltin": "built-in list",
+        "mms.reports": "Reports ({n})",
+        "mms.loadingParen": "(loading…)",
+        "mms.noCommands": "No saved commands.",
+        "mms.sending": "Sending…",
+        "mms.confirmDeleteCmd": "Delete this command?",
+        "mms.confirmPurgeCmds": "Delete all saved commands?",
+        "mms.missingField": "Missing required field: {field}",
+        "mms.saving": "Saving…",
+        "mms.blackoutTitle": "Send all saved \"Open\" commands",
+        "mms.blackoutEnabled": "BLACKOUT mode enabled",
+        "mms.blackoutConfirm": "BLACKOUT: send all saved \"Open\" commands?",
+        "mms.blackoutReadError": "Error reading commands: {msg}",
+        "mms.blackoutNoOpen": "No saved \"Open\" command.",
+        "mms.blackoutSending": "Sending {n} command(s)…",
+        "mms.blackoutProgress": "{done}/{total} – ok:{ok} errors:{fail}",
+        "mms.blackoutDone": "BLACKOUT done – {ok} ok, {fail} error(s)",
+        "goose.title": "GOOSE streams",
+        "goose.streams": "Active streams",
+        "goose.recents": "Recent streams",
+        "goose.editTitle": "Edit GOOSE stream",
+        "goose.ttl": "TTL (ms)",
+        "goose.allData": "allData (JSON)",
+        "goose.confirmDelete": "Delete this stream?",
+        "goose.invalidJson": "Invalid JSON in allData",
+        "goose.vlan": "{id} / priority {prio}",
+        "sv.title": "SV Generator",
+        "sv.streams": "Active streams",
+        "sv.recents": "Recent",
+        "sv.col.macs": "src_mac → dst_mac",
+        "sv.confirmDeleteNamed": "Delete stream \"{name}\"?",
+        "sv.deleted": "Stream deleted.",
+        "sv.restarted": "Stream restarted.",
+        "sv.allDeleted": "All streams deleted.",
+        "sv.vlan": "{id} / priority {prio}",
+        "svview.title": "SV Listener – Phasors U & I",
+        "svview.unconfigured": "SV Listener is not configured. Start the service with <code>--svview-interface &lt;interface&gt;</code> to capture SV streams (0x88ba).",
+        "svview.chooseSvid": "Choose an svID",
+        "svview.loading": "Loading...",
+        "svview.captureOk": "Capture: OK",
+        "svview.captureKo": "Capture: KO",
+        "svview.lastError": "Last error: {msg}",
+        "svview.svidsSeen": "Seen svIDs",
+        "svview.clickSvid": "Click an svID to display it.",
+        "svview.noSvidYet": "No svID yet.",
+        "svview.noSvidSeen": "No svID seen",
+        "svview.changeSvid": "Click to change",
+        "svview.backToList": "Back to list",
+        "svview.phasors": "Phasors",
+        "svview.sinusU": "U (V) – sinusoids",
+        "svview.sinusI": "I (A) – sinusoids",
+        "svview.vi": "Voltages & currents",
+        "svview.phaseShift": "U/I phase shift",
+        "svview.delayPkts": "Inter-packet delay (µs)",
+        "svview.sinceStart": "Since start",
+        "svview.lastSeconds": "Last {w}s",
+        "svview.delaySmp": "PPS to smpCnt0 delay (µs)",
+        "svview.params": "Settings",
+        "svview.refreshS": "Refresh (s)",
+        "svview.windowS": "Stats window (s)",
+        "svview.samplesOk": "{n} samples (DFT OK)",
+        "svview.samplesWait": "{n} samples (waiting for 96+)",
+        "svview.samplesTitle": "96+ samples required for DFT",
+        "gl.title": "GOOSE Listener – Trip delays",
+        "gl.unconfigured": "GOOSE Listener is not configured. Start the service with <code>--svview-interface &lt;interface&gt;</code> (same interface as SV / sv_generator).",
+        "gl.discovery": "Discovery",
+        "gl.scanDuration": "Scan duration (s)",
+        "gl.scan": "Scan",
+        "gl.search": "Search",
+        "gl.searchPh": "gocbRef, goID, APPID…",
+        "gl.col.frames": "Frames",
+        "gl.noScan": "No scan yet.",
+        "gl.addSelected": "Add selection →",
+        "gl.analysis": "Analysis",
+        "gl.analysisStopped": "Analysis stopped.",
+        "gl.col.delay": "Delay (ms)",
+        "gl.selectFromScan": "Select streams from the scan.",
+        "gl.show": "Show",
+        "gl.filter.triggers": "Trips only",
+        "gl.filter.all": "All (trips + resets…)",
+        "gl.startAnalysis": "Start analysis",
+        "gl.problems": "Problems",
+        "gl.downloadTxt": "Download (.txt)",
+        "gl.cycle": "Trip cycle (s)",
+        "gl.threshold": "Δ threshold (ms)",
+        "gl.problemsHelp": "When a trip is missing, the details list GOOSE frames received between two trips (diagnostics). Each new problem records the <strong>last 4 seconds</strong> of GOOSE traffic (PCAP button).",
+        "gl.col.type": "Type",
+        "gl.col.time": "Time",
+        "gl.col.detail": "Detail",
+        "gl.noProblems": "No problem detected.",
+        "gl.histogram": "Delay histogram",
+        "gl.yLog": "Logarithmic Y",
+        "gl.yLinear": "Linear Y",
+        "gl.seriesColor": "Series color",
+        "gl.customColor": "Custom",
+        "gl.recentEvents": "Latest events",
+        "gl.col.rx": "GOOSE reception",
+        "gl.pcapTitle": "4 s PCAP ({n} packets{range}). In Wireshark: use Date/Time for absolute timestamps.",
+        "gl.pcapRange": " · capture {from} → {to}",
+        "gl.needTarget": "Add at least one stream.",
+        "gl.notConfigured": "GOOSE Listener is not configured",
+        "gl.apiError": "API error: {msg}",
+        "gl.listening": "Listening…",
+        "gl.noGooseSeen": "No GOOSE stream seen.",
+        "gl.noSearchResults": "No results for this search.",
+        "gl.scanRunning": "Scan in progress… {s}s remaining{extra}",
+        "gl.scanShown": " · {n} shown",
+        "gl.scanCountFilter": "{total} stream(s) seen · {shown} shown",
+        "gl.scanCount": "{total} stream(s) seen",
+        "gl.noData": "No data yet.",
+        "gl.histAria": "Delay histogram",
+        "gl.histX": "Net delay Δ (ms)",
+        "gl.histY": "Events",
+        "gl.histYLog": "Events (log)",
+        "gl.histMeta": "{n} accumulated event(s) · step {step} ms · {bins} bin(s) [{lo} … {hi}]",
+        "gl.chooseColor": "Choose color",
+        "gl.chooseColorFor": "Choose color - {label}",
+        "gl.problemsStart": "Start an analysis to detect problems.",
+        "gl.problemsNoneCfg": "No problem (cycle {cycle} s · threshold {th} ms).",
+        "gl.problemsTrunc": " · {shown} shown of {total}",
+        "gl.problemsCap": " · {n} capture(s)",
+        "gl.problemsUnreliable": " · UNRELIABLE capture",
+        "gl.problemsSummary": "{n} problem(s): {missing} missing · {delay} delay(s) above threshold{cap}{rel}{trunc}",
+        "gl.kind.missing": "Missing",
+        "gl.kind.delay": "Δ > threshold",
+        "gl.kind.capture": "Capture",
+        "gl.kind.reliability": "Reliability",
+        "gl.diag.header": "GOOSE between trips:",
+        "gl.diag.prev": "  prev. trip {ts}",
+        "gl.diag.next": "  next trip {ts}",
+        "gl.diag.nextPending": "  next trip (not received yet)",
+        "gl.diag.gap": "  gap {s} s",
+        "gl.sqLost": "sqNum=0 missed in capture",
+        "gl.sqOk": "Trip sqNum=0",
+        "gl.msg.delay": "Net Δ {delta} ms > threshold {th} ms",
+        "gl.msg.captureIncomplete": "sqNum={sq} (sqNum=0 missed in capture) - Δ={delta} ms unreliable",
+        "gl.msg.missing": "Missing trip (cycle {cycle} s, gap {gap} s)",
+        "gl.msg.missingLate": "Missing trip (cycle {cycle} s, gap {gap} s) - overdue",
+        "gl.msg.unreliable": "Unreliable capture - invalid measurements: {reason}",
+        "gl.count.trips": "{n} trip(s)",
+        "gl.count.events": "{n} event(s)",
+        "gl.analysisRunning": "Analysis running - {cnt}",
+        "gl.analysisStoppedCnt": "Analysis stopped - {cnt}",
+        "gl.captureUnreliable": " - unreliable capture ({reason})",
+        "gl.noTripsRam": "No trip in memory.",
+        "gl.noEventsRam": "No event in memory.",
+        "gl.eventsMeta": "{shown} shown of {max} max · {ram} {kind} in RAM (download)",
+        "gl.kindName.trips": "trip(s)",
+        "gl.kindName.events": "event(s)",
+        "gl.noRecentTrips": "No recent trip to display.",
+        "gl.noTrips": "No trip detected.",
+        "gl.noRecentEvents": "No recent event to display.",
+        "gl.event.kind.trigger": "Trip",
+        "gl.event.kind.reset": "Reset",
+        "gl.event.kind.initial": "First",
+        "gl.event.kind.mixed": "Mixed",
+        "gl.event.kind.unknown": "Unknown",
+        "gl.cap.active": "capture active",
+        "gl.cap.stopped": "capture STOPPED",
+        "gl.mode.idle": "idle",
+        "gl.mode.scan": "scan",
+        "gl.mode.analyze": "analysis",
+        "gl.status.drops": " · {n} GOOSE drop(s)",
+        "gl.status.pcapDrop": " · libpcap drop +{n}",
+        "gl.status.dropsTotal": " · {n} drop(s) total",
+        "gl.status.iface": " · iface: {note}",
+        "gl.status.queue": "queue {n}",
+        "gl.status.mode": "mode {mode}",
+        "iframe.title": "Extra tabs settings",
+        "iframe.details": "Add or remove iframe tabs (MMS, GOOSE, SV, SV Listener stay fixed).",
+        "iframe.tabName": "Tab name",
+        "iframe.tabUrl": "Iframe URL",
+        "iframe.phName": "e.g. Grafana dep6",
+        "iframe.empty": "No extra tab configured.",
+        "iframe.confirmRemove": "Delete tab \"{name}\"?",
+        "iframe.nameUrlRequired": "Name and URL required",
+        "iframe.invalidUrl": "Invalid URL",
+        "iframe.urlProtocol": "URL must start with http:// or https://",
+        "iframe.addError": "Error while adding the tab"
+      }
+    };
+
+    function detectBrowserLang() {
+      const langs = [navigator.language, ...(navigator.languages || [])].filter(Boolean);
+      for (const raw of langs) {
+        if (String(raw).toLowerCase().startsWith('fr')) return 'fr';
+      }
+      return 'en';
+    }
+
+    function loadLang() {
+      try {
+        const saved = localStorage.getItem(I18N_STORAGE_KEY);
+        if (saved && I18N[saved]) return saved;
+      } catch (_) { /* private mode */ }
+      return detectBrowserLang();
+    }
+
+    let currentLang = loadLang();
+
+    function t(key, vars) {
+      const table = I18N[currentLang] || I18N.en;
+      let s = table[key];
+      if (s == null) s = I18N.fr[key];
+      if (s == null) s = key;
+      if (vars) {
+        for (const [k, v] of Object.entries(vars)) {
+          s = s.replaceAll('{' + k + '}', String(v));
+        }
+      }
+      return s;
+    }
+
+    function i18nDateLocale() {
+      return currentLang === 'fr' ? 'fr-FR' : 'en-GB';
+    }
+
+    function applyStaticI18n() {
+      document.documentElement.lang = currentLang;
+      document.title = t('title');
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        el.textContent = t(el.dataset.i18n);
+      });
+      document.querySelectorAll('[data-i18n-html]').forEach(el => {
+        el.innerHTML = t(el.dataset.i18nHtml);
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        el.placeholder = t(el.dataset.i18nPlaceholder);
+      });
+      document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        el.title = t(el.dataset.i18nTitle);
+      });
+      document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+        el.setAttribute('aria-label', t(el.dataset.i18nAria));
+      });
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        const on = btn.dataset.lang === currentLang;
+        btn.classList.toggle('is-active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+
+    function setLang(lang) {
+      if (!I18N[lang]) return;
+      const changed = currentLang !== lang;
+      currentLang = lang;
+      try { localStorage.setItem(I18N_STORAGE_KEY, lang); } catch (_) { /* private mode */ }
+      applyStaticI18n();
+      if (changed && typeof refreshI18nDynamic === 'function') refreshI18nDynamic();
+    }
+
+    applyStaticI18n();
+    document.documentElement.classList.remove('i18n-pending');
+
     // URLs relatives : le navigateur les résout par rapport à l'URL de la page (ex. /po/ → /po/api/...).
     const API = { mms: 'api/mms', goose: 'api/goose', sv: 'api/sv', svview: 'api/svview', gooselistener: 'api/gooselistener' };
     const SVVIEW_API = API.svview + '/api';
@@ -978,14 +1556,14 @@
       const list = document.getElementById('iframe-settings-list');
       if (!list) return;
       if (!iframeTabs.length) {
-        list.innerHTML = '<div class="iframe-settings-empty">Aucun onglet supplémentaire configuré.</div>';
+        list.innerHTML = '<div class="iframe-settings-empty">' + t('iframe.empty') + '</div>';
         return;
       }
       list.innerHTML = iframeTabs.map(t => `
         <div class="iframe-settings-item">
           <div>${escapeHtml(t.name)}</div>
           <div class="iframe-settings-item-url" title="${escapeHtml(t.url)}">${escapeHtml(t.url)}</div>
-          <button type="button" class="btn btn--small btn--danger" data-action="remove-iframe-tab" data-tab-id="${escapeHtml(t.id)}">Supprimer</button>
+          <button type="button" class="btn btn--small btn--danger" data-action="remove-iframe-tab" data-tab-id="${escapeHtml(t.id)}">${t('common.delete')}</button>
         </div>
       `).join('');
       list.querySelectorAll('[data-action="remove-iframe-tab"]').forEach(btn => {
@@ -1007,10 +1585,10 @@
     function addIframeTab(name, url) {
       const tabName = String(name || '').trim();
       const tabUrl = String(url || '').trim();
-      if (!tabName || !tabUrl) throw new Error('Nom et URL requis');
+      if (!tabName || !tabUrl) throw new Error(t('iframe.nameUrlRequired'));
       let parsed;
-      try { parsed = new URL(tabUrl); } catch { throw new Error('URL invalide'); }
-      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('URL doit commencer par http:// ou https://');
+      try { parsed = new URL(tabUrl); } catch { throw new Error(t('iframe.invalidUrl')); }
+      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error(t('iframe.urlProtocol'));
       const base = slugifyTabId(tabName) || 'iframe';
       let id = base;
       let i = 2;
@@ -1025,7 +1603,7 @@
       const id = String(tabId || '');
       const existing = iframeTabs.find(t => t.id === id);
       if (!existing) return;
-      if (!confirm(`Supprimer l'onglet "${existing.name}" ?`)) return;
+      if (!confirm(t('iframe.confirmRemove', { name: existing.name }))) return;
       iframeTabs = iframeTabs.filter(t => t.id !== id);
       saveIframeTabs();
       renderIframeTabsUi();
@@ -1081,7 +1659,7 @@
         addIframeTab(fd.get('name'), fd.get('url'));
         form.reset();
       } catch (err) {
-        alert(err.message || 'Erreur lors de l\'ajout de l\'onglet');
+        alert(err.message || t('iframe.addError'));
       }
     });
     const initialTab = (location.hash || '#mms').slice(1);
@@ -1108,15 +1686,15 @@
     }
     function mmsDetailsHtml(s) {
       const items = s.rcb_items || [];
-      const rcbList = items.length ? '<ul style="margin:0;padding-left:1.2rem;max-height:12rem;overflow-y:auto">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>' : '<span style="color:var(--muted)">(chargement…)</span>';
-      const errBlock = s.last_error ? `<dt>Dernière erreur</dt><dd class="error-msg">${escapeHtml(s.last_error)}</dd>` : '';
+      const rcbList = items.length ? '<ul style="margin:0;padding-left:1.2rem;max-height:12rem;overflow-y:auto">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>' : '<span style="color:var(--muted)">' + t('mms.loadingParen') + '</span>';
+      const errBlock = s.last_error ? `<dt>${t('mms.lastError')}</dt><dd class="error-msg">${escapeHtml(s.last_error)}</dd>` : '';
       return `<dl class="details-grid">
         <dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd>
-        <dt>Domaine</dt><dd>${escapeHtml(s.domain)}</dd>
+        <dt>${t('mms.col.domain')}</dt><dd>${escapeHtml(s.domain)}</dd>
         <dt>SCL</dt><dd>${escapeHtml(s.scl) || '—'}</dd>
-        <dt>RCB list</dt><dd>${escapeHtml(s.rcb_list) || 'liste intégrée'}</dd>
-        <dt>Debug</dt><dd>${s.debug ? 'Oui' : 'Non'}</dd>
-        <dt>Reports (${items.length})</dt><dd>${rcbList}</dd>
+        <dt>${t('mms.rcbList')}</dt><dd>${escapeHtml(s.rcb_list) || t('mms.rcbBuiltin')}</dd>
+        <dt>${t('mms.col.debug')}</dt><dd>${s.debug ? t('common.yes') : t('common.no')}</dd>
+        <dt>${t('mms.reports', { n: items.length })}</dt><dd>${rcbList}</dd>
         ${errBlock}
       </dl>`;
     }
@@ -1124,11 +1702,11 @@
       const tbody = document.getElementById('mms-list');
       const expanded = new Set();
       tbody.querySelectorAll('.details-row').forEach(r => { if (r.style.display !== 'none') expanded.add(r.dataset.id); });
-      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>'; return; }
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">' + t('common.noStreams') + '</td></tr>'; return; }
       tbody.innerHTML = rows.map((s, idx) => {
         const rowId = 'mms-row-' + idx;
         const isExp = expanded.has(s.id);
-        return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td>${s.debug ? 'Oui' : 'Non'}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
+        return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td>${s.debug ? t('common.yes') : t('common.no')}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? t('mms.debugOff') : t('mms.debugOn')}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">${t('common.delete')}</button></td></tr>
         <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${mmsDetailsHtml(s)}</td></tr>`;
       }).join('');
       tbody.querySelectorAll('[data-action="expand"]').forEach(btn => {
@@ -1148,7 +1726,7 @@
       });
       tbody.querySelectorAll('[data-action="delete"]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!confirm('Supprimer ?')) return;
+          if (!confirm(t('common.confirmDelete'))) return;
           try {
             await fetch(API.mms + '/subscriptions/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
             mmsLoad();
@@ -1162,14 +1740,14 @@
       const subsById = new Map((subs || []).map(s => [s.id, s]));
       const expanded = new Set();
       el.querySelectorAll('.recent-details.visible').forEach(d => expanded.add(d.dataset.id));
-      if (!mmsRecentsCache.length) { el.innerHTML = '<p class="empty">Aucun flux récent.</p>'; return; }
+      if (!mmsRecentsCache.length) { el.innerHTML = '<p class="empty">' + t('common.noRecent') + '</p>'; return; }
       el.innerHTML = mmsRecentsCache.map((r, idx) => {
         const run = runningIds.has(r.id);
         const detailId = 'mms-recent-' + idx;
         const isExp = expanded.has(r.id);
         const live = subsById.get(r.id);
         const payload = { ...r, rcb_items: (run && live?.rcb_items) ? live.rcb_items : (r.rcb_items || []) };
-        return `<div class="recent-card"><button type="button" class="btn btn--small expand-btn" data-action="mms-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">(en cours)</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">Relancer</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
+        return `<div class="recent-card"><button type="button" class="btn btn--small expand-btn" data-action="mms-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">' + t('common.runningParen') + '</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">${t('common.restart')}</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
       }).join('');
       el.querySelectorAll('[data-action="mms-recent-expand"]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1190,7 +1768,7 @@
       });
     }
     async function mmsLoad() {
-      document.getElementById('mms-loading').textContent = 'Chargement…';
+      document.getElementById('mms-loading').textContent = t('common.loading');
       try {
         const [subs, rec, cmds] = await Promise.all([mmsSubs(), mmsRecents(), mmsCommands()]);
         mmsRender(subs);
@@ -1199,13 +1777,13 @@
         mmsCommandsRender(cmds);
         document.getElementById('mms-loading').textContent = '';
       } catch (e) {
-        document.getElementById('mms-loading').textContent = 'Erreur: ' + e.message;
+        document.getElementById('mms-loading').textContent = t('common.error', { msg: e.message });
         document.getElementById('mms-loading').style.color = 'var(--danger)';
       }
     }
     document.getElementById('mms-refresh').addEventListener('click', mmsLoad);
     document.getElementById('mms-purge').addEventListener('click', async () => {
-      if (!confirm('Supprimer tous les flux ?')) return;
+      if (!confirm(t('common.confirmDeleteAll'))) return;
       try {
         await fetch(API.mms + '/subscriptions', { method: 'DELETE' });
         mmsLoad();
@@ -1216,7 +1794,7 @@
       if (!sectionEl) return;
       const visible = sectionEl.style.display !== 'none';
       sectionEl.style.display = visible ? 'none' : 'block';
-      if (btnEl) btnEl.textContent = visible ? 'Afficher' : 'Masquer';
+      if (btnEl) btnEl.textContent = visible ? t('common.show') : t('common.hide');
     }
 
     // Flux en cours
@@ -1272,9 +1850,9 @@
       const mmsDetailsCommandHtml = (c) => {
         return `<dl class="details-grid">
           <dt>IED</dt><dd>${escapeHtml(c.ied_host)}:${escapeHtml(String(c.ied_port ?? ''))}</dd>
-          <dt>Domaine</dt><dd>${escapeHtml(c.domain)}</dd>
-          <dt>Objet</dt><dd><code style="font-size:0.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:560px">${escapeHtml(c.item)}</code></dd>
-          <dt>Position</dt><dd>${escapeHtml(c.position)}</dd>
+          <dt>${t('mms.col.domain')}</dt><dd>${escapeHtml(c.domain)}</dd>
+          <dt>${t('mms.col.object')}</dt><dd><code style="font-size:0.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:560px">${escapeHtml(c.item)}</code></dd>
+          <dt>${t('mms.field.position')}</dt><dd>${escapeHtml(c.position)}</dd>
         </dl>`;
       };
 
@@ -1293,8 +1871,8 @@
                 <td><code style="font-size:0.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:340px">${escapeHtml(c.item)}</code></td>
                 <td>${escapeHtml(c.position)}</td>
                 <td>
-                  <button type="button" class="btn btn--small btn--accent" data-action="mms-cmd-send" data-id="${escapeHtml(c.id)}">Envoyer</button>
-                  <button type="button" class="btn btn--small btn--danger" data-action="mms-cmd-delete" data-id="${escapeHtml(c.id)}">Supprimer</button>
+                  <button type="button" class="btn btn--small btn--accent" data-action="mms-cmd-send" data-id="${escapeHtml(c.id)}">${t('common.send')}</button>
+                  <button type="button" class="btn btn--small btn--danger" data-action="mms-cmd-delete" data-id="${escapeHtml(c.id)}">${t('common.delete')}</button>
                 </td>
               </tr>
               <tr class="details-row command-details ${isExp ? 'visible' : ''}" id="${escapeHtml(detailId)}" data-id="${escapeHtml(c.id)}" style="display:${isExp ? 'table-row' : 'none'}">
@@ -1302,7 +1880,7 @@
               </tr>
             `;
           }).join('')
-        : '<tr><td colspan="6" class="empty">Aucune commande enregistrée.</td></tr>';
+        : '<tr><td colspan="6" class="empty">' + t('mms.noCommands') + '</td></tr>';
 
       tbody.querySelectorAll('[data-action="mms-cmd-expand"]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1318,14 +1896,14 @@
         btn.addEventListener('click', async () => {
           const cmdId = btn.dataset.id;
           if (!cmdId) return;
-          lastResp.textContent = 'Envoi en cours…';
+          lastResp.textContent = t('mms.sending');
           try {
             const r = await fetch(API.mms + '/commands/' + encodeURIComponent(cmdId) + '/send', { method: 'POST' });
             const data = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error((data && data.error) ? data.error : (r.status + ' ' + r.statusText));
             lastResp.textContent = JSON.stringify(data, null, 2);
           } catch (e) {
-            lastResp.textContent = 'Erreur: ' + e.message;
+            lastResp.textContent = t('common.error', { msg: e.message });
             lastResp.style.color = 'var(--danger)';
           }
         });
@@ -1335,7 +1913,7 @@
         btn.addEventListener('click', async () => {
           const cmdId = btn.dataset.id;
           if (!cmdId) return;
-          if (!confirm('Supprimer la commande ?')) return;
+          if (!confirm(t('mms.confirmDeleteCmd'))) return;
           try {
             await fetch(API.mms + '/commands/' + encodeURIComponent(cmdId), { method: 'DELETE' });
             const cmds2 = await mmsCommands();
@@ -1365,13 +1943,13 @@
       const required = ['ied_host', 'domain', 'item'];
       for (const k of required) {
         if (!payload[k]) {
-          if (loadingEl) loadingEl.textContent = 'Champ requis manquant: ' + k;
+          if (loadingEl) loadingEl.textContent = t('mms.missingField', { field: k });
           return;
         }
       }
 
       try {
-        if (loadingEl) loadingEl.textContent = 'Enregistrement…';
+        if (loadingEl) loadingEl.textContent = t('mms.saving');
         const r = await fetch(API.mms + '/commands', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1384,14 +1962,14 @@
         mmsCommandsRender(cmds);
       } catch (e) {
         if (loadingEl) {
-          loadingEl.textContent = 'Erreur: ' + e.message;
+          loadingEl.textContent = t('common.error', { msg: e.message });
           loadingEl.style.color = 'var(--danger)';
         }
       }
     });
 
     document.getElementById('mms-cmd-purge').addEventListener('click', async () => {
-      if (!confirm('Supprimer toutes les commandes enregistrées ?')) return;
+      if (!confirm(t('mms.confirmPurgeCmds'))) return;
       try {
         await fetch(API.mms + '/commands', { method: 'DELETE' });
         const cmds = await mmsCommands();
@@ -1412,8 +1990,8 @@
         const btn = document.getElementById('mms-blackout-btn');
         btn.style.display = 'inline-block';
         const statusEl = document.getElementById('mms-blackout-status');
-        statusEl.textContent = '🔓 Mode BLACKOUT activé';
-        setTimeout(() => { if (statusEl.textContent === '🔓 Mode BLACKOUT activé') statusEl.textContent = ''; }, 3000);
+        statusEl.textContent = t('mms.blackoutEnabled');
+        setTimeout(() => { if (statusEl.textContent === t('mms.blackoutEnabled')) statusEl.textContent = ''; }, 3000);
       }
 
       function advance(gesture) {
@@ -1452,28 +2030,28 @@
 
     document.getElementById('mms-blackout-btn').addEventListener('click', async () => {
       const statusEl = document.getElementById('mms-blackout-status');
-      if (!confirm('BLACKOUT : envoyer toutes les commandes "Ouvrir" enregistrées ?')) return;
+      if (!confirm(t('mms.blackoutConfirm'))) return;
       let cmds;
-      try { cmds = await mmsCommands(); } catch (e) { statusEl.textContent = 'Erreur lecture commandes : ' + e.message; return; }
+      try { cmds = await mmsCommands(); } catch (e) { statusEl.textContent = t('mms.blackoutReadError', { msg: e.message }); return; }
       const openCmds = (cmds || []).filter(c => c.position === 'open');
-      if (!openCmds.length) { statusEl.textContent = 'Aucune commande "Ouvrir" enregistrée.'; return; }
+      if (!openCmds.length) { statusEl.textContent = t('mms.blackoutNoOpen'); return; }
       const btn = document.getElementById('mms-blackout-btn');
       btn.disabled = true;
       btn.style.opacity = '0.6';
       statusEl.style.color = 'var(--text)';
-      statusEl.textContent = `Envoi de ${openCmds.length} commande(s)…`;
+      statusEl.textContent = t('mms.blackoutSending', { n: openCmds.length });
       let ok = 0, fail = 0;
       for (const cmd of openCmds) {
         try {
           const r = await fetch(API.mms + '/commands/' + encodeURIComponent(cmd.id) + '/send', { method: 'POST' });
           if (r.ok) { ok++; } else { fail++; }
         } catch { fail++; }
-        statusEl.textContent = `${ok + fail}/${openCmds.length} – ok:${ok} erreurs:${fail}`;
+        statusEl.textContent = t('mms.blackoutProgress', { done: ok + fail, total: openCmds.length, ok, fail });
       }
       btn.disabled = false;
       btn.style.opacity = '1';
       statusEl.style.color = fail ? 'var(--danger)' : 'var(--success, #4caf50)';
-      statusEl.textContent = `BLACKOUT terminé – ${ok} ok, ${fail} erreur(s)`;
+      statusEl.textContent = t('mms.blackoutDone', { ok, fail });
     });
 
     const mmsLogsEl = document.getElementById('mms-logs');
@@ -1492,7 +2070,7 @@
     };
     mmsLogsPauseBtn.addEventListener('click', () => {
       mmsLogsPaused = !mmsLogsPaused;
-      mmsLogsPauseBtn.textContent = mmsLogsPaused ? 'Reprendre' : 'Pause';
+      mmsLogsPauseBtn.textContent = mmsLogsPaused ? t('common.resume') : t('common.pause');
       if (!mmsLogsPaused) {
         mmsLogsEl.textContent = mmsLogLines.join('\n');
         mmsLogsEl.scrollTop = mmsLogsEl.scrollHeight;
@@ -1517,20 +2095,20 @@
         <dt>src_mac</dt><dd>${escapeHtml(s.src_mac)}</dd>
         <dt>dst_mac</dt><dd>${escapeHtml(s.dst_mac)}</dd>
         <dt>app_id</dt><dd>${escapeHtml(String(s.app_id ?? ''))}</dd>
-        <dt>VLAN</dt><dd>${s.vlan_id != null ? s.vlan_id : '—'} / priorité ${s.vlan_priority ?? '—'}</dd>
+        <dt>VLAN</dt><dd>${s.vlan_id != null ? t('goose.vlan', { id: s.vlan_id, prio: s.vlan_priority ?? '—' }) : '—'}</dd>
         <dt>gocbRef</dt><dd>${escapeHtml(s.gocb_ref)}</dd>
         <dt>datSet</dt><dd>${escapeHtml(s.dat_set)}</dd>
         <dt>goID</dt><dd>${escapeHtml(s.go_id)}</dd>
         <dt>TTL (ms)</dt><dd>${escapeHtml(String(s.ttl ?? ''))}</dd>
         <dt>confRev</dt><dd>${escapeHtml(String(s.conf_rev ?? ''))}</dd>
         <dt>stNum / sqNum</dt><dd>${escapeHtml(String(s.st_num ?? ''))} / ${escapeHtml(String(s.sq_num ?? ''))}</dd>
-        <dt>simulation</dt><dd>${s.simulation ? 'Oui' : 'Non'}</dd>
-        <dt>ndsCom</dt><dd>${s.nds_com ? 'Oui' : 'Non'}</dd>
+        <dt>simulation</dt><dd>${s.simulation ? t('common.yes') : t('common.no')}</dd>
+        <dt>ndsCom</dt><dd>${s.nds_com ? t('common.yes') : t('common.no')}</dd>
         <dt>allData</dt><dd><pre style="margin:0;font-size:0.75rem;max-height:10rem;overflow:auto;white-space:pre-wrap">${escapeHtml(allData)}</pre></dd>
       </dl>`;
     }
     function gooseLoad() {
-      document.getElementById('goose-loading').textContent = 'Chargement…';
+      document.getElementById('goose-loading').textContent = t('common.loading');
       Promise.all([gooseStreams(), gooseRecent()]).then(([streams, recent]) => {
         const activeGrefs = new Set(streams.map(s => s.gocb_ref));
         const tbody = document.getElementById('goose-list');
@@ -1540,10 +2118,10 @@
           ? streams.map((s, idx) => {
               const rowId = 'goose-row-' + idx;
               const isExp = expanded.has(s.id);
-              return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="goose-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small btn--accent goose-edit" data-id="${escapeHtml(s.id)}">Modifier</button> <button type="button" class="btn btn--small btn--danger goose-delete" data-id="${escapeHtml(s.id)}">Supprimer</button></td></tr>
+              return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="goose-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.gocb_ref)}</td><td>${escapeHtml(s.go_id)}</td><td>${escapeHtml(s.src_mac)}</td><td>${escapeHtml(s.dst_mac)}</td><td><button type="button" class="btn btn--small btn--accent goose-edit" data-id="${escapeHtml(s.id)}">${t('common.edit')}</button> <button type="button" class="btn btn--small btn--danger goose-delete" data-id="${escapeHtml(s.id)}">${t('common.delete')}</button></td></tr>
               <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="7">${gooseDetailsHtml(s)}</td></tr>`;
             }).join('')
-          : '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>';
+          : '<tr><td colspan="7" class="empty">' + t('common.noStreams') + '</td></tr>';
         document.getElementById('goose-list').querySelectorAll('[data-action="goose-expand"]').forEach(btn => {
           btn.addEventListener('click', () => {
             const r = document.getElementById(btn.dataset.rowid);
@@ -1556,7 +2134,7 @@
         });
         document.getElementById('goose-list').querySelectorAll('.goose-delete').forEach(btn => {
           btn.addEventListener('click', async () => {
-            if (!confirm('Supprimer ce flux ?')) return;
+            if (!confirm(t('goose.confirmDelete'))) return;
             await fetch(API.goose + '/streams/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
             gooseLoad();
           });
@@ -1586,10 +2164,10 @@
               const canRestart = !activeGrefs.has(r.gocb_ref);
               const detailId = 'goose-recent-' + idx;
               const isExp = gooseRecentsExpanded.has(r.id);
-              return `<tr data-id="${escapeHtml(r.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="goose-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent goose-relancer" data-id="${escapeHtml(r.id)}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>
+              return `<tr data-id="${escapeHtml(r.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="goose-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent goose-relancer" data-id="${escapeHtml(r.id)}">${t('common.restart')}</button>` : '<span class="status running">' + t('common.running') + '</span>'}</td></tr>
               <tr class="details-row goose-recent-details" id="${detailId}" data-id="${escapeHtml(r.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="5">${gooseDetailsHtml(r)}</td></tr>`;
             }).join('')
-          : '<tr><td colspan="5" class="empty">Aucun flux récent.</td></tr>';
+          : '<tr><td colspan="5" class="empty">' + t('common.noRecent') + '</td></tr>';
         document.getElementById('goose-recents').querySelectorAll('[data-action="goose-recent-expand"]').forEach(btn => {
           btn.addEventListener('click', () => {
             const r = document.getElementById(btn.dataset.detailid);
@@ -1604,7 +2182,7 @@
           });
         });
         document.getElementById('goose-loading').textContent = '';
-      }).catch(e => { document.getElementById('goose-loading').textContent = 'Erreur: ' + e.message; });
+      }).catch(e => { document.getElementById('goose-loading').textContent = t('common.error', { msg: e.message }); });
     }
     document.getElementById('goose-refresh').addEventListener('click', gooseLoad);
 
@@ -1612,7 +2190,7 @@
       if (!sectionEl) return;
       const visible = sectionEl.style.display !== 'none';
       sectionEl.style.display = visible ? 'none' : 'block';
-      if (btnEl) btnEl.textContent = visible ? 'Afficher' : 'Masquer';
+      if (btnEl) btnEl.textContent = visible ? t('common.show') : t('common.hide');
     }
 
     const gooseStreamsBody = document.getElementById('goose-streams-body');
@@ -1638,10 +2216,10 @@
         document.getElementById('goose-edit-id').value = s.id;
         document.getElementById('goose-edit-ttl').value = s.ttl;
         document.getElementById('goose-edit-alldata').value = JSON.stringify(s.all_data || [], null, 2);
-        details.innerHTML = `<p><strong>ID:</strong> ${escapeHtml(s.id)} &nbsp; <strong>gocbRef:</strong> ${escapeHtml(s.gocb_ref)}</p><p><strong>Interface:</strong> ${escapeHtml(s.iface)} &nbsp; <strong>src_mac:</strong> ${escapeHtml(s.src_mac)} &nbsp; <strong>dst_mac:</strong> ${escapeHtml(s.dst_mac)}</p>`;
+        details.innerHTML = `<p><strong>ID:</strong> ${escapeHtml(s.id)} &nbsp; <strong>gocbRef:</strong> ${escapeHtml(s.gocb_ref)}</p><p><strong>${t('common.interface')}:</strong> ${escapeHtml(s.iface)} &nbsp; <strong>src_mac:</strong> ${escapeHtml(s.src_mac)} &nbsp; <strong>dst_mac:</strong> ${escapeHtml(s.dst_mac)}</p>`;
         modal.style.display = 'flex';
       } catch (e) {
-        document.getElementById('goose-loading').textContent = 'Erreur: ' + e.message;
+        document.getElementById('goose-loading').textContent = t('common.error', { msg: e.message });
       }
     }
     document.getElementById('goose-edit-form').addEventListener('submit', async (e) => {
@@ -1652,7 +2230,7 @@
       try {
         all_data = JSON.parse(document.getElementById('goose-edit-alldata').value);
       } catch (err) {
-        alert('JSON invalide dans allData');
+        alert(t('goose.invalidJson'));
         return;
       }
       try {
@@ -1665,7 +2243,7 @@
         document.getElementById('goose-edit-modal').style.display = 'none';
         gooseLoad();
       } catch (e) {
-        alert('Erreur: ' + e.message);
+        alert(t('common.error', { msg: e.message }));
       }
     });
     document.querySelector('.goose-edit-cancel').addEventListener('click', () => {
@@ -1680,14 +2258,14 @@
       const smpLabels = {0: 'None', 1: 'Local', 2: 'Global'};
       const smpVal = f.smp_synch ?? 0;
       const smpStr = smpLabels[smpVal] ? `${smpVal} (${smpLabels[smpVal]})` : smpVal;
-      const vlanStr = f.vlan_id != null ? `${f.vlan_id} / priorité ${f.vlan_priority ?? 0}` : '—';
+      const vlanStr = f.vlan_id != null ? t('sv.vlan', { id: f.vlan_id, prio: f.vlan_priority ?? 0 }) : '—';
       const faultBlock = f.fault ? `<dt>fault_i_peak</dt><dd>${f.fault_i_peak ?? '—'} A</dd>
         <dt>fault_v_peak</dt><dd>${f.fault_v_peak ?? '—'} V</dd>
         <dt>fault_phase_deg</dt><dd>${f.fault_phase_deg ?? '—'}°</dd>
         <dt>fault_cycle_s</dt><dd>${f.fault_cycle_s ?? 1} s</dd>` : '';
       return `<dl class="details-grid">
-        <dt>Nom</dt><dd>${escapeHtml(f.name)}</dd>
-        <dt>Interface</dt><dd>${escapeHtml(f.interface)}</dd>
+        <dt>${t('common.name')}</dt><dd>${escapeHtml(f.name)}</dd>
+        <dt>${t('common.interface')}</dt><dd>${escapeHtml(f.interface)}</dd>
         <dt>src_mac</dt><dd>${escapeHtml(f.src_mac)}</dd>
         <dt>dst_mac</dt><dd>${escapeHtml(f.dst_mac)}</dd>
         <dt>svID</dt><dd>${escapeHtml(f.svid)}</dd>
@@ -1699,7 +2277,7 @@
         <dt>i_peak</dt><dd>${f.i_peak ?? 10} A</dd>
         <dt>v_peak</dt><dd>${f.v_peak ?? 100} V</dd>
         <dt>phase_deg</dt><dd>${f.phase_deg ?? 0}°</dd>
-        <dt>fault</dt><dd>${f.fault ? 'Oui' : 'Non'}</dd>
+        <dt>fault</dt><dd>${f.fault ? t('common.yes') : t('common.no')}</dd>
         ${faultBlock}
       </dl>`;
     }
@@ -1716,10 +2294,10 @@
           ? flows.map((f, idx) => {
               const rowId = 'sv-row-' + idx;
               const isExp = svExpanded.has(f.name);
-              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><button type="button" class="btn btn--small btn--danger sv-delete" data-name="${escapeHtml(f.name)}">Supprimer</button></td></tr>
+              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><button type="button" class="btn btn--small btn--danger sv-delete" data-name="${escapeHtml(f.name)}">${t('common.delete')}</button></td></tr>
               <tr class="details-row" id="${rowId}" data-name="${escapeHtml(f.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${svDetailsHtml(f)}</td></tr>`;
             }).join('')
-          : '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
+          : '<tr><td colspan="6" class="empty">' + t('common.noStreams') + '</td></tr>';
         svTbody.querySelectorAll('[data-action="sv-expand"]').forEach(btn => {
           btn.addEventListener('click', () => {
             const r = document.getElementById(btn.dataset.rowid);
@@ -1738,10 +2316,10 @@
               const canRestart = !runningNames.has(c.name);
               const rowId = 'sv-recent-' + i;
               const isExp = svRecExpanded.has(c.name);
-              return `<tr data-name="${escapeHtml(c.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-recent-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.interface)}</td><td>${escapeHtml(c.svid)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-idx="${i}">Relancer</button>` : '<span class="status running">En cours</span>'}</td></tr>
+              return `<tr data-name="${escapeHtml(c.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-recent-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.interface)}</td><td>${escapeHtml(c.svid)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent" data-idx="${i}">${t('common.restart')}</button>` : '<span class="status running">' + t('common.running') + '</span>'}</td></tr>
               <tr class="details-row sv-recent-details" id="${rowId}" data-name="${escapeHtml(c.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="5">${svDetailsHtml(c)}</td></tr>`;
             }).join('')
-          : '<tr><td colspan="5" class="empty">Aucun flux récent.</td></tr>';
+          : '<tr><td colspan="5" class="empty">' + t('common.noRecent') + '</td></tr>';
         svRecTbody.querySelectorAll('[data-action="sv-recent-expand"]').forEach(btn => {
           btn.addEventListener('click', () => {
             const rowId = btn.dataset.rowid;
@@ -1757,30 +2335,30 @@
         document.getElementById('sv-msg').textContent = '';
         document.getElementById('sv-msg').className = '';
       } catch (e) {
-        document.getElementById('sv-msg').textContent = 'Erreur: ' + e.message;
+        document.getElementById('sv-msg').textContent = t('common.error', { msg: e.message });
         document.getElementById('sv-msg').className = 'err';
       }
     }
     async function svDelete(name) {
-      if (!confirm('Supprimer le flux "' + name + '" ?')) return;
+      if (!confirm(t('sv.confirmDeleteNamed', { name }))) return;
       const r = await fetch(API.sv + '/flows/' + encodeURIComponent(name), { method: 'DELETE' });
       if (!r.ok) throw new Error(await r.text());
-      document.getElementById('sv-msg').textContent = 'Flux supprimé.';
+      document.getElementById('sv-msg').textContent = t('sv.deleted');
       document.getElementById('sv-msg').className = 'ok';
       svLoad();
     }
     async function svRestart(cfg) {
       const r = await fetch(API.sv + '/flows', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
       if (!r.ok) throw new Error(await r.text());
-      document.getElementById('sv-msg').textContent = 'Flux relancé.';
+      document.getElementById('sv-msg').textContent = t('sv.restarted');
       document.getElementById('sv-msg').className = 'ok';
       svLoad();
     }
     document.getElementById('sv-refresh').addEventListener('click', () => { document.getElementById('sv-msg').textContent = ''; svLoad(); });
     document.getElementById('sv-purge').addEventListener('click', async () => {
-      if (!confirm('Supprimer tous les flux ?')) return;
+      if (!confirm(t('common.confirmDeleteAll'))) return;
       await fetch(API.sv + '/flows', { method: 'DELETE' });
-      document.getElementById('sv-msg').textContent = 'Tous les flux supprimés.';
+      document.getElementById('sv-msg').textContent = t('sv.allDeleted');
       document.getElementById('sv-msg').className = 'ok';
       svLoad();
     });
@@ -1790,7 +2368,7 @@
       svStreamsToggleBtn.addEventListener('click', () => {
         const visible = svStreamsBody.style.display !== 'none';
         svStreamsBody.style.display = visible ? 'none' : 'block';
-        svStreamsToggleBtn.textContent = visible ? 'Afficher' : 'Masquer';
+        svStreamsToggleBtn.textContent = visible ? t('common.show') : t('common.hide');
       });
     }
     const svRecentsSection = document.getElementById('sv-recents-section');
@@ -1799,7 +2377,7 @@
       svRecentsToggleBtn.addEventListener('click', () => {
         const visible = svRecentsSection.style.display !== 'none';
         svRecentsSection.style.display = visible ? 'none' : 'block';
-        svRecentsToggleBtn.textContent = visible ? 'Afficher' : 'Masquer';
+        svRecentsToggleBtn.textContent = visible ? t('common.show') : t('common.hide');
       });
     }
 
@@ -1889,11 +2467,11 @@
       if (health) {
         const running = !!(data.debug && data.debug.capture_running);
         health.className = 'svview-health-badge ' + (running ? 'ok' : 'err');
-        health.textContent = running ? 'Capture: OK' : 'Capture: KO';
+        health.textContent = running ? t('svview.captureOk') : t('svview.captureKo');
       }
       if (healthDetails) {
         const err = data.debug && data.debug.last_error ? data.debug.last_error : '';
-        healthDetails.textContent = err ? ('Dernière erreur: ' + err) : '';
+        healthDetails.textContent = err ? t('svview.lastError', { msg: err }) : '';
       }
       const hasPhasors = data.u_arrows && data.u_arrows.length === 3;
       const uArrows = hasPhasors ? data.u_arrows : [[0,0],[0,0],[0,0]];
@@ -1919,9 +2497,9 @@
       set('svview-stat-misses-all', String(data.misses_all ?? 0));
       set('svview-stat-misses-win', String(data.misses_win ?? 0));
       const n = data.samples_count ?? 0;
-      set('svview-stat-samples', n >= 96 ? `${n} échantillons (DFT OK)` : `${n} échantillons (attente 96+)`);
+      set('svview-stat-samples', n >= 96 ? t('svview.samplesOk', { n }) : t('svview.samplesWait', { n }));
       const w = data.window ?? 10;
-      ['svview-label-delay-win','svview-label-sync-win','svview-label-misses-win'].forEach(id => set(id, `Dernières ${w}s`));
+      ['svview-label-delay-win','svview-label-sync-win','svview-label-misses-win'].forEach(id => set(id, t('svview.lastSeconds', { w })));
     }
 
     function svviewRender(data) {
@@ -1929,21 +2507,21 @@
       const unconfigured = document.getElementById('svview-unconfigured');
       const running = !!(data.debug && data.debug.capture_running);
       const healthClass = running ? 'ok' : 'err';
-      const healthLabel = running ? 'Capture: OK' : 'Capture: KO';
-      const healthError = (data.debug && data.debug.last_error) ? ('<p class="svview-health-details">Dernière erreur: ' + escapeHtml(data.debug.last_error) + '</p>') : '';
+      const healthLabel = running ? t('svview.captureOk') : t('svview.captureKo');
+      const healthError = (data.debug && data.debug.last_error) ? ('<p class="svview-health-details">' + t('svview.lastError', { msg: escapeHtml(data.debug.last_error) }) + '</p>') : '';
       if (!data.svid) {
         unconfigured.style.display = 'none';
         root.innerHTML = `
           <div class="svview-card">
             <div class="svview-health-badge ${healthClass}">${healthLabel}</div>
             ${healthError}
-            <h2>svIDs vus</h2>
+            <h2>${t('svview.svidsSeen')}</h2>
             ${data.svids && data.svids.length ? `
               <ul class="svview-svids-list" id="svview-svids-list">
                 ${data.svids.map(s => '<li data-svid="' + escapeHtml(s) + '">' + escapeHtml(s) + '</li>').join('')}
               </ul>
-              <p class="status">Cliquez sur un svID pour l'afficher.</p>
-            ` : '<p class="status">Aucun svID pour l\'instant.</p>'}
+              <p class="status">${t('svview.clickSvid')}</p>
+            ` : '<p class="status">' + t('svview.noSvidYet') + '</p>'}
           </div>
         `;
         document.querySelectorAll('#svview-svids-list li[data-svid]').forEach(li => {
@@ -1968,31 +2546,31 @@
       const iArrows = hasPhasors ? data.i_arrows : [[0,0],[0,0],[0,0]];
       const w = data.window ?? 10;
       const nc = data.samples_count ?? 0;
-      const samplesStr = nc >= 96 ? nc + ' échantillons (DFT OK)' : nc + ' échantillons (attente 96+)';
+      const samplesStr = nc >= 96 ? t('svview.samplesOk', { n: nc }) : t('svview.samplesWait', { n: nc });
       root.innerHTML = `
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <div class="svview-svid-badge" id="svview-svid-badge" title="Cliquer pour changer">svID: ${escapeHtml(data.svid)}</div>
+          <div class="svview-svid-badge" id="svview-svid-badge" title="${t('svview.changeSvid')}">svID: ${escapeHtml(data.svid)}</div>
           <div class="svview-health-badge ${healthClass}" id="svview-health-badge">${healthLabel}</div>
-          <button type="button" class="btn" id="svview-btn-stop" title="Revenir à la liste">Arrêter</button>
+          <button type="button" class="btn" id="svview-btn-stop" title="${t('svview.backToList')}">${t('common.stop')}</button>
         </div>
-        <p class="svview-health-details" id="svview-health-details">${(data.debug && data.debug.last_error) ? ('Dernière erreur: ' + escapeHtml(data.debug.last_error)) : ''}</p>
+        <p class="svview-health-details" id="svview-health-details">${(data.debug && data.debug.last_error) ? t('svview.lastError', { msg: escapeHtml(data.debug.last_error) }) : ''}</p>
         <div class="svview-layout" id="svview-data-container">
           <div>
             <div class="svview-card">
-              <h2>Phasors</h2>
+              <h2>${t('svview.phasors')}</h2>
               <div class="svview-phasors">
                 <div class="svview-phasor-svg"><svg id="svview-svg-u" viewBox="0 0 280 280"></svg></div>
                 <div class="svview-phasor-svg"><svg id="svview-svg-i" viewBox="0 0 280 280"></svg></div>
               </div>
             </div>
             <div class="svview-sinusoids">
-              <div class="svview-card"><h2>U (V) – sinusoïdes</h2><svg id="svview-svg-sinus-u" viewBox="0 0 280 130"></svg></div>
-              <div class="svview-card"><h2>I (A) – sinusoïdes</h2><svg id="svview-svg-sinus-i" viewBox="0 0 280 130"></svg></div>
+              <div class="svview-card"><h2>${t('svview.sinusU')}</h2><svg id="svview-svg-sinus-u" viewBox="0 0 280 130"></svg></div>
+              <div class="svview-card"><h2>${t('svview.sinusI')}</h2><svg id="svview-svg-sinus-i" viewBox="0 0 280 130"></svg></div>
             </div>
           </div>
           <div>
             <div class="svview-card">
-              <h2>Tensions & Courants</h2>
+              <h2>${t('svview.vi')}</h2>
               <div class="svview-stats-grid" style="grid-auto-flow:column;grid-template-rows:auto auto auto">
                 <div class="svview-stat"><span class="stat-label">Va</span><span id="svview-stat-va">0 V</span></div>
                 <div class="svview-stat"><span class="stat-label">Vb</span><span id="svview-stat-vb">0 V</span></div>
@@ -2001,7 +2579,7 @@
                 <div class="svview-stat"><span class="stat-label">Ib</span><span id="svview-stat-ib">0 A</span></div>
                 <div class="svview-stat"><span class="stat-label">Ic</span><span id="svview-stat-ic">0 A</span></div>
               </div>
-              <h2 style="margin-top:12px">Déphasage U/I</h2>
+              <h2 style="margin-top:12px">${t('svview.phaseShift')}</h2>
               <div class="svview-stats-grid">
                 <div class="svview-stat"><span class="stat-label">φa</span><span id="svview-stat-pha">-</span></div>
                 <div class="svview-stat"><span class="stat-label">φb</span><span id="svview-stat-phb">-</span></div>
@@ -2009,39 +2587,39 @@
               </div>
             </div>
             <div class="svview-card">
-              <h2>Délai inter-paquets (µs)</h2>
+              <h2>${t('svview.delayPkts')}</h2>
               <div class="svview-stats-grid">
-                <div class="svview-stat"><span class="stat-label">Depuis lancement</span><span id="svview-stat-delay-all">-</span></div>
-                <div class="svview-stat"><span class="stat-label" id="svview-label-delay-win">Dernières ${w}s</span><span id="svview-stat-delay-win">-</span></div>
+                <div class="svview-stat"><span class="stat-label">${t('svview.sinceStart')}</span><span id="svview-stat-delay-all">-</span></div>
+                <div class="svview-stat"><span class="stat-label" id="svview-label-delay-win">${t('svview.lastSeconds', { w })}</span><span id="svview-stat-delay-win">-</span></div>
               </div>
-              <h2 style="margin-top:12px">Délai seconde pile → smpCnt0 (µs)</h2>
+              <h2 style="margin-top:12px">${t('svview.delaySmp')}</h2>
               <div class="svview-stats-grid">
-                <div class="svview-stat"><span class="stat-label">Depuis lancement</span><span id="svview-stat-sync-all">-</span></div>
-                <div class="svview-stat"><span class="stat-label" id="svview-label-sync-win">Dernières ${w}s</span><span id="svview-stat-sync-win">-</span></div>
+                <div class="svview-stat"><span class="stat-label">${t('svview.sinceStart')}</span><span id="svview-stat-sync-all">-</span></div>
+                <div class="svview-stat"><span class="stat-label" id="svview-label-sync-win">${t('svview.lastSeconds', { w })}</span><span id="svview-stat-sync-win">-</span></div>
               </div>
               <h2 style="margin-top:12px">Misses</h2>
               <div class="svview-stats-grid">
-                <div class="svview-stat"><span class="stat-label">Depuis lancement</span><span id="svview-stat-misses-all">0</span></div>
-                <div class="svview-stat"><span class="stat-label" id="svview-label-misses-win">Dernières ${w}s</span><span id="svview-stat-misses-win">0</span></div>
+                <div class="svview-stat"><span class="stat-label">${t('svview.sinceStart')}</span><span id="svview-stat-misses-all">0</span></div>
+                <div class="svview-stat"><span class="stat-label" id="svview-label-misses-win">${t('svview.lastSeconds', { w })}</span><span id="svview-stat-misses-win">0</span></div>
               </div>
             </div>
             <div class="svview-card">
-              <h2>Paramètres</h2>
+              <h2>${t('svview.params')}</h2>
               <form id="svview-config-form" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;min-width:0">
                 <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-                  <span style="overflow-wrap:break-word">Rafraîchissement (s)</span>
+                  <span style="overflow-wrap:break-word">${t('svview.refreshS')}</span>
                   <input type="number" name="interval" min="0.1" step="0.1" value="${svviewConfigCache.interval}" style="padding:6px;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text)">
                 </label>
                 <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-                  <span style="overflow-wrap:break-word">Fenêtre stats (s)</span>
+                  <span style="overflow-wrap:break-word">${t('svview.windowS')}</span>
                   <input type="number" name="window" min="1" step="1" value="${svviewConfigCache.window}" style="padding:6px;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text)">
                 </label>
-                <button type="submit" class="btn btn--accent" style="grid-column:1/-1">Appliquer</button>
+                <button type="submit" class="btn btn--accent" style="grid-column:1/-1">${t('common.apply')}</button>
               </form>
             </div>
           </div>
         </div>
-        <p class="status ok" style="margin-top:12px"><span id="svview-stat-samples" title="96+ échantillons requis pour DFT">${samplesStr}</span></p>
+        <p class="status ok" style="margin-top:12px"><span id="svview-stat-samples" title="${t('svview.samplesTitle')}">${samplesStr}</span></p>
       `;
       svviewDrawPhasorCircle('svview-svg-u', uArrows, 'U (V)', SVVIEW_COLORS.u);
       svviewDrawPhasorCircle('svview-svg-i', iArrows, 'I (A)', SVVIEW_COLORS.i);
@@ -2072,7 +2650,7 @@
         const current = data.svid;
         list.innerHTML = svids.length ? svids.map(s =>
           `<li class="${s === current ? 'selected' : ''}" data-svid="${escapeHtml(s)}">${escapeHtml(s)}</li>`
-        ).join('') : '<li style="color:var(--muted);cursor:default">Aucun svID vu</li>';
+        ).join('') : '<li style="color:var(--muted);cursor:default">' + t('svview.noSvidSeen') + '</li>';
         list.querySelectorAll('li[data-svid]').forEach(li => {
           li.addEventListener('click', async () => {
             const svid = li.getAttribute('data-svid');
@@ -2129,7 +2707,7 @@
           root.innerHTML = '';
         } else {
           unconf.style.display = 'none';
-          root.innerHTML = `<div class="svview-card"><p class="status error-msg">Erreur: ${escapeHtml(e.message)}</p></div>`;
+          root.innerHTML = `<div class="svview-card"><p class="status error-msg">${t('common.error', { msg: escapeHtml(e.message) })}</p></div>`;
         }
       }
     }
@@ -2196,7 +2774,7 @@
 
     async function glDownloadPcap(dumpId) {
       const r = await fetch(`${API.gooselistener}/analysis/dumps/${encodeURIComponent(dumpId)}/pcap`);
-      if (r.status === 503) throw new Error('GOOSE Listener non configuré');
+      if (r.status === 503) throw new Error(t('gl.notConfigured'));
       if (!r.ok) {
         let msg = r.statusText;
         try {
@@ -2210,7 +2788,7 @@
 
     async function glDownloadExport(path, filename) {
       const r = await fetch(API.gooselistener + path);
-      if (r.status === 503) throw new Error('GOOSE Listener non configuré');
+      if (r.status === 503) throw new Error(t('gl.notConfigured'));
       if (!r.ok) {
         let msg = r.statusText;
         try {
@@ -2228,7 +2806,7 @@
       const btn = document.getElementById('gl-discovery-toggle');
       if (body) body.classList.toggle('is-hidden', glDiscoveryHidden);
       if (btn) {
-        btn.textContent = glDiscoveryHidden ? 'Afficher' : 'Masquer';
+        btn.textContent = glDiscoveryHidden ? t('common.show') : t('common.hide');
         btn.setAttribute('aria-expanded', visible ? 'true' : 'false');
       }
     }
@@ -2241,17 +2819,52 @@
       return keys;
     }
 
+
+    function glEventKindLabel(kind) {
+      const map = {
+        declenchement: 'gl.event.kind.trigger',
+        retombee: 'gl.event.kind.reset',
+        initial: 'gl.event.kind.initial',
+        mixte: 'gl.event.kind.mixed',
+        inconnu: 'gl.event.kind.unknown',
+      };
+      return t(map[kind] || 'gl.event.kind.unknown');
+    }
+
+    function glProblemMessage(p, cfg) {
+      const kind = p.kind;
+      const cycle = cfg?.cycle_s ?? '';
+      const gap = p.gap_s != null ? Number(p.gap_s).toFixed(1) : '';
+      if (kind === 'delay_exceeded') {
+        return t('gl.msg.delay', { delta: (p.delta_net_ms ?? 0).toFixed(2), th: cfg?.threshold_ms ?? '' });
+      }
+      if (kind === 'capture_incomplete') {
+        return t('gl.msg.captureIncomplete', { sq: p.sq_num, delta: (p.delta_net_ms ?? 0).toFixed(2) });
+      }
+      if (kind === 'missing') {
+        const overdue = p.declenchement_next_ts == null && p.defaut_next_ts == null;
+        return t(overdue ? 'gl.msg.missingLate' : 'gl.msg.missing', { cycle, gap });
+      }
+      if (kind === 'capture_unreliable') {
+        const raw = String(p.message || '');
+        const idx = raw.lastIndexOf(': ');
+        const reason = idx >= 0 ? raw.slice(idx + 2) : raw;
+        return t('gl.msg.unreliable', { reason });
+      }
+      return p.message || '';
+    }
+
     function glUpdateScanStatus(filteredCount, query) {
       const status = document.getElementById('gl-scan-status');
       if (!status) return;
       const q = query ?? (document.getElementById('gl-scan-filter')?.value || '').trim();
       if (glScanRunning) {
-        const extra = q ? ` · ${filteredCount} affiché(s)` : '';
-        status.textContent = `Scan en cours… ${glScanRemaining}s restantes${extra}`;
+        const extra = q ? t('gl.scanShown', { n: filteredCount }) : '';
+        status.textContent = t('gl.scanRunning', { s: glScanRemaining, extra });
       } else if (glScanEntries.length) {
         status.textContent = q
-          ? `${glScanEntries.length} flux vu(s) · ${filteredCount} affiché(s)`
-          : `${glScanEntries.length} flux vu(s)`;
+          ? t('gl.scanCountFilter', { total: glScanEntries.length, shown: filteredCount })
+          : t('gl.scanCount', { total: glScanEntries.length });
       } else {
         status.textContent = '';
       }
@@ -2271,11 +2884,11 @@
 
       if (!glScanEntries.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="status">' +
-          (glScanRunning ? 'Écoute en cours…' : 'Aucun flux GOOSE vu.') + '</td></tr>';
+          (glScanRunning ? t('gl.listening') : t('gl.noGooseSeen')) + '</td></tr>';
         return;
       }
       if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="status">Aucun résultat pour cette recherche.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="status">' + t('gl.noSearchResults') + '</td></tr>';
         return;
       }
 
@@ -2322,7 +2935,7 @@
       const tbody = document.getElementById('gl-targets-tbody');
       if (!tbody) return;
       if (!glTargets.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="status">Sélectionnez des flux depuis le scan.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="status">' + t('gl.selectFromScan') + '</td></tr>';
         return;
       }
       tbody.innerHTML = glTargets.map((t, i) => `<tr data-idx="${i}">
@@ -2383,7 +2996,7 @@
       if (btn) {
         btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
         btn.classList.toggle('btn--accent', enabled);
-        btn.textContent = enabled ? 'Y linéaire' : 'Y logarithmique';
+        btn.textContent = enabled ? t('gl.yLinear') : t('gl.yLog');
       }
       glDrawHistogram();
     }
@@ -2452,7 +3065,7 @@
         plotBg: '#13131a',
       };
       if (!root || !hist || !hist.bin_edges || hist.bin_edges.length < 2) {
-        if (root) root.innerHTML = '<p class="status">Pas encore de données.</p>';
+        if (root) root.innerHTML = '<p class="status">' + t('gl.noData') + '</p>';
         if (meta) meta.textContent = '—';
         if (legend) legend.innerHTML = '';
         return;
@@ -2491,7 +3104,7 @@
         yAt = v => yBase - (v / linear.yMax) * gh;
       }
 
-      let svg = `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Histogramme des délais">`;
+      let svg = `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${t('gl.histAria')}">`;
       svg += `<rect x="${pad.l}" y="${pad.t}" width="${gw}" height="${gh}" fill="${C.plotBg}" rx="4"/>`;
 
       yTicks.forEach(t => {
@@ -2536,22 +3149,22 @@
         }
       }
 
-      svg += `<text x="${(pad.l + w - pad.r) / 2}" y="${h - 6}" fill="${C.muted}" font-size="11" text-anchor="middle" font-family="system-ui,sans-serif">Délai net Δ (ms)</text>`;
-      const yAxisLabel = glHistLogY ? 'Événements (log)' : 'Événements';
+      svg += `<text x="${(pad.l + w - pad.r) / 2}" y="${h - 6}" fill="${C.muted}" font-size="11" text-anchor="middle" font-family="system-ui,sans-serif">${t('gl.histX')}</text>`;
+      const yAxisLabel = glHistLogY ? t('gl.histYLog') : t('gl.histY');
       svg += `<text x="14" y="${(pad.t + h - pad.b) / 2}" fill="${C.muted}" font-size="11" text-anchor="middle" font-family="system-ui,sans-serif" transform="rotate(-90 14 ${(pad.t + h - pad.b) / 2})">${yAxisLabel}</text>`;
       svg += '</svg>';
       root.innerHTML = svg;
 
       if (meta) {
         const totalEvents = hist.total ?? series.reduce((n, s) => n + (s.total || 0), 0);
-        meta.textContent = `${totalEvents} événement(s) cumulé(s) · pas ${glFormatMs(hist.bin_width_ms || 1)} ms · ${numBins} intervalle(s) [${glFormatMs(edges[0])} … ${glFormatMs(edges[edges.length - 1])}]`;
+        meta.textContent = t('gl.histMeta', { n: totalEvents, step: glFormatMs(hist.bin_width_ms || 1), bins: numBins, lo: glFormatMs(edges[0]), hi: glFormatMs(edges[edges.length - 1]) });
       }
       if (legend) {
         legend.innerHTML = series.map(s => {
           const col = glSeriesColor(s);
           const skey = encodeURIComponent(glSeriesKey(s));
           return `<li title="${escapeHtml(s.label)}">
-            <button type="button" class="gl-hist-swatch-btn" data-series-key="${skey}" aria-label="Choisir la couleur — ${escapeHtml(s.label)}" title="Choisir la couleur">
+            <button type="button" class="gl-hist-swatch-btn" data-series-key="${skey}" aria-label="${t('gl.chooseColorFor', { label: escapeHtml(s.label) })}" title="${t('gl.chooseColor')}">
               <span class="swatch" style="background:${col}"></span>
             </button>
             <span class="gl-legend-label">${escapeHtml(s.label)}</span>
@@ -2564,7 +3177,7 @@
     function glFmtProblemTs(ts) {
       if (!ts) return '—';
       const d = new Date(ts * 1000);
-      return d.toLocaleString('fr-FR', {
+      return d.toLocaleString(i18nDateLocale(), {
         year: 'numeric', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
       }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
@@ -2594,15 +3207,15 @@
 
       if (status) {
         if (!analysis.running && !analysis.targets?.length) {
-          status.textContent = 'Lancez une analyse pour détecter les problèmes.';
+          status.textContent = t('gl.problemsStart');
         } else if (!totalProblems) {
-          status.textContent = `Aucun problème (cycle ${cfg.cycle_s ?? 4} s · seuil ${cfg.threshold_ms ?? 40} ms).`;
+          status.textContent = t('gl.problemsNoneCfg', { cycle: cfg.cycle_s ?? 4, th: cfg.threshold_ms ?? 40 });
         } else {
           const shown = problems.length;
-          const trunc = totalProblems > shown ? ` · ${shown} affiché(s) sur ${totalProblems}` : '';
-          const capNote = nCapture ? ` · ${nCapture} capture(s)` : '';
-          const relNote = nUnreliable ? ' · capture NON FIABLE' : '';
-          status.textContent = `${totalProblems} problème(s) : ${nMissing} manquant(s) · ${nDelay} délai(s) > seuil${capNote}${relNote}${trunc}`;
+          const trunc = totalProblems > shown ? t('gl.problemsTrunc', { shown, total: totalProblems }) : '';
+          const cap = nCapture ? t('gl.problemsCap', { n: nCapture }) : '';
+          const rel = nUnreliable ? t('gl.problemsUnreliable') : '';
+          status.textContent = t('gl.problemsSummary', { n: totalProblems, missing: nMissing, delay: nDelay, cap, rel, trunc });
         }
       }
 
@@ -2610,37 +3223,37 @@
       const wrap = document.getElementById('gl-problems-table-wrap');
       const scrollTop = wrap?.scrollTop ?? 0;
       if (!problems.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="status">Aucun problème détecté.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="status">' + t('gl.noProblems') + '</td></tr>';
         if (wrap) wrap.scrollTop = scrollTop;
         return;
       }
 
       const kindLabel = {
-        missing: 'Manquant',
-        delay_exceeded: 'Δ > seuil',
-        capture_incomplete: 'Capture',
-        capture_unreliable: 'Fiabilité',
+        missing: t('gl.kind.missing'),
+        delay_exceeded: t('gl.kind.delay'),
+        capture_incomplete: t('gl.kind.capture'),
+        capture_unreliable: t('gl.kind.reliability'),
       };
 
       function glFmtDiagContext(p) {
         const ctx = p.context;
         if (!ctx?.length) return '';
-        const lines = ['GOOSE entre déclenchements :'];
+        const lines = [t('gl.diag.header')];
         const prevTs = p.declenchement_prev_ts ?? p.defaut_prev_ts;
         const nextTs = p.declenchement_next_ts ?? p.defaut_next_ts;
         if (prevTs != null) {
-          lines.push(`  déclenc. préc. ${glFmtProblemTs(prevTs)}`);
+          lines.push(t('gl.diag.prev', { ts: glFmtProblemTs(prevTs) }));
         }
         if (nextTs != null) {
-          lines.push(`  déclenc. suiv. ${glFmtProblemTs(nextTs)}`);
+          lines.push(t('gl.diag.next', { ts: glFmtProblemTs(nextTs) }));
         } else if (p.kind === 'missing') {
-          lines.push('  déclenc. suiv. (pas encore reçu)');
+          lines.push(t('gl.diag.nextPending'));
         }
-        if (p.gap_s != null) lines.push(`  écart ${p.gap_s} s`);
+        if (p.gap_s != null) lines.push(t('gl.diag.gap', { s: p.gap_s }));
         for (const c of ctx) {
           const d = c.delta_net_ms != null ? ` Δ=${c.delta_net_ms} ms` : '';
           lines.push(
-            `  ${glFmtProblemTs(c.ts_goose)}  ${c.event_label || c.event_kind}${d}  st=${c.st_num}`
+            `  ${glFmtProblemTs(c.ts_goose)}  ${glEventKindLabel(c.event_kind)}${d}  st=${c.st_num}`
           );
         }
         return lines.join('\n');
@@ -2654,14 +3267,14 @@
         let sqCell = '—';
         if (kind === 'delay_exceeded' && p.sq_num != null) {
           const sqLost = p.sq_num !== 0;
-          sqCell = `<span class="gl-problem-sqnum${sqLost ? ' lost' : ''}" title="${sqLost ? 'sqNum=0 manqué en capture' : 'Déclenchement sqNum=0'}">${escapeHtml(String(p.sq_num))}</span>`;
+          sqCell = `<span class="gl-problem-sqnum${sqLost ? ' lost' : ''}" title="${sqLost ? t('gl.sqLost') : t('gl.sqOk')}">${escapeHtml(String(p.sq_num))}</span>`;
         }
         const diag = glFmtDiagContext(p);
         const pcapRange = (p.dump_oldest_ts != null && p.dump_newest_ts != null)
-          ? ` · capture ${glFmtProblemTs(p.dump_oldest_ts)} → ${glFmtProblemTs(p.dump_newest_ts)}`
+          ? t('gl.pcapRange', { from: glFmtProblemTs(p.dump_oldest_ts), to: glFmtProblemTs(p.dump_newest_ts) })
           : '';
         const pcapBtn = p.dump_id
-          ? `<button type="button" class="btn btn--small gl-pcap-btn" data-dump-id="${escapeHtml(p.dump_id)}" title="PCAP 4 s (${p.dump_packets ?? '?'} paquets${pcapRange}). Dans Wireshark : Date/heure pour l'horodatage absolu.">PCAP</button>`
+          ? `<button type="button" class="btn btn--small gl-pcap-btn" data-dump-id="${escapeHtml(p.dump_id)}" title="${t('gl.pcapTitle', { n: p.dump_packets ?? '?', range: pcapRange })}">PCAP</button>`
           : '';
         const main = `<tr>
           <td class="gl-problem-kind ${escapeHtml(kind)}">${escapeHtml(label)}</td>
@@ -2669,7 +3282,7 @@
           <td>${escapeHtml(p.go_id || '—')}</td>
           <td>${delta}</td>
           <td>${sqCell}</td>
-          <td>${escapeHtml(p.message || '')}${pcapBtn ? ' ' + pcapBtn : ''}</td>
+          <td>${escapeHtml(glProblemMessage(p, cfg))}${pcapBtn ? ' ' + pcapBtn : ''}</td>
         </tr>`;
         if (!diag) return main;
         return `${main}<tr class="gl-problem-diag"><td colspan="6"><pre>${escapeHtml(diag)}</pre></td></tr>`;
@@ -2695,9 +3308,9 @@
     function glFormatEventCount(analysis) {
       const n = analysis.event_count ?? 0;
       if (glIsDeclenchementsOnlyFilter(analysis)) {
-        return `${n} déclenchement(s)`;
+        return t('gl.count.trips', { n });
       }
-      return `${n} événement(s)`;
+      return t('gl.count.events', { n });
     }
 
     function glRenderAnalysis(analysis) {
@@ -2712,10 +3325,10 @@
         const cnt = glFormatEventCount(analysis);
         const cap = analysis.capture || {};
         let line = analysis.running
-          ? `Analyse en cours — ${cnt}`
-          : `Analyse arrêtée — ${cnt}`;
+          ? t('gl.analysisRunning', { cnt })
+          : t('gl.analysisStoppedCnt', { cnt });
         if (analysis.running && cap.reliable === false && cap.invalid_reason) {
-          line += ` — capture non fiable (${cap.invalid_reason})`;
+          line += t('gl.captureUnreliable', { reason: cap.invalid_reason });
         }
         status.textContent = line;
         status.className = (analysis.running && cap.reliable === false)
@@ -2733,13 +3346,13 @@
       if (meta) {
         if (!totalRam && !events.length) {
           meta.textContent = declOnly
-            ? 'Aucun déclenchement en mémoire.'
-            : 'Aucun événement en mémoire.';
+            ? t('gl.noTripsRam')
+            : t('gl.noEventsRam');
         } else {
           const shown = events.length;
           const ram = totalRam || events.length;
-          const kind = declOnly ? 'déclenchement(s)' : 'événement(s)';
-          meta.textContent = `${shown} affiché(s) sur ${Math.min(panelMax, ram)} max · ${ram} ${kind} en RAM (téléchargement)`;
+          const kind = declOnly ? t('gl.kindName.trips') : t('gl.kindName.events');
+          meta.textContent = t('gl.eventsMeta', { shown, max: Math.min(panelMax, ram), ram, kind });
         }
       }
       if (!tbody) return;
@@ -2747,8 +3360,8 @@
       if (!events.length) {
         const total = analysis.event_count_total ?? 0;
         const msg = declOnly
-          ? (total > 0 ? 'Aucun déclenchement récent à afficher.' : 'Aucun déclenchement détecté.')
-          : (total > 0 ? 'Aucun événement récent à afficher.' : 'Aucun déclenchement détecté.');
+          ? (total > 0 ? t('gl.noRecentTrips') : t('gl.noTrips'))
+          : (total > 0 ? t('gl.noRecentEvents') : t('gl.noTrips'));
         tbody.innerHTML = `<tr><td colspan="6" class="status">${escapeHtml(msg)}</td></tr>`;
         if (wrap) wrap.scrollTop = scrollTop;
         return;
@@ -2756,13 +3369,13 @@
       const recent = events.slice().reverse();
       tbody.innerHTML = recent.map(e => {
         const d = new Date(e.ts_goose * 1000);
-        const tsLocal = d.toLocaleString('fr-FR', {
+        const tsLocal = d.toLocaleString(i18nDateLocale(), {
           year: 'numeric', month: '2-digit', day: '2-digit',
           hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
         }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
         const tsUnix = (e.ts_goose ?? 0).toFixed(6);
         const kind = e.event_kind || 'inconnu';
-        const label = e.event_label || 'Inconnu';
+        const label = glEventKindLabel(kind);
         const detail = e.change_detail || '';
         return `<tr>
           <td title="ts unix: ${tsUnix}">${escapeHtml(tsLocal)}</td>
@@ -2780,7 +3393,7 @@
       const el = document.getElementById('gl-service-status');
       if (!el) return;
       const iface = data.iface || '—';
-      const cap = data.capture_running ? 'capture active' : 'capture ARRÊTÉE';
+      const cap = data.capture_running ? t('gl.cap.active') : t('gl.cap.stopped');
       const mode = data.mode || 'idle';
       const c = data.capture || {};
       const backend = c.backend || 'pcapy';
@@ -2794,13 +3407,14 @@
       const dropsRun = c.drops_since_analysis_start ?? 0;
       const pcapDrop = c.pcap_drop_delta ?? 0;
       const reliable = c.reliable !== false;
-      let msg = `${iface} · ${cap} · ${backend}${pbLabel}${bpf} · mode ${mode} · file ${q}`;
-      if (dropsRun > 0) msg += ` · ${dropsRun} drop(s) GOOSE`;
-      if (pcapDrop > 0) msg += ` · libpcap drop +${pcapDrop}`;
+      const modeLabel = ({ idle: t('gl.mode.idle'), scan: t('gl.mode.scan'), analyze: t('gl.mode.analyze') })[mode] || mode;
+      let msg = `${iface} · ${cap} · ${backend}${pbLabel}${bpf} · ${t('gl.status.mode', { mode: modeLabel })} · ${t('gl.status.queue', { n: q })}`;
+      if (dropsRun > 0) msg += t('gl.status.drops', { n: dropsRun });
+      if (pcapDrop > 0) msg += t('gl.status.pcapDrop', { n: pcapDrop });
       if (!reliable && c.invalid_reason) msg += ` · ${c.invalid_reason}`;
       const analysisOn = (data.analysis && data.analysis.running) || mode === 'analyze' || mode === 'scan';
-      if (analysisOn && c.nic_advisory) msg += ` · iface: ${c.nic_advisory}`;
-      if (drops > dropsRun && dropsRun === 0) msg += ` · ${drops} drop(s) total`;
+      if (analysisOn && c.nic_advisory) msg += t('gl.status.iface', { note: c.nic_advisory });
+      if (drops > dropsRun && dropsRun === 0) msg += t('gl.status.dropsTotal', { n: drops });
       if (data.last_error) msg += ` · ${data.last_error}`;
       el.textContent = msg;
       const busy = mode === 'analyze' || mode === 'scan';
@@ -2849,7 +3463,7 @@
           if (root) root.style.display = 'block';
           const el = document.getElementById('gl-service-status');
           if (el) {
-            el.textContent = `Erreur API : ${e.message}`;
+            el.textContent = t('gl.apiError', { msg: e.message });
             el.className = 'status error-msg';
           }
         }
@@ -2997,7 +3611,7 @@
     });
 
     document.getElementById('gl-start-btn')?.addEventListener('click', async () => {
-      if (!glTargets.length) { alert('Ajoutez au moins un flux.'); return; }
+      if (!glTargets.length) { alert(t('gl.needTarget')); return; }
       const event_filter = document.getElementById('gl-event-filter')?.value || 'declenchements_only';
       try {
         await glPostProblemConfig();
@@ -3020,6 +3634,55 @@
       } catch (e) {
         alert(e.message);
       }
+    });
+
+
+    function syncToggleLabels() {
+      const pairs = [
+        ['mms-toggle-streams', 'mms-streams-body'],
+        ['mms-toggle-recents-panel', 'mms-recents-section'],
+        ['mms-toggle-new-cmds', 'mms-new-cmds-body'],
+        ['mms-toggle-recorded-cmds', 'mms-recorded-cmds-body'],
+        ['mms-toggle-logs-panel', 'mms-logs-section'],
+        ['goose-toggle-streams', 'goose-streams-body'],
+        ['goose-toggle-recents-panel', 'goose-recents-section'],
+        ['sv-toggle-streams', 'sv-streams-body'],
+        ['sv-toggle-recents-panel', 'sv-recents-section'],
+      ];
+      for (const [btnId, elId] of pairs) {
+        const btn = document.getElementById(btnId);
+        const el = document.getElementById(elId);
+        if (!btn || !el) continue;
+        const visible = el.style.display !== 'none';
+        btn.textContent = visible ? t('common.hide') : t('common.show');
+      }
+      const logsPause = document.getElementById('mms-logs-pause');
+      if (logsPause) logsPause.textContent = mmsLogsPaused ? t('common.resume') : t('common.pause');
+      glSetDiscoveryVisible(!glDiscoveryHidden);
+      glSetHistLogY(glHistLogY);
+    }
+
+    function refreshI18nDynamic() {
+      syncToggleLabels();
+      renderIframeSettingsList();
+      const active = document.querySelector('.tab.active')?.dataset.tab;
+      if (typeof mmsLoad === 'function') mmsLoad();
+      if (typeof gooseLoad === 'function') gooseLoad();
+      if (typeof svLoad === 'function') svLoad();
+      document.getElementById('svview-data-container')?.remove();
+      if (active === 'svview' && typeof svviewPoll === 'function') svviewPoll();
+      if (typeof glPoll === 'function') {
+        if (active === 'gooselistener') glPoll();
+        else {
+          glRenderScanTable();
+          glRenderTargets();
+          glDrawHistogram();
+        }
+      }
+    }
+
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+      btn.addEventListener('click', () => setLang(btn.dataset.lang));
     });
 
   </script>
