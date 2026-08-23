@@ -157,6 +157,191 @@ def _run(cmd: list[str], timeout: float = 8.0) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
+def format_cpu_list(cpus: list[int]) -> str:
+    if not cpus:
+        return ""
+    ordered = sorted(set(int(c) for c in cpus))
+    ranges: list[str] = []
+    start = prev = ordered[0]
+    for cid in ordered[1:]:
+        if cid == prev + 1:
+            prev = cid
+            continue
+        ranges.append(f"{start}-{prev}" if start != prev else str(start))
+        start = prev = cid
+    ranges.append(f"{start}-{prev}" if start != prev else str(start))
+    return ",".join(ranges)
+
+
+def parse_seapath_alloc_text(text: str) -> dict[str, Any] | None:
+    """Parse the human output of `seapath-alloc` (isolated / free / actors)."""
+    if not text or "Isolated:" not in text:
+        return None
+    isolated: list[int] = []
+    free_logical: list[int] = []
+    free_physical: list[int] = []
+    actors: list[dict[str, Any]] = []
+    current_vm: dict[str, Any] | None = None
+    section = ""
+    cpu_re = re.compile(r"cpus=([0-9,\-]+)")
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if line.startswith("Isolated:"):
+            isolated = parse_cpu_list(line.split(":", 1)[1])
+            continue
+        if line.startswith("Free logical:"):
+            free_logical = parse_cpu_list(line.split(":", 1)[1])
+            continue
+        if line.startswith("Free physical"):
+            free_physical = parse_cpu_list(line.split(":", 1)[1])
+            continue
+        if line.startswith("Active actors:"):
+            section = "actors"
+            current_vm = None
+            continue
+        if line.startswith("Slots:"):
+            section = "slots"
+            current_vm = None
+            continue
+        if section != "actors":
+            continue
+        vm_header = re.match(r"^  VM\s+(.+):\s*$", line)
+        if vm_header:
+            current_vm = {
+                "kind": "vm",
+                "name": vm_header.group(1).strip(),
+                "cpus": [],
+                "threads": [],
+            }
+            actors.append(current_vm)
+            continue
+        if current_vm is not None and line.startswith("    "):
+            mcpu = cpu_re.search(line)
+            cpus = parse_cpu_list(mcpu.group(1) if mcpu else "")
+            name = line.strip()
+            if mcpu:
+                name = line.strip()[: line.strip().find("cpus=")].strip()
+            current_vm["threads"].append({"name": name, "cpus": cpus})
+            current_vm["cpus"] = sorted(set(current_vm["cpus"]) | set(cpus))
+            continue
+        current_vm = None
+        if not line.startswith("  ") or line.startswith("    "):
+            continue
+        mcpu = cpu_re.search(line)
+        if not mcpu:
+            continue
+        rest = line.strip()
+        kind_m = re.match(r"^(\S+)\s+(.+)$", rest)
+        if not kind_m:
+            continue
+        kind = kind_m.group(1).lower()
+        name_and_more = kind_m.group(2)
+        name = name_and_more[: name_and_more.find("cpus=")].strip() if "cpus=" in name_and_more else name_and_more
+        actors.append({
+            "kind": kind,
+            "name": name,
+            "cpus": parse_cpu_list(mcpu.group(1)),
+            "threads": [],
+        })
+
+    if not isolated and not actors:
+        return None
+    return {
+        "isolated": isolated,
+        "free_logical": free_logical,
+        "free_physical": free_physical,
+        "actors": actors,
+        "source": "seapath-alloc",
+    }
+
+
+def _cpus_field(value: Any) -> list[int]:
+    if isinstance(value, list):
+        out: list[int] = []
+        for item in value:
+            if isinstance(item, int):
+                out.append(item)
+            else:
+                out.extend(parse_cpu_list(str(item)))
+        return sorted(set(out))
+    if isinstance(value, (int, str)):
+        return parse_cpu_list(str(value))
+    return []
+
+
+def _normalize_seapath_json(data: dict[str, Any]) -> dict[str, Any] | None:
+    isolated = _cpus_field(data.get("isolated") or data.get("Isolated"))
+    free_logical = _cpus_field(
+        data.get("free_logical") or data.get("freeLogical") or data.get("Free logical")
+    )
+    free_physical = _cpus_field(
+        data.get("free_physical")
+        or data.get("free_physical_pairs")
+        or data.get("freePhysicalPairs")
+    )
+    raw_actors = data.get("actors") or data.get("active_actors") or []
+    actors: list[dict[str, Any]] = []
+    if isinstance(raw_actors, dict):
+        raw_actors = [{"name": k, **(v if isinstance(v, dict) else {"cpus": v})} for k, v in raw_actors.items()]
+    if isinstance(raw_actors, list):
+        for item in raw_actors:
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("kind") or item.get("type") or "actor").lower()
+            if kind == "vm" or item.get("vm") or str(item.get("name") or "").startswith("VM "):
+                kind = "vm"
+            name = str(item.get("name") or item.get("vm") or item.get("label") or kind)
+            if name.lower().startswith("vm "):
+                kind = "vm"
+                name = name[3:].strip()
+            cpus = _cpus_field(item.get("cpus") or item.get("cpu"))
+            threads = []
+            for th in item.get("threads") or item.get("tasks") or []:
+                if not isinstance(th, dict):
+                    continue
+                tcpus = _cpus_field(th.get("cpus") or th.get("cpu"))
+                threads.append({"name": str(th.get("name") or ""), "cpus": tcpus})
+                cpus = sorted(set(cpus) | set(tcpus))
+            actors.append({"kind": kind, "name": name, "cpus": cpus, "threads": threads})
+    if not isolated and not actors:
+        return None
+    return {
+        "isolated": isolated,
+        "free_logical": free_logical,
+        "free_physical": free_physical,
+        "actors": actors,
+        "source": "seapath-alloc",
+    }
+
+
+def _seapath_alloc_status() -> dict[str, Any] | None:
+    if not shutil.which("seapath-alloc"):
+        return None
+    for args in (
+        ["seapath-alloc", "--json"],
+        ["seapath-alloc", "-j"],
+        ["seapath-alloc"],
+    ):
+        code, out, _ = _run(args, timeout=8)
+        if code != 0 or not (out or "").strip():
+            continue
+        stripped = out.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                raw = json.loads(stripped)
+            except json.JSONDecodeError:
+                raw = None
+            if isinstance(raw, dict):
+                parsed = _normalize_seapath_json(raw)
+                if parsed:
+                    return parsed
+        parsed = parse_seapath_alloc_text(out)
+        if parsed:
+            return parsed
+    return None
+
+
 def _virsh_domains() -> list[str]:
     code, out, _ = _run(["virsh", "list", "--name"])
     if code != 0:
@@ -217,6 +402,9 @@ def _qemu_fallback_vms() -> list[dict[str, Any]]:
             name = f"qemu:{pid}"
         tcode, tout, _ = _run(["taskset", "-cp", str(pid)], timeout=3)
         cpus = parse_cpu_list(tout.split(":")[-1] if tcode == 0 else "")
+        # Affinité large = cpuset de la VM, pas le pinning vCPU : on ignore.
+        if len(cpus) > 8:
+            cpus = []
         vms.append({"name": name, "cpus": cpus, "source": "qemu"})
     return vms
 
@@ -245,6 +433,107 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _self_allowed_cpus() -> set[int]:
+    try:
+        text = Path("/proc/self/status").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    for line in text.splitlines():
+        if line.startswith("Cpus_allowed_list:"):
+            return set(parse_cpu_list(line.split(":", 1)[1]))
+    return set()
+
+
+def _isolated_set(online: list[int]) -> set[int]:
+    sea = _seapath_alloc_status()
+    if sea and sea.get("isolated"):
+        return {int(c) for c in sea["isolated"] if int(c) in online}
+    return set(_isolated_cpus(online))
+
+
+def _stress_ng_argv(
+    binary: str,
+    n: int,
+    workloads: list[str],
+    cpu_load: int,
+    timeout_s: int,
+    taskset: list[int] | None,
+    log_file: Path,
+) -> list[str]:
+    cmd = [binary]
+    if "cpu" in workloads:
+        cmd += ["--cpu", str(n), "--cpu-load", str(cpu_load)]
+    if "cache" in workloads:
+        cmd += ["--cache", str(n)]
+    if "vm" in workloads:
+        cmd += ["--vm", str(max(1, (n + 1) // 2)), "--vm-bytes", "64M"]
+    if "switch" in workloads:
+        cmd += ["--switch", str(n)]
+    if not any(w in workloads for w in ("cpu", "cache", "vm", "switch")):
+        cmd += ["--cpu", str(n), "--cpu-load", str(cpu_load)]
+    if taskset:
+        cmd += ["--taskset", ",".join(str(c) for c in taskset)]
+    if timeout_s > 0:
+        cmd += ["--timeout", f"{timeout_s}s"]
+    cmd += ["--log-file", str(log_file), "--metrics-brief"]
+    return cmd
+
+
+def _without_taskset(cmd: list[str]) -> list[str]:
+    out: list[str] = []
+    skip = False
+    for arg in cmd:
+        if skip:
+            skip = False
+            continue
+        if arg == "--taskset":
+            skip = True
+            continue
+        out.append(arg)
+    return out
+
+
+def _wrap_isolated_cmd(cpu: int, inner: list[str], allowed: set[int]) -> list[str]:
+    """isolcpus n'exécute un process sur un cœur isolé que si l'affinité est exclusive.
+
+    Si le cpuset SSH n'inclut pas ce CPU, seapath-run l'alloue (slot exclusive_logical).
+    """
+    if cpu in allowed:
+        return inner
+    sea = shutil.which("seapath-run")
+    if not sea:
+        return inner
+    # seapath-run choisit un CPU libre : ne pas re-taskset vers un autre cœur.
+    return [sea, f"po-stress-{cpu}", "exclusive_logical", "OTHER", "0", "--"] + _without_taskset(inner)
+
+
+def _kill_pid(pid: int) -> bool:
+    if not _pid_alive(pid):
+        return False
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            os.killpg(pid, sig)
+        except OSError:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                return False
+        for _ in range(20):
+            if not _pid_alive(pid):
+                return True
+            time.sleep(0.05)
+        if not _pid_alive(pid):
+            return True
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            return False
+    return not _pid_alive(pid)
+
+
 def _read_spec() -> dict[str, Any]:
     try:
         data = json.loads(SPEC_FILE.read_text(encoding="utf-8"))
@@ -253,46 +542,68 @@ def _read_spec() -> dict[str, Any]:
         return {}
 
 
+def _spec_pids(spec: dict[str, Any] | None) -> list[int]:
+    if not spec:
+        return []
+    raw = spec.get("pids") or ([spec["pid"]] if spec.get("pid") else [])
+    out: list[int] = []
+    for item in raw:
+        try:
+            pid = int(item)
+        except (TypeError, ValueError):
+            continue
+        if pid > 0 and pid not in out:
+            out.append(pid)
+    return out
+
+
 def _current_stress() -> dict[str, Any] | None:
-    try:
-        pid = int(_read_text(PID_FILE) or "0")
-    except ValueError:
-        pid = 0
-    if not pid or not _pid_alive(pid):
-        return None
     spec = _read_spec()
-    spec["pid"] = pid
+    pids = _spec_pids(spec)
+    if not pids:
+        try:
+            pid = int(_read_text(PID_FILE) or "0")
+        except ValueError:
+            pid = 0
+        if pid:
+            pids = [pid]
+    alive = [p for p in pids if _pid_alive(p)]
+    if not alive:
+        return None
+    spec["pid"] = alive[0]
+    spec["pids"] = alive
     return spec
 
 
 def _stop_stress() -> dict[str, Any]:
-    spec = _current_stress()
-    killed = []
-    if spec and spec.get("pid"):
-        pid = int(spec["pid"])
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            try:
-                os.kill(pid, sig)
-            except OSError:
-                break
-            for _ in range(20):
-                if not _pid_alive(pid):
-                    break
-                time.sleep(0.05)
-            if not _pid_alive(pid):
-                killed.append(pid)
-                break
-        if _pid_alive(pid):
-            try:
-                os.kill(pid, signal.SIGKILL)
-                killed.append(pid)
-            except OSError:
-                pass
+    spec = _read_spec()
+    pids = _spec_pids(spec)
+    if not pids:
+        try:
+            pid = int(_read_text(PID_FILE) or "0")
+        except ValueError:
+            pid = 0
+        if pid:
+            pids = [pid]
+    killed = [pid for pid in pids if _kill_pid(pid)]
     try:
         PID_FILE.unlink(missing_ok=True)
     except OSError:
         pass
-    return {"stopped": True, "killed": killed, "was_running": spec is not None}
+    try:
+        SPEC_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return {"stopped": True, "killed": killed, "was_running": bool(pids)}
+
+
+def _popen_detached(cmd: list[str]) -> subprocess.Popen:
+    return subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
@@ -306,83 +617,134 @@ def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
     workloads = [str(w) for w in (spec.get("workloads") or ["cpu"])]
     if not workloads:
         workloads = ["cpu"]
+    if not any(w in workloads for w in ("cpu", "cache", "vm", "switch")):
+        workloads = ["cpu"]
     cpu_load = max(1, min(100, int(spec.get("cpu_load") or 100)))
     timeout_s = max(0, int(spec.get("timeout_s") or 0))
-    n = len(cpus)
 
     binary = shutil.which("stress-ng")
     if not binary:
         return {"error": "stress-ng introuvable sur la cible (apt/dnf install stress-ng)"}
 
-    cmd = [binary]
-    if "cpu" in workloads:
-        cmd += ["--cpu", str(n), "--cpu-load", str(cpu_load)]
-    if "cache" in workloads:
-        cmd += ["--cache", str(n)]
-    if "vm" in workloads:
-        cmd += ["--vm", str(max(1, (n + 1) // 2)), "--vm-bytes", "64M"]
-    if "switch" in workloads:
-        cmd += ["--switch", str(n)]
-    if not any(w in workloads for w in ("cpu", "cache", "vm", "switch")):
-        cmd += ["--cpu", str(n), "--cpu-load", str(cpu_load)]
-        workloads = ["cpu"]
-    cmd += ["--taskset", ",".join(str(c) for c in cpus)]
-    if timeout_s > 0:
-        cmd += ["--timeout", f"{timeout_s}s"]
-    cmd += ["--log-file", str(LOG_FILE), "--metrics-brief"]
+    online = _online_cpus()
+    isolated = _isolated_set(online)
+    allowed = _self_allowed_cpus() or set(online)
+    hk_cpus = [c for c in cpus if c not in isolated]
+    isol_cpus = [c for c in cpus if c in isolated]
 
     try:
         LOG_FILE.write_text("", encoding="utf-8")
     except OSError:
         pass
 
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+    # Un masque unique HK+isolés laisse isolcpus tout placer sur le housekeeping.
+    # HK : un stress-ng (ces cœurs sont schedulables). Isolés : 1 worker / CPU.
+    cmds: list[list[str]] = []
+    if hk_cpus:
+        cmds.append(_stress_ng_argv(
+            binary, len(hk_cpus), workloads, cpu_load, timeout_s, hk_cpus, LOG_FILE,
+        ))
+    for cpu in isol_cpus:
+        inner = _stress_ng_argv(
+            binary, 1, workloads, cpu_load, timeout_s, [cpu], LOG_FILE,
         )
-    except OSError as exc:
-        return {"error": f"Impossible de lancer stress-ng: {exc}"}
+        cmds.append(_wrap_isolated_cmd(cpu, inner, allowed))
+
+    procs: list[subprocess.Popen] = []
+    launched: list[list[str]] = []
+    errors: list[str] = []
+    for cmd in cmds:
+        try:
+            proc = _popen_detached(cmd)
+        except OSError as exc:
+            errors.append(f"{' '.join(cmd[:6])}: {exc}")
+            continue
+        procs.append(proc)
+        launched.append(cmd)
+        if Path(cmd[0]).name == "seapath-run":
+            time.sleep(0.05)
+
+    if not procs:
+        return {"error": "Impossible de lancer stress-ng: " + ("; ".join(errors) or "aucun process")}
+
+    time.sleep(0.25)
+    pids = [p.pid for p in procs]
+    dead = [p for p in procs if p.poll() is not None]
+    if len(dead) == len(procs):
+        tail = _read_text(LOG_FILE)
+        return {
+            "error": f"stress-ng s'est arrêté immédiatement: {tail or dead[0].returncode}",
+            "cmd": launched[0],
+            "cmds": launched,
+        }
 
     payload = {
-        "pid": proc.pid,
+        "pid": pids[0],
+        "pids": pids,
         "cpus": cpus,
         "workloads": workloads,
         "cpu_load": cpu_load,
         "timeout_s": timeout_s,
         "started_at": time.time(),
-        "cmd": cmd,
+        "cmd": launched[0],
+        "cmds": launched,
+        "hk_cpus": hk_cpus,
+        "isolated_cpus": isol_cpus,
     }
     try:
-        PID_FILE.write_text(str(proc.pid), encoding="utf-8")
+        PID_FILE.write_text(str(pids[0]), encoding="utf-8")
         SPEC_FILE.write_text(json.dumps(payload), encoding="utf-8")
     except OSError as exc:
-        return {"error": f"stress-ng lancé (pid {proc.pid}) mais pidfile illisible: {exc}", **payload}
-    if proc.poll() is not None:
-        tail = _read_text(LOG_FILE)
-        return {"error": f"stress-ng s'est arrêté immédiatement: {tail or proc.returncode}"}
+        return {"error": f"stress-ng lancé (pid {pids[0]}) mais pidfile illisible: {exc}", **payload}
+    if errors:
+        payload["warning"] = "; ".join(errors)
     return payload
 
 
-def _cpu_rows(online: list[int], isolated: list[int], vms: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _cpu_rows(
+    online: list[int],
+    isolated: list[int],
+    vms: list[dict[str, Any]],
+    *,
+    free_logical: list[int] | None = None,
+    actors: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     isolated_set = set(isolated)
     vm_by_cpu: dict[int, list[str]] = {}
     for vm in vms:
         for cid in vm.get("cpus") or []:
             vm_by_cpu.setdefault(int(cid), []).append(str(vm.get("name") or "?"))
+    actor_by_cpu: dict[int, list[str]] = {}
+    actor_kind_by_cpu: dict[int, str] = {}
+    for actor in actors or []:
+        kind = str(actor.get("kind") or "actor").lower()
+        if kind == "vm":
+            continue
+        label = str(actor.get("name") or kind)
+        for cid in actor.get("cpus") or []:
+            actor_by_cpu.setdefault(int(cid), []).append(label)
+            actor_kind_by_cpu.setdefault(int(cid), kind)
     housekeeping_set = set(online) - isolated_set if isolated_set else set(online) - set(vm_by_cpu)
+    if free_logical is None:
+        free_set = isolated_set - set(vm_by_cpu) - set(actor_by_cpu)
+    else:
+        free_set = set(free_logical)
     counters = _proc_stat_counters(online)
     rows = []
     for cid in online:
         topo = _cpu_topology(cid)
         vm_names = vm_by_cpu.get(cid, [])
+        actor_names = actor_by_cpu.get(cid, [])
         role = "housekeeping"
         if vm_names:
             role = "vm"
-        elif cid in isolated_set:
+        elif actor_names:
+            kind = actor_kind_by_cpu.get(cid, "actor")
+            role = kind if kind in ("irq", "run", "quadlet") else "actor"
+        elif cid in free_set:
             role = "isolated_free"
+        elif cid in isolated_set:
+            role = "isolated_busy"
         rows.append({
             "id": cid,
             "online": True,
@@ -390,6 +752,7 @@ def _cpu_rows(online: list[int], isolated: list[int], vms: list[dict[str, Any]])
             "isolated": cid in isolated_set,
             "housekeeping": cid in housekeeping_set,
             "vm_names": vm_names,
+            "actor_names": actor_names,
             "socket": topo["socket"],
             "core": topo["core"],
             "numa": topo["numa"],
@@ -401,24 +764,63 @@ def _cpu_rows(online: list[int], isolated: list[int], vms: list[dict[str, Any]])
 
 def probe() -> dict[str, Any]:
     online = _online_cpus()
-    isolated = _isolated_cpus(online)
-    vms = _discover_vms(online)
-    rows = _cpu_rows(online, isolated, vms)
+    sea = _seapath_alloc_status()
+    actors: list[dict[str, Any]] = []
+    free_logical: list[int] | None = None
+    free_physical: list[int] = []
+    if sea:
+        isolated = [c for c in sea["isolated"] if c in online] or _isolated_cpus(online)
+        free_logical = [c for c in sea["free_logical"] if c in online]
+        free_physical = [c for c in sea["free_physical"] if c in online]
+        vms = []
+        for actor in sea["actors"]:
+            actor["cpus"] = [c for c in actor.get("cpus") or [] if c in online]
+            if actor.get("kind") == "vm":
+                vms.append({
+                    "name": actor.get("name") or "VM",
+                    "cpus": actor["cpus"],
+                    "source": "seapath-alloc",
+                })
+            else:
+                actors.append(actor)
+        source = "seapath-alloc"
+    else:
+        isolated = _isolated_cpus(online)
+        vms = _discover_vms(online)
+        source = "sysfs"
+    rows = _cpu_rows(online, isolated, vms, free_logical=free_logical, actors=actors)
     vm_cpus = sorted({c for vm in vms for c in vm.get("cpus") or []})
+    actor_cpus = {c for a in actors for c in (a.get("cpus") or [])}
     hk = sorted(r["id"] for r in rows if r["housekeeping"])
-    unassigned = sorted(r["id"] for r in rows if r["role"] == "isolated_free")
+    unassigned = sorted(free_logical) if free_logical is not None else sorted(
+        r["id"] for r in rows if r["role"] == "isolated_free"
+    )
+    if sea:
+        vm_related = set(isolated) - set(unassigned) - actor_cpus
+        non_vm = sorted(c for c in online if c not in vm_related)
+    else:
+        non_vm = sorted(c for c in online if c not in set(vm_cpus))
     stress = _current_stress()
     return {
         "hostname": socket.gethostname(),
         "nproc": len(online),
         "cpus": rows,
         "vms": vms,
+        "actors": actors,
         "isolated": isolated,
         "housekeeping": hk,
         "unassigned_isolated": unassigned,
+        "free_logical": unassigned,
+        "free_logical_label": format_cpu_list(unassigned),
+        "free_physical": free_physical,
         "vm_cpus": vm_cpus,
+        "non_vm": non_vm,
+        "cpu_source": source,
         "stress_ng": shutil.which("stress-ng"),
-        "isolcpus": _cmdline_value("isolcpus") or _read_text("/sys/devices/system/cpu/isolated"),
+        "isolcpus": (
+            format_cpu_list(isolated) if sea
+            else (_cmdline_value("isolcpus") or _read_text("/sys/devices/system/cpu/isolated"))
+        ),
         "nohz_full": _cmdline_value("nohz_full"),
         "running": stress is not None,
         "stress": stress,

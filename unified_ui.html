@@ -796,6 +796,9 @@
     .st-cpu.is-hk .st-cpu-id { color: #7aa2f7; }
     .st-cpu.is-isol .st-cpu-id { color: #bb9af7; }
     .st-cpu.is-vm .st-cpu-id { color: #e0af68; }
+    .st-cpu.is-actor .st-cpu-id { color: #73daca; }
+    .st-cpu.is-busy .st-cpu-id { color: #565f89; }
+    .st-actor-chip { background: rgba(115,218,202,0.15); color: #73daca; }
     .st-vms { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
     .st-vm-chip {
       font-size: 0.75rem; background: rgba(224,175,104,0.15); color: #e0af68;
@@ -1022,6 +1025,7 @@
         "st.chartVm": "VM",
         "st.warnVm": "Des cœurs VM sont sélectionnés : la protection peut être perturbée.",
         "st.notConnected": "Non connecté.",
+        "st.connectFailed": "Connexion impossible : {msg}",
         "st.connectedLocal": "Connecté en local à {host} ({n} CPU).",
         "st.connectedSsh": "Connecté en SSH à {user}@{host} ({n} CPU).",
         "st.missingStress": "stress-ng est absent sur la cible. Installez-le (apt/dnf install stress-ng).",
@@ -1036,6 +1040,12 @@
         "st.role.housekeeping": "HK",
         "st.role.isolated_free": "isolé",
         "st.role.vm": "VM",
+        "st.role.irq": "IRQ",
+        "st.role.run": "RT",
+        "st.role.quadlet": "quadlet",
+        "st.role.actor": "acteur",
+        "st.role.isolated_busy": "occupé",
+        "st.isolationSeapath": "seapath-alloc · isolated={isol} · free={free}",
         "st.group": "Socket {sock} · NUMA {numa}",
         "st.groupCpu": "CPU",
         "st.stopped": "Stress arrêté.",
@@ -1327,6 +1337,7 @@
         "st.chartVm": "VM",
         "st.warnVm": "VM cores are selected: protection may be disturbed.",
         "st.notConnected": "Not connected.",
+        "st.connectFailed": "Connection failed: {msg}",
         "st.connectedLocal": "Connected locally to {host} ({n} CPUs).",
         "st.connectedSsh": "Connected over SSH to {user}@{host} ({n} CPUs).",
         "st.missingStress": "stress-ng is missing on the target. Install it (apt/dnf install stress-ng).",
@@ -1341,6 +1352,12 @@
         "st.role.housekeeping": "HK",
         "st.role.isolated_free": "isol.",
         "st.role.vm": "VM",
+        "st.role.irq": "IRQ",
+        "st.role.run": "RT",
+        "st.role.quadlet": "quadlet",
+        "st.role.actor": "actor",
+        "st.role.isolated_busy": "busy",
+        "st.isolationSeapath": "seapath-alloc · isolated={isol} · free={free}",
         "st.group": "Socket {sock} · NUMA {numa}",
         "st.groupCpu": "CPU",
         "st.stopped": "Stress stopped.",
@@ -4153,7 +4170,7 @@
           const role = el.querySelector('.st-cpu-role');
           if (role) {
             const extra = cpu.load_pct == null ? '' : (' ' + Math.round(pct) + '%');
-            const vm = (cpu.vm_names && cpu.vm_names[0]) ? cpu.vm_names[0] : stRoleLabel(cpu.role);
+            const vm = (cpu.vm_names && cpu.vm_names[0]) ? cpu.vm_names[0] : ((cpu.actor_names && cpu.actor_names[0]) ? cpu.actor_names[0] : stRoleLabel(cpu.role));
             role.textContent = vm + extra;
           }
         });
@@ -4183,10 +4200,12 @@
           if (cpu.role === 'housekeeping') cell.classList.add('is-hk');
           if (cpu.role === 'isolated_free') cell.classList.add('is-isol');
           if (cpu.role === 'vm') cell.classList.add('is-vm');
+          if (cpu.role === 'irq' || cpu.role === 'run' || cpu.role === 'quadlet' || cpu.role === 'actor') cell.classList.add('is-actor');
+          if (cpu.role === 'isolated_busy') cell.classList.add('is-busy');
           if (stSelected.has(Number(cpu.id))) cell.classList.add('is-selected');
           if (stressed.has(Number(cpu.id)) && cur.running) cell.classList.add('is-stressed');
           cell.style.background = 'rgba(247,118,142,' + (0.05 + Math.max(0, Math.min(100, pct)) / 100 * 0.5) + ')';
-          const vm = (cpu.vm_names && cpu.vm_names[0]) ? cpu.vm_names[0] : stRoleLabel(cpu.role);
+          const vm = (cpu.vm_names && cpu.vm_names[0]) ? cpu.vm_names[0] : ((cpu.actor_names && cpu.actor_names[0]) ? cpu.actor_names[0] : stRoleLabel(cpu.role));
           const extra = cpu.load_pct == null ? '' : (' ' + Math.round(pct) + '%');
           cell.innerHTML = '<div class="st-cpu-id">' + cpu.id + '</div><div class="st-cpu-role">' + escapeHtml(vm + extra) + '</div><div class="st-cpu-load"><span style="width:' + pct + '%"></span></div>';
           cell.addEventListener('click', () => {
@@ -4278,13 +4297,18 @@
     function stRender() {
       stRenderPresets();
       const cur = stStatus.current;
+      const connected = !!(cur && cur.connected);
       const conn = stEl('st-conn-status');
       const iso = stEl('st-iso-meta');
       const vms = stEl('st-vms');
       const run = stEl('st-run-status');
       const banner = stEl('st-running-banner');
-      if (!cur) {
-        if (conn) conn.textContent = t('st.notConnected');
+      if (!connected) {
+        const err = (cur && cur.error) || stStatus.error || '';
+        if (conn) {
+          conn.classList.toggle('error-msg', !!err);
+          conn.textContent = err ? t('st.connectFailed', { msg: err }) : t('st.notConnected');
+        }
         if (iso) iso.textContent = '';
         if (vms) vms.innerHTML = '';
         if (run) run.textContent = t('st.noneRunning');
@@ -4295,18 +4319,39 @@
         return;
       }
       if (conn) {
+        conn.classList.remove('error-msg');
         conn.textContent = cur.local
           ? t('st.connectedLocal', { host: cur.hostname || cur.host, n: cur.nproc })
           : t('st.connectedSsh', { user: cur.user, host: cur.hostname || cur.host, n: cur.nproc });
-        if (cur.error) conn.textContent += '  ' + cur.error;
-        if (!cur.stress_ng) conn.innerHTML = escapeHtml(conn.textContent) + '<br><span class="error-msg">' + escapeHtml(t('st.missingStress')) + '</span>';
+        if (cur.error) {
+          conn.classList.add('error-msg');
+          conn.textContent = t('common.error', { msg: cur.error });
+        } else if (!cur.stress_ng) {
+          conn.innerHTML = escapeHtml(conn.textContent) + '<br><span class="error-msg">' + escapeHtml(t('st.missingStress')) + '</span>';
+        }
       }
-      if (iso) iso.textContent = t('st.isolation', { isol: cur.isolcpus || '-', nohz: cur.nohz_full || '-' });
+      if (iso) {
+        if (cur.cpu_source === 'seapath-alloc') {
+          iso.textContent = t('st.isolationSeapath', {
+            isol: cur.isolcpus || '-',
+            free: cur.free_logical_label || ((cur.unassigned_isolated || []).join(',')) || '-'
+          });
+        } else {
+          iso.textContent = t('st.isolation', { isol: cur.isolcpus || '-', nohz: cur.nohz_full || '-' });
+        }
+      }
       if (vms) {
-        vms.innerHTML = (cur.vms || []).map(v => {
+        const chips = [];
+        (cur.vms || []).forEach(v => {
           const cpus = (v.cpus || []).join(',');
-          return '<span class="st-vm-chip">' + escapeHtml(t('st.vmChip', { name: v.name, cpus: cpus || '-' })) + '</span>';
-        }).join('');
+          chips.push('<span class="st-vm-chip">' + escapeHtml(t('st.vmChip', { name: v.name, cpus: cpus || '-' })) + '</span>');
+        });
+        (cur.actors || []).forEach(a => {
+          const cpus = (a.cpus || []).join(',');
+          const label = (a.kind ? a.kind + ' ' : '') + (a.name || '');
+          chips.push('<span class="st-vm-chip st-actor-chip">' + escapeHtml(t('st.vmChip', { name: label.trim(), cpus: cpus || '-' })) + '</span>');
+        });
+        vms.innerHTML = chips.join('');
       }
       const runningSessions = (stStatus.sessions || []).filter(s => s.running);
       if (banner) {
@@ -4365,7 +4410,11 @@
       try {
         await stApi('/connect', 'POST', f);
       } catch (e) {
-        stEl('st-conn-status').textContent = t('common.error', { msg: e.message });
+        const already = (stStatus.current && stStatus.current.error) || stStatus.error;
+        if (!already) {
+          stEl('st-conn-status').classList.add('error-msg');
+          stEl('st-conn-status').textContent = t('st.connectFailed', { msg: e.message });
+        }
       }
     }
 
@@ -4404,10 +4453,14 @@
       if (kind === 'hk') (cur.housekeeping || []).forEach(id => stSelected.add(Number(id)));
       if (kind === 'free') (cur.unassigned_isolated || []).forEach(id => stSelected.add(Number(id)));
       if (kind === 'nonvm') {
-        const vm = stVmSet(cur);
-        (cur.cpus || []).forEach(c => {
-          if (!vm.has(Number(c.id))) stSelected.add(Number(c.id));
-        });
+        if (cur.non_vm && cur.non_vm.length) {
+          cur.non_vm.forEach(id => stSelected.add(Number(id)));
+        } else {
+          const vm = stVmSet(cur);
+          (cur.cpus || []).forEach(c => {
+            if (!vm.has(Number(c.id))) stSelected.add(Number(c.id));
+          });
+        }
       }
       stSyncSelection();
     }

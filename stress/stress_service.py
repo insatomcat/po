@@ -31,6 +31,37 @@ def session_key(user: str, host: str, port: int) -> str:
     return f"{user}@{host}:{int(port)}"
 
 
+def _format_ssh_error(text: str, sess: StressSession | None = None) -> str:
+    raw = (text or "").strip()
+    lines = [
+        ln.strip()
+        for ln in raw.splitlines()
+        if ln.strip() and "Warning:" not in ln and not ln.startswith("debug")
+    ]
+    msg = lines[-1] if lines else raw
+    target = f"{sess.user}@{sess.host}" if sess else ""
+    if "Permission denied" in msg:
+        who = target or msg.split(":", 1)[0]
+        return f"Authentification SSH refusée pour {who} (clé publique ou mot de passe)."
+    if "Connection refused" in msg:
+        port = sess.port if sess else 22
+        host = sess.host if sess else ""
+        return f"SSH refusé sur {host}:{port}."
+    if "timed out" in msg.lower() or "Timeout" in msg:
+        return f"Timeout SSH vers {target or msg}."
+    if "Could not resolve" in msg or "Name or service not known" in msg:
+        host = sess.host if sess else msg
+        return f"Hôte inconnu: {host}."
+    if "No route to host" in msg:
+        host = sess.host if sess else msg
+        return f"Pas de route vers {host}."
+    if not msg:
+        return f"Échec SSH vers {target}." if target else "Échec SSH."
+    if target and target not in msg:
+        return f"{target}: {msg}"
+    return msg
+
+
 def is_local_host(host: str) -> bool:
     h = (host or "").strip().lower()
     if h in {"", "localhost", "127.0.0.1", "::1"}:
@@ -111,14 +142,19 @@ class StressSession:
     local: bool = False
     control_path: str | None = None
     last_error: str | None = None
+    connected: bool = False
     hostname: str = ""
     nproc: int = 0
     cpus: list[dict[str, Any]] = field(default_factory=list)
     vms: list[dict[str, Any]] = field(default_factory=list)
+    actors: list[dict[str, Any]] = field(default_factory=list)
     isolated: list[int] = field(default_factory=list)
     housekeeping: list[int] = field(default_factory=list)
     unassigned_isolated: list[int] = field(default_factory=list)
     vm_cpus: list[int] = field(default_factory=list)
+    non_vm: list[int] = field(default_factory=list)
+    cpu_source: str = ""
+    free_logical_label: str = ""
     stress_ng: str | None = None
     isolcpus: str = ""
     nohz_full: str = ""
@@ -227,8 +263,7 @@ class StressManager:
             timeout=15,
         )
         if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "échec SSH").strip()
-            raise RuntimeError(err)
+            raise RuntimeError(_format_ssh_error(proc.stderr or proc.stdout or "", sess))
 
     def _close_master(self, sess: StressSession) -> None:
         if sess.local or not sess.control_path:
@@ -262,7 +297,7 @@ class StressManager:
         stdout = (proc.stdout or b"").decode("utf-8", errors="replace")
         stderr = (proc.stderr or b"").decode("utf-8", errors="replace")
         if not stdout.strip():
-            raise RuntimeError(stderr.strip() or f"SSH sans sortie (code {proc.returncode})")
+            raise RuntimeError(_format_ssh_error(stderr, sess) or f"SSH sans sortie (code {proc.returncode})")
         try:
             data = json.loads(stdout.strip().splitlines()[-1])
         except json.JSONDecodeError as exc:
@@ -278,16 +313,21 @@ class StressManager:
         sess.nproc = int(data.get("nproc") or 0)
         sess.cpus = list(data.get("cpus") or [])
         sess.vms = list(data.get("vms") or [])
+        sess.actors = list(data.get("actors") or [])
         sess.isolated = [int(x) for x in (data.get("isolated") or [])]
         sess.housekeeping = [int(x) for x in (data.get("housekeeping") or [])]
-        sess.unassigned_isolated = [int(x) for x in (data.get("unassigned_isolated") or [])]
+        sess.unassigned_isolated = [int(x) for x in (data.get("unassigned_isolated") or data.get("free_logical") or [])]
         sess.vm_cpus = [int(x) for x in (data.get("vm_cpus") or [])]
+        sess.non_vm = [int(x) for x in (data.get("non_vm") or [])]
+        sess.cpu_source = str(data.get("cpu_source") or "")
+        sess.free_logical_label = str(data.get("free_logical_label") or "")
         sess.stress_ng = data.get("stress_ng")
         sess.isolcpus = str(data.get("isolcpus") or "")
         sess.nohz_full = str(data.get("nohz_full") or "")
         sess.running = bool(data.get("running"))
         sess.stress = data.get("stress") if isinstance(data.get("stress"), dict) else None
         sess.last_error = str(data["error"]) if data.get("error") else None
+        sess.connected = True
         sess.connected_at = sess.connected_at or time.time()
         self._ingest_counters(sess, sess.cpus, data.get("local_time") or time.time())
 
@@ -353,10 +393,14 @@ class StressManager:
             "nproc": sess.nproc,
             "cpus": sess.cpus,
             "vms": sess.vms,
+            "actors": sess.actors,
             "isolated": sess.isolated,
             "housekeeping": sess.housekeeping,
             "unassigned_isolated": sess.unassigned_isolated,
             "vm_cpus": sess.vm_cpus,
+            "non_vm": sess.non_vm,
+            "cpu_source": sess.cpu_source,
+            "free_logical_label": sess.free_logical_label,
             "stress_ng": sess.stress_ng,
             "isolcpus": sess.isolcpus,
             "nohz_full": sess.nohz_full,
@@ -365,6 +409,7 @@ class StressManager:
             "history": sess.history[-90:],
             "log_tail": sess.log_tail,
             "error": sess.last_error,
+            "connected": sess.connected,
             "connected_at": sess.connected_at,
             "last_stats_at": sess.last_stats_at,
         }
@@ -381,6 +426,7 @@ class StressManager:
                 "host": sess.host,
                 "hostname": sess.hostname,
                 "local": sess.local,
+                "connected": sess.connected,
                 "running": sess.running,
                 "cpus": (sess.stress or {}).get("cpus") if sess.stress else [],
                 "elapsed_s": elapsed,
@@ -392,7 +438,7 @@ class StressManager:
         with self._lock:
             k = key or self._current_key
             sess = self._sessions.get(k) if k else None
-            if sess:
+            if sess and sess.connected:
                 try:
                     data = self._run_ops(sess, "stats")
                     sess.log_tail = str(data.get("log_tail") or "")
@@ -449,7 +495,9 @@ class StressManager:
             try:
                 data = self._run_ops(sess, "probe")
             except Exception as exc:  # noqa: BLE001
+                sess.connected = False
                 sess.last_error = str(exc)
+                self._close_master(sess)
                 return {"error": str(exc), "current": self._public_session(sess), "sessions": self._summaries(), "hosts": [dict(h) for h in self._hosts]}
             self._apply_probe(sess, data)
             try:
@@ -471,7 +519,7 @@ class StressManager:
         with self._lock:
             k = key or self._current_key
             sess = self._sessions.get(k) if k else None
-            if not sess:
+            if not sess or not sess.connected:
                 return {"error": "Aucun nœud connecté"}
             try:
                 data = self._run_ops(sess, "start", spec)
@@ -496,7 +544,7 @@ class StressManager:
         with self._lock:
             k = key or self._current_key
             sess = self._sessions.get(k) if k else None
-            if not sess:
+            if not sess or not sess.connected:
                 return {"error": "Aucun nœud connecté"}
             try:
                 self._run_ops(sess, "stop")
