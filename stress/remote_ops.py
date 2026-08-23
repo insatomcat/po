@@ -22,6 +22,7 @@ from typing import Any
 PID_FILE = Path("/tmp/po-stress-ng.pid")
 LOG_FILE = Path("/tmp/po-stress-ng.log")
 SPEC_FILE = Path("/tmp/po-stress-ng.spec.json")
+PERF_FILE = Path("/tmp/po-stress-perf.csv")
 
 
 def parse_cpu_list(raw: str | None) -> list[int]:
@@ -97,6 +98,201 @@ def _proc_stat_counters(cpu_ids: list[int]) -> dict[int, tuple[int, int]]:
     for cid in cpu_ids:
         found.setdefault(cid, (0, 0))
     return found
+
+
+def _read_ctxt() -> int:
+    try:
+        for line in Path("/proc/stat").read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("ctxt "):
+                return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def _read_vmstat() -> dict[str, int]:
+    wanted = {"pgpgin", "pgpgout", "pswpin", "pswpout", "pgfault", "pgmajfault"}
+    out: dict[str, int] = {}
+    try:
+        for line in Path("/proc/vmstat").read_text(encoding="utf-8", errors="replace").splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] in wanted:
+                try:
+                    out[parts[0]] = int(parts[1])
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def _sys_counters() -> dict[str, int]:
+    vm = _read_vmstat()
+    return {
+        "ctxt": _read_ctxt(),
+        "pgfault": int(vm.get("pgfault") or 0),
+        "pgmajfault": int(vm.get("pgmajfault") or 0),
+        "pgpgin": int(vm.get("pgpgin") or 0),
+        "pgpgout": int(vm.get("pgpgout") or 0),
+    }
+
+
+def _parse_perf_csv(text: str) -> dict[str, float] | None:
+    """Dernier intervalle `perf stat -I 1000 -x,` (count = déjà un débit /s)."""
+    misses = None
+    refs = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        count: float | None = None
+        event = ""
+        if len(parts) >= 4:
+            try:
+                ts = float(parts[0])
+                cnt = float(parts[1])
+            except ValueError:
+                ts, cnt = None, None
+            if ts is not None and ts < 1e12:
+                count = cnt
+                event = (parts[3] if len(parts) > 3 else parts[2]).lower()
+        if count is None:
+            try:
+                count = float(parts[0])
+            except ValueError:
+                continue
+            event = (parts[2] if len(parts) > 2 else "").lower()
+        if "cache-misses" in event:
+            misses = count
+        elif "cache-references" in event:
+            refs = count
+    if misses is None:
+        return None
+    out: dict[str, float] = {"cache_miss_s": float(misses)}
+    if refs and refs > 0:
+        out["cache_ref_s"] = float(refs)
+        out["cache_miss_pct"] = round(100.0 * float(misses) / float(refs), 1)
+    return out
+
+
+def _perf_open_hw(config: int, cpu: int) -> int | None:
+    """Ouvre un compteur PMU hardware (cache-misses / cache-references)."""
+    import ctypes
+
+    class Attr(ctypes.Structure):
+        _fields_ = [
+            ("type", ctypes.c_uint32),
+            ("size", ctypes.c_uint32),
+            ("config", ctypes.c_uint64),
+            ("sample_period", ctypes.c_uint64),
+            ("sample_type", ctypes.c_uint64),
+            ("read_format", ctypes.c_uint64),
+            ("bits", ctypes.c_uint64),
+            ("wakeup_events", ctypes.c_uint32),
+            ("bp_type", ctypes.c_uint32),
+            ("bp_addr", ctypes.c_uint64),
+            ("bp_len", ctypes.c_uint64),
+            ("branch_sample_type", ctypes.c_uint64),
+            ("sample_regs_user", ctypes.c_uint64),
+            ("sample_stack_user", ctypes.c_uint32),
+            ("clockid", ctypes.c_int32),
+            ("sample_regs_intr", ctypes.c_uint64),
+            ("aux_watermark", ctypes.c_uint32),
+            ("sample_max_stack", ctypes.c_uint16),
+            ("reserved2", ctypes.c_uint16),
+        ]
+
+    machine = os.uname().machine
+    nr = {"x86_64": 298, "aarch64": 241, "arm64": 241}.get(machine)
+    if nr is None:
+        return None
+    attr = Attr()
+    attr.type = 0
+    attr.size = ctypes.sizeof(Attr)
+    attr.config = config
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    fd = libc.syscall(
+        ctypes.c_long(nr),
+        ctypes.byref(attr),
+        ctypes.c_int(-1),
+        ctypes.c_int(cpu),
+        ctypes.c_int(-1),
+        ctypes.c_ulong(0),
+    )
+    if fd < 0:
+        return None
+    return int(fd)
+
+
+def _pmu_cache_sample(cpus: list[int], duration: float = 0.05) -> dict[str, float] | None:
+    import struct
+
+    if not cpus:
+        return None
+    fds_m: list[int] = []
+    fds_r: list[int] = []
+    try:
+        for cpu in cpus[:48]:
+            fm = _perf_open_hw(3, cpu)
+            fr = _perf_open_hw(2, cpu)
+            if fm is not None:
+                fds_m.append(fm)
+            if fr is not None:
+                fds_r.append(fr)
+        if not fds_m:
+            return None
+        time.sleep(max(0.02, duration))
+        def _sum(fds: list[int]) -> int:
+            total = 0
+            for fd in fds:
+                raw = os.read(fd, 8)
+                if len(raw) == 8:
+                    total += struct.unpack("Q", raw)[0]
+            return total
+        dt = max(0.02, duration)
+        misses = _sum(fds_m) / dt
+        refs = _sum(fds_r) / dt if fds_r else 0.0
+        out: dict[str, float] = {"cache_miss_s": misses}
+        if refs > 0:
+            out["cache_ref_s"] = refs
+            out["cache_miss_pct"] = round(100.0 * misses / refs, 1)
+        return out
+    except OSError:
+        return None
+    finally:
+        for fd in fds_m + fds_r:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def _cache_metrics(stress: dict[str, Any] | None) -> dict[str, Any]:
+    want_cache = bool(stress and "cache" in (stress.get("workloads") or []))
+    try:
+        if PERF_FILE.exists() and (time.time() - PERF_FILE.stat().st_mtime) < 4:
+            parsed = _parse_perf_csv(_read_text(PERF_FILE))
+            if parsed:
+                parsed["cache_source"] = "perf"
+                return parsed
+    except OSError:
+        pass
+    if not want_cache:
+        return {}
+    cpus = []
+    for item in (stress or {}).get("cpus") or []:
+        try:
+            cpus.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    sampled = _pmu_cache_sample(cpus or _online_cpus()[:8])
+    if sampled:
+        sampled["cache_source"] = "pmu"
+        return sampled
+    return {"cache_unavailable": True}
 
 
 def _isolated_cpus(online: list[int]) -> list[int]:
@@ -594,6 +790,10 @@ def _stop_stress() -> dict[str, Any]:
         SPEC_FILE.unlink(missing_ok=True)
     except OSError:
         pass
+    try:
+        PERF_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
     return {"stopped": True, "killed": killed, "was_running": bool(pids)}
 
 
@@ -677,6 +877,28 @@ def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
             "cmd": launched[0],
             "cmds": launched,
         }
+
+    if "cache" in workloads:
+        perf = shutil.which("perf")
+        if perf:
+            try:
+                PERF_FILE.write_text("", encoding="utf-8")
+            except OSError:
+                pass
+            pcmd = [
+                perf, "stat", "-I", "1000", "-x,",
+                "-e", "cache-misses,cache-references",
+                "-C", ",".join(str(c) for c in cpus),
+                "-o", str(PERF_FILE),
+                "--", "sleep", "8640000",
+            ]
+            try:
+                proc = _popen_detached(pcmd)
+                procs.append(proc)
+                launched.append(pcmd)
+                pids.append(proc.pid)
+            except OSError as exc:
+                errors.append(f"perf: {exc}")
 
     payload = {
         "pid": pids[0],
@@ -824,6 +1046,7 @@ def probe() -> dict[str, Any]:
         "nohz_full": _cmdline_value("nohz_full"),
         "running": stress is not None,
         "stress": stress,
+        "sys": _sys_counters(),
         "local_time": time.time(),
     }
 
@@ -838,11 +1061,14 @@ def stats() -> dict[str, Any]:
         log_tail = data[-2000:] if data else ""
     except OSError:
         pass
+    sys_snap = _sys_counters()
+    sys_snap.update(_cache_metrics(stress))
     return {
         "hostname": socket.gethostname(),
         "cpus": [{"id": cid, "idle": counters[cid][0], "total": counters[cid][1]} for cid in online],
         "running": stress is not None,
         "stress": stress,
+        "sys": sys_snap,
         "log_tail": log_tail,
         "local_time": time.time(),
     }

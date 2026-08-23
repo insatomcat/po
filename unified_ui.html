@@ -611,25 +611,53 @@
           <div id="st-vms" class="st-vms"></div>
         </div>
         <div class="gl-card">
-          <h2 data-i18n="st.workloads">Charge</h2>
+          <h2 data-i18n="st.workloads">Type de stress</h2>
+          <p class="status" data-i18n="st.workloadsHelp">Les cases choisissent quoi lancer (stress-ng). Les coeurs choisis plus bas (carte ou presets) choisissent ou pinner les workers. On peut cocher plusieurs types a la fois.</p>
           <div class="st-wl">
-            <label class="st-check"><input type="checkbox" id="st-wl-cpu" checked><span data-i18n="st.wl.cpu">CPU</span></label>
-            <label class="st-check"><input type="checkbox" id="st-wl-cache"><span data-i18n="st.wl.cache">Cache</span></label>
-            <label class="st-check"><input type="checkbox" id="st-wl-vm"><span data-i18n="st.wl.mem">Memoire</span></label>
-            <label class="st-check"><input type="checkbox" id="st-wl-switch"><span data-i18n="st.wl.switch">Chgmt. contexte</span></label>
+            <label class="st-check st-wl-item">
+              <input type="checkbox" id="st-wl-cpu" checked>
+              <span>
+                <span data-i18n="st.wl.cpu">CPU</span>
+                <small data-i18n="st.wl.cpuHint">Boucles de calcul. Le curseur fixe le % cible.</small>
+              </span>
+            </label>
+            <label class="st-check st-wl-item">
+              <input type="checkbox" id="st-wl-cache">
+              <span>
+                <span data-i18n="st.wl.cache">Cache</span>
+                <small data-i18n="st.wl.cacheHint">Martele L1/L2/L3. Souvent ~100 % CPU aussi.</small>
+              </span>
+            </label>
+            <label class="st-check st-wl-item">
+              <input type="checkbox" id="st-wl-vm">
+              <span>
+                <span data-i18n="st.wl.mem">Memoire</span>
+                <small data-i18n="st.wl.memHint">Alloue et touche 64 Mo par worker (bande passante RAM / TLB).</small>
+              </span>
+            </label>
+            <label class="st-check st-wl-item">
+              <input type="checkbox" id="st-wl-switch">
+              <span>
+                <span data-i18n="st.wl.switch">Chgmt. contexte</span>
+                <small data-i18n="st.wl.switchHint">Force des yield / switches. Charge le scheduler, souvent peu visible en %CPU.</small>
+              </span>
+            </label>
           </div>
           <div class="st-form st-form--compact">
-            <label>
-              <span data-i18n="st.cpuLoad">Charge CPU (%)</span>
+            <label id="st-cpu-load-wrap">
+              <span data-i18n="st.cpuLoad">Cible CPU (%)</span>
               <input type="range" id="st-cpu-load" min="10" max="100" step="10" value="100">
               <span id="st-cpu-load-val">100 %</span>
+              <small class="st-field-hint" data-i18n="st.cpuLoadHint">Uniquement si CPU est coche. Sans effet sur cache, memoire ou switch.</small>
             </label>
             <label>
               <span data-i18n="st.duration">Duree (s, 0 = jusqu'a Arreter)</span>
               <input type="number" id="st-timeout" min="0" max="86400" step="10" value="0">
             </label>
           </div>
-          <div class="st-presets" style="margin-top:0.6rem">
+          <h3 class="st-subhead" data-i18n="st.where">Coeurs cibles</h3>
+          <p class="status" data-i18n="st.whereHelp">Cliquez la carte ou un preset. Tous les stressors coches tournent uniquement sur cette selection.</p>
+          <div class="st-presets">
             <button type="button" class="btn btn--small" data-st-preset="hk" data-i18n="st.presetHk">Housekeeping</button>
             <button type="button" class="btn btn--small" data-st-preset="free" data-i18n="st.presetFree">Isoles libres</button>
             <button type="button" class="btn btn--small" data-st-preset="nonvm" data-i18n="st.presetNonVm">Tous hors VM</button>
@@ -660,15 +688,29 @@
         </div>
         <div class="gl-card">
           <div class="gl-panel-head">
-            <h2 data-i18n="st.live">Charge en direct</h2>
+            <h2 data-i18n="st.live">Occupation CPU</h2>
             <div class="st-legend">
               <span class="st-leg st-leg--stress" data-i18n="st.chartStressed">Coeurs stresses</span>
               <span class="st-leg st-leg--hk" data-i18n="st.chartHk">Housekeeping</span>
               <span class="st-leg st-leg--vm" data-i18n="st.chartVm">VM</span>
             </div>
           </div>
-          <canvas id="st-chart" width="720" height="180" aria-label="Charge CPU"></canvas>
+          <p class="status" data-i18n="st.liveHelp">Pourcentage busy /proc/stat des coeurs (ALU). Cache, memoire et contexte ont leur propre courbe dessous.</p>
+          <canvas id="st-chart" width="720" height="180" aria-label="Occupation CPU"></canvas>
           <p class="status" id="st-chart-meta">-</p>
+        </div>
+        <div class="gl-card">
+          <div class="gl-panel-head">
+            <h2 data-i18n="st.resTitle">Cache / memoire / contexte</h2>
+            <div class="st-legend">
+              <span class="st-leg st-leg--cache" data-i18n="st.chartCache">Cache misses</span>
+              <span class="st-leg st-leg--mem" data-i18n="st.chartMem">Defauts de page</span>
+              <span class="st-leg st-leg--ctxt" data-i18n="st.chartCtxt">Chgmt. contexte</span>
+            </div>
+          </div>
+          <p class="status" data-i18n="st.resHelp">Debits sur le noeud. Chaque courbe a son propre max (fenetre). Cache : misses PMU. Memoire : page faults /s. Contexte : commutations /s.</p>
+          <canvas id="st-res-chart" width="720" height="180" aria-label="Debits cache memoire contexte"></canvas>
+          <p class="status" id="st-res-chart-meta">-</p>
         </div>
       </div>
     </div>
@@ -758,8 +800,14 @@
     }
     .st-form--compact { margin-top: 0.75rem; }
     .st-check { display: flex; align-items: center; gap: 0.4rem; margin: 0.55rem 0 0; font-size: 0.85rem; }
-    .st-wl { display: flex; flex-wrap: wrap; gap: 0.75rem 1.1rem; }
+    .st-wl { display: flex; flex-direction: column; gap: 0.55rem; margin: 0.4rem 0 0.2rem; }
     .st-wl .st-check { margin: 0; }
+    .st-wl-item { align-items: flex-start; }
+    .st-wl-item small, .st-field-hint {
+      display: block; color: var(--muted); font-size: 0.75rem; font-weight: 400; margin-top: 0.12rem;
+    }
+    .st-subhead { margin: 1rem 0 0.25rem; font-size: 0.82rem; color: var(--text); font-weight: 600; }
+    #st-cpu-load-wrap.is-disabled { opacity: 0.45; }
     .st-legend { display: flex; flex-wrap: wrap; gap: 0.45rem 0.75rem; font-size: 0.75rem; color: var(--muted); }
     .st-leg { display: inline-flex; align-items: center; gap: 0.3rem; }
     .st-leg::before { content: ""; width: 0.7rem; height: 0.7rem; border-radius: 3px; background: var(--muted); }
@@ -767,6 +815,10 @@
     .st-leg--isol::before { background: #bb9af7; }
     .st-leg--vm::before { background: #e0af68; }
     .st-leg--stress::before { background: #f7768e; }
+    .st-leg--cache::before { background: #bb9af7; }
+    .st-leg--mem::before { background: #73daca; }
+    .st-leg--ctxt::before { background: #ff9e64; }
+    #st-res-chart { width: 100%; height: auto; background: #0f0f14; border-radius: 6px; display: block; }
     .st-cpu-root { margin-top: 0.5rem; }
     .st-cpu-group { margin-bottom: 0.75rem; }
     .st-cpu-group h3 { margin: 0 0 0.4rem; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
@@ -999,13 +1051,21 @@
         "st.connect": "Connecter",
         "st.disconnect": "Déconnecter",
         "st.saveHosts": "Enregistrer les nœuds",
-        "st.workloads": "Charge",
+        "st.workloads": "Type de stress",
+        "st.workloadsHelp": "Les cases choisissent quoi lancer (stress-ng). Les cœurs choisis plus bas (carte ou presets) choisissent où pinner les workers. On peut cocher plusieurs types à la fois.",
         "st.wl.cpu": "CPU",
+        "st.wl.cpuHint": "Boucles de calcul. Le curseur fixe le % cible.",
         "st.wl.cache": "Cache",
+        "st.wl.cacheHint": "Martèle L1/L2/L3. Souvent ~100 % CPU aussi.",
         "st.wl.mem": "Mémoire",
+        "st.wl.memHint": "Alloue et touche 64 Mo par worker (bande passante RAM / TLB).",
         "st.wl.switch": "Chgmt. contexte",
-        "st.cpuLoad": "Charge CPU (%)",
+        "st.wl.switchHint": "Force des yield / switches. Charge le scheduler, souvent peu visible en %CPU.",
+        "st.cpuLoad": "Cible CPU (%)",
+        "st.cpuLoadHint": "Uniquement si CPU est coché. Sans effet sur cache, mémoire ou switch.",
         "st.duration": "Durée (s, 0 = jusqu'à Arrêter)",
+        "st.where": "Cœurs cibles",
+        "st.whereHelp": "Cliquez la carte ou un preset. Tous les types cochés tournent uniquement sur cette sélection.",
         "st.presetHk": "Housekeeping",
         "st.presetFree": "Isolés libres",
         "st.presetNonVm": "Tous hors VM",
@@ -1019,7 +1079,15 @@
         "st.legendVm": "VM",
         "st.legendStress": "Stressé",
         "st.noTopology": "Connectez un nœud pour afficher les cœurs.",
-        "st.live": "Charge en direct",
+        "st.live": "Occupation CPU",
+        "st.liveHelp": "Pourcentage busy /proc/stat des cœurs (ALU). Cache, mémoire et contexte ont leur propre courbe dessous.",
+        "st.resTitle": "Cache / mémoire / contexte",
+        "st.resHelp": "Débits mesurés sur le nœud. Chaque courbe a son propre max (fenêtre). Cache : misses PMU. Mémoire : défauts de page /s. Contexte : commutations /s.",
+        "st.chartCache": "Cache misses",
+        "st.chartMem": "Défauts de page",
+        "st.chartCtxt": "Chgmt. contexte",
+        "st.resCacheNA": "Cache : compteurs PMU indisponibles (installez linux-perf, ou le noyau refuse perf_event_open).",
+        "st.resEmpty": "Les débits apparaissent dès la deuxième mesure.",
         "st.chartStressed": "Cœurs stressés",
         "st.chartHk": "Housekeeping",
         "st.chartVm": "VM",
@@ -1311,13 +1379,21 @@
         "st.connect": "Connect",
         "st.disconnect": "Disconnect",
         "st.saveHosts": "Save nodes",
-        "st.workloads": "Load",
+        "st.workloads": "Stress type",
+        "st.workloadsHelp": "Checkboxes choose what to run (stress-ng). Cores selected below (map or presets) choose where workers are pinned. Several types can be combined.",
         "st.wl.cpu": "CPU",
+        "st.wl.cpuHint": "Compute loops. The slider sets the target %.",
         "st.wl.cache": "Cache",
+        "st.wl.cacheHint": "Hammers L1/L2/L3. Often ~100% CPU as well.",
         "st.wl.mem": "Memory",
+        "st.wl.memHint": "Allocates and touches 64 MB per worker (RAM bandwidth / TLB).",
         "st.wl.switch": "Context switch",
-        "st.cpuLoad": "CPU load (%)",
+        "st.wl.switchHint": "Forces yields / switches. Loads the scheduler; often barely visible as %CPU.",
+        "st.cpuLoad": "CPU target (%)",
+        "st.cpuLoadHint": "Only if CPU is checked. No effect on cache, memory, or switch.",
         "st.duration": "Duration (s, 0 = until Stop)",
+        "st.where": "Target cores",
+        "st.whereHelp": "Click the map or a preset. Every checked stressor runs only on that selection.",
         "st.presetHk": "Housekeeping",
         "st.presetFree": "Free isolated",
         "st.presetNonVm": "All non-VM",
@@ -1331,7 +1407,15 @@
         "st.legendVm": "VM",
         "st.legendStress": "Stressed",
         "st.noTopology": "Connect a node to display cores.",
-        "st.live": "Live load",
+        "st.live": "CPU occupancy",
+        "st.liveHelp": "Busy % from /proc/stat (ALU). Cache, memory and context have their own chart below.",
+        "st.resTitle": "Cache / memory / context",
+        "st.resHelp": "Node rates. Each series uses its own max (window). Cache: PMU misses. Memory: page faults /s. Context: switches /s.",
+        "st.chartCache": "Cache misses",
+        "st.chartMem": "Page faults",
+        "st.chartCtxt": "Context switches",
+        "st.resCacheNA": "Cache: PMU counters unavailable (install linux-perf, or the kernel denies perf_event_open).",
+        "st.resEmpty": "Rates appear after the second sample.",
         "st.chartStressed": "Stressed cores",
         "st.chartHk": "Housekeeping",
         "st.chartVm": "VM",
@@ -4112,6 +4196,14 @@
       return w.length ? w : ['cpu'];
     }
 
+    function stSyncWorkloadUi() {
+      const cpuOn = !!stEl('st-wl-cpu')?.checked;
+      const wrap = stEl('st-cpu-load-wrap');
+      const input = stEl('st-cpu-load');
+      if (input) input.disabled = !cpuOn;
+      wrap?.classList.toggle('is-disabled', !cpuOn);
+    }
+
     function stVmSet(cur) {
       return new Set((cur && cur.vm_cpus) || []);
     }
@@ -4236,6 +4328,82 @@
       if (meta) meta.textContent = t('st.selectedCount', { n: stSelected.size });
     }
 
+    function stFmtRate(v) {
+      if (v == null || Number.isNaN(Number(v))) return '-';
+      const n = Number(v);
+      if (n >= 1e9) return (n / 1e9).toFixed(1) + ' G/s';
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + ' M/s';
+      if (n >= 1e3) return (n / 1e3).toFixed(1) + ' k/s';
+      return (Math.round(n * 10) / 10) + ' /s';
+    }
+
+    function stDrawRateChart(history) {
+      const canvas = stEl('st-res-chart');
+      const meta = stEl('st-res-chart-meta');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#0f0f14';
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = 8 + (h - 16) * i / 4;
+        ctx.beginPath();
+        ctx.moveTo(36, y);
+        ctx.lineTo(w - 8, y);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#565f89';
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillText('max', 4, 12);
+      ctx.fillText('0', 8, h - 6);
+      const pts = history || [];
+      const series = [
+        { key: 'cache_miss_s', color: '#bb9af7', labelKey: 'st.chartCache' },
+        { key: 'pgfault_s', color: '#73daca', labelKey: 'st.chartMem' },
+        { key: 'ctxt_s', color: '#ff9e64', labelKey: 'st.chartCtxt' },
+      ];
+      if (pts.length < 2) {
+        if (meta) meta.textContent = t('st.resEmpty');
+        return;
+      }
+      series.forEach(s => {
+        const values = pts.map(p => p[s.key]).filter(v => v != null && !Number.isNaN(Number(v))).map(Number);
+        if (values.length < 2) return;
+        const max = Math.max(1, ...values);
+        ctx.beginPath();
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 2;
+        let started = false;
+        pts.forEach((p, i) => {
+          const v = p[s.key];
+          if (v == null) return;
+          const x = 36 + (w - 44) * i / Math.max(1, pts.length - 1);
+          const y = 8 + (h - 16) * (1 - Math.max(0, Math.min(max, Number(v))) / max);
+          if (!started) { ctx.moveTo(x, y); started = true; }
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      });
+      const last = pts[pts.length - 1];
+      if (meta) {
+        const parts = [];
+        if (last.cache_miss_s != null) {
+          let cache = t('st.chartCache') + ' ' + stFmtRate(last.cache_miss_s);
+          if (last.cache_miss_pct != null) cache += ' (' + last.cache_miss_pct + '% miss)';
+          parts.push(cache);
+        } else if (stStatus.current && stStatus.current.cache_unavailable) {
+          parts.push(t('st.resCacheNA'));
+        }
+        if (last.pgfault_s != null) parts.push(t('st.chartMem') + ' ' + stFmtRate(last.pgfault_s));
+        if (last.ctxt_s != null) parts.push(t('st.chartCtxt') + ' ' + stFmtRate(last.ctxt_s));
+        meta.textContent = parts.join('  ·  ') || t('st.resEmpty');
+      }
+    }
+
     function stDrawChart(history) {
       const canvas = stEl('st-chart');
       const meta = stEl('st-chart-meta');
@@ -4315,6 +4483,7 @@
         if (banner) { banner.hidden = true; banner.innerHTML = ''; }
         stRenderCpus(null);
         stDrawChart([]);
+        stDrawRateChart([]);
         stSyncSelection();
         return;
       }
@@ -4380,6 +4549,7 @@
       }
       stRenderCpus(cur);
       stDrawChart(cur.history || []);
+      stDrawRateChart(cur.history || []);
       stSyncSelection();
     }
 
@@ -4513,6 +4683,10 @@
       const el = stEl('st-cpu-load-val');
       if (el) el.textContent = (stEl('st-cpu-load').value || '100') + ' %';
     });
+    ['st-wl-cpu','st-wl-cache','st-wl-vm','st-wl-switch'].forEach(id => {
+      stEl(id)?.addEventListener('change', stSyncWorkloadUi);
+    });
+    stSyncWorkloadUi();
     document.querySelectorAll('[data-st-preset]').forEach(btn => {
       btn.addEventListener('click', () => stApplyPreset(btn.dataset.stPreset));
     });

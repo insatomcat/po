@@ -37,4 +37,4 @@ Depuis la machine qui héberge déjà PO (souvent `ccv1`), la connexion à `ccv1
 | POST | `/disconnect` | `{key, stop_stress}` (défaut : le stress continue) |
 | GET/PUT | `/hosts` | Nœuds mémorisés (`stress/hosts.json`) |
 
-Workloads : `cpu` (défaut), `cache`, `vm` (64 Mo / worker), `switch`.
+Workloads (le **quoi**) : `cpu` (défaut, boucles de calcul, curseur %), `cache` (L1/L2/L3), `vm` (64 Mo / worker, bande passante RAM), `switch` (changements de contexte). Tous sont pinés sur les cœurs sélectionnés (le **où**). La courbe **Occupation CPU** lit `/proc/stat`. Une seconde courbe montre les débits : misses cache (PMU / `perf`), défauts de page (`/proc/vmstat`), commutations (`/proc/stat` ctxt). `linux-perf` est optionnel pour le cache.

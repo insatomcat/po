@@ -162,6 +162,9 @@ class StressSession:
     stress: dict[str, Any] | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
     prev_counters: dict[int, tuple[int, int]] = field(default_factory=dict)
+    prev_sys: dict[str, int] = field(default_factory=dict)
+    prev_sys_ts: float = 0.0
+    cache_unavailable: bool = False
     log_tail: str = ""
     connected_at: float = 0.0
     last_stats_at: float = 0.0
@@ -329,7 +332,12 @@ class StressManager:
         sess.last_error = str(data["error"]) if data.get("error") else None
         sess.connected = True
         sess.connected_at = sess.connected_at or time.time()
-        self._ingest_counters(sess, sess.cpus, data.get("local_time") or time.time())
+        self._ingest_counters(
+            sess,
+            sess.cpus,
+            data.get("local_time") or time.time(),
+            data.get("sys") if isinstance(data.get("sys"), dict) else None,
+        )
 
     def _mean_load(self, sess: StressSession, ids: list[int]) -> float | None:
         if not ids:
@@ -343,7 +351,23 @@ class StressManager:
             return None
         return round(sum(vals) / len(vals), 1)
 
-    def _ingest_counters(self, sess: StressSession, rows: list[dict[str, Any]], ts: float) -> None:
+    def _rate_per_s(self, sess: StressSession, key: str, now_sys: dict[str, Any], dt: float) -> float | None:
+        try:
+            cur = float(now_sys[key])
+            prev = float(sess.prev_sys[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if dt <= 0:
+            return None
+        return round(max(0.0, (cur - prev) / dt), 1)
+
+    def _ingest_counters(
+        self,
+        sess: StressSession,
+        rows: list[dict[str, Any]],
+        ts: float,
+        sys_snap: dict[str, Any] | None = None,
+    ) -> None:
         now_counters: dict[int, tuple[int, int]] = {}
         for row in rows:
             try:
@@ -364,14 +388,44 @@ class StressManager:
                 sess.cpus.append({"id": cid, "idle": cur[0], "total": cur[1], "load_pct": load})
         sess.prev_counters = now_counters
         stressed = [int(c) for c in ((sess.stress or {}).get("cpus") or [])]
-        point = {
+        point: dict[str, Any] = {
             "t": ts,
             "stressed_pct": self._mean_load(sess, stressed),
             "vm_pct": self._mean_load(sess, sess.vm_cpus),
             "hk_pct": self._mean_load(sess, sess.housekeeping),
             "free_isol_pct": self._mean_load(sess, sess.unassigned_isolated),
         }
-        if any(point[k] is not None for k in ("stressed_pct", "vm_pct", "hk_pct", "free_isol_pct")):
+        now_sys = sys_snap or {}
+        dt = (ts - sess.prev_sys_ts) if sess.prev_sys_ts else 0.0
+        if now_sys:
+            point["pgfault_s"] = self._rate_per_s(sess, "pgfault", now_sys, dt)
+            point["pgmajfault_s"] = self._rate_per_s(sess, "pgmajfault", now_sys, dt)
+            point["ctxt_s"] = self._rate_per_s(sess, "ctxt", now_sys, dt)
+            point["pgpgin_s"] = self._rate_per_s(sess, "pgpgin", now_sys, dt)
+            if now_sys.get("cache_miss_s") is not None:
+                try:
+                    point["cache_miss_s"] = round(float(now_sys["cache_miss_s"]), 1)
+                except (TypeError, ValueError):
+                    point["cache_miss_s"] = None
+            if now_sys.get("cache_miss_pct") is not None:
+                try:
+                    point["cache_miss_pct"] = round(float(now_sys["cache_miss_pct"]), 1)
+                except (TypeError, ValueError):
+                    pass
+            sess.cache_unavailable = bool(now_sys.get("cache_unavailable"))
+            sess.prev_sys = {
+                k: int(now_sys[k])
+                for k in ("ctxt", "pgfault", "pgmajfault", "pgpgin", "pgpgout")
+                if k in now_sys
+            }
+            sess.prev_sys_ts = ts
+        if any(
+            point.get(k) is not None
+            for k in (
+                "stressed_pct", "vm_pct", "hk_pct", "free_isol_pct",
+                "pgfault_s", "ctxt_s", "cache_miss_s",
+            )
+        ):
             sess.history.append(point)
             if len(sess.history) > HISTORY_MAX:
                 sess.history = sess.history[-HISTORY_MAX:]
@@ -412,6 +466,7 @@ class StressManager:
             "connected": sess.connected,
             "connected_at": sess.connected_at,
             "last_stats_at": sess.last_stats_at,
+            "cache_unavailable": sess.cache_unavailable,
         }
 
     def _summaries(self) -> list[dict[str, Any]]:
@@ -445,7 +500,12 @@ class StressManager:
                     sess.running = bool(data.get("running"))
                     sess.stress = data.get("stress") if isinstance(data.get("stress"), dict) else None
                     sess.last_error = None
-                    self._ingest_counters(sess, list(data.get("cpus") or []), data.get("local_time") or time.time())
+                    self._ingest_counters(
+                        sess,
+                        list(data.get("cpus") or []),
+                        data.get("local_time") or time.time(),
+                        data.get("sys") if isinstance(data.get("sys"), dict) else None,
+                    )
                 except Exception as exc:  # noqa: BLE001
                     sess.last_error = str(exc)
             return {
@@ -506,7 +566,12 @@ class StressManager:
                 sess.log_tail = str(stats.get("log_tail") or "")
                 sess.running = bool(stats.get("running"))
                 sess.stress = stats.get("stress") if isinstance(stats.get("stress"), dict) else sess.stress
-                self._ingest_counters(sess, list(stats.get("cpus") or []), stats.get("local_time") or time.time())
+                self._ingest_counters(
+                    sess,
+                    list(stats.get("cpus") or []),
+                    stats.get("local_time") or time.time(),
+                    stats.get("sys") if isinstance(stats.get("sys"), dict) else None,
+                )
             except Exception:
                 pass
             return {
