@@ -80,6 +80,7 @@
       background: var(--surface);
       color: var(--text);
     }
+    a.btn { display: inline-block; text-decoration: none; }
     .btn:hover { filter: brightness(1.15); }
     .btn--accent { background: var(--accent); color: var(--bg); }
     .btn--danger { background: var(--danger); color: #fff; }
@@ -668,7 +669,7 @@
           <div class="toolbar" style="margin-top:0.75rem">
             <button type="button" class="btn btn--accent" id="st-start-btn" data-i18n="st.start">Demarrer le stress</button>
             <button type="button" class="btn btn--danger" id="st-stop-btn" data-i18n="st.stop">Arreter</button>
-            <button type="button" class="btn" id="st-goto-gl-btn" data-i18n="st.observeGl">Voir GOOSE Listener</button>
+            <a class="btn" id="st-goto-gl-btn" href="#gooselistener" target="_blank" rel="noopener" data-i18n="st.observeGl">Voir GOOSE Listener</a>
           </div>
           <p class="status" id="st-run-status">-</p>
         </div>
@@ -4604,8 +4605,7 @@
           banner.innerHTML = runningSessions.map(s => {
             const cpus = (s.cpus || []).join(', ');
             return escapeHtml(t('st.runningOn', { host: s.hostname || s.host, cpus: cpus || '-', s: s.elapsed_s || 0 }));
-          }).join('<br>') + ' <a id="st-banner-gl">' + escapeHtml(t('st.observeGl')) + '</a>';
-          banner.querySelector('#st-banner-gl')?.addEventListener('click', () => activateTab('gooselistener'));
+          }).join('<br>') + ' <a id="st-banner-gl" href="' + escapeHtml(stGooseListenerHref()) + '" target="_blank" rel="noopener">' + escapeHtml(t('st.observeGl')) + '</a>';
         } else {
           banner.hidden = true;
           banner.innerHTML = '';
@@ -4753,7 +4753,17 @@
     stEl('st-save-hosts-btn')?.addEventListener('click', stSaveHosts);
     stEl('st-start-btn')?.addEventListener('click', stStart);
     stEl('st-stop-btn')?.addEventListener('click', stStop);
-    stEl('st-goto-gl-btn')?.addEventListener('click', () => activateTab('gooselistener'));
+    function stGooseListenerHref() {
+      try {
+        const url = new URL(location.href);
+        url.hash = 'gooselistener';
+        return url.href;
+      } catch (_) {
+        return '#gooselistener';
+      }
+    }
+    const stGlLink = stEl('st-goto-gl-btn');
+    if (stGlLink && stGlLink.tagName === 'A') stGlLink.href = stGooseListenerHref();
     stEl('st-cpu-load')?.addEventListener('input', () => {
       const el = stEl('st-cpu-load-val');
       if (el) el.textContent = (stEl('st-cpu-load').value || '100') + ' %';
