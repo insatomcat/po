@@ -1559,11 +1559,11 @@
         list.innerHTML = '<div class="iframe-settings-empty">' + t('iframe.empty') + '</div>';
         return;
       }
-      list.innerHTML = iframeTabs.map(t => `
+      list.innerHTML = iframeTabs.map(tab => `
         <div class="iframe-settings-item">
-          <div>${escapeHtml(t.name)}</div>
-          <div class="iframe-settings-item-url" title="${escapeHtml(t.url)}">${escapeHtml(t.url)}</div>
-          <button type="button" class="btn btn--small btn--danger" data-action="remove-iframe-tab" data-tab-id="${escapeHtml(t.id)}">${t('common.delete')}</button>
+          <div>${escapeHtml(tab.name)}</div>
+          <div class="iframe-settings-item-url" title="${escapeHtml(tab.url)}">${escapeHtml(tab.url)}</div>
+          <button type="button" class="btn btn--small btn--danger" data-action="remove-iframe-tab" data-tab-id="${escapeHtml(tab.id)}">${t('common.delete')}</button>
         </div>
       `).join('');
       list.querySelectorAll('[data-action="remove-iframe-tab"]').forEach(btn => {
