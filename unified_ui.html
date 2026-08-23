@@ -584,8 +584,10 @@
     </div>
   </div>
   <div id="panel-stress" class="panel">
-    <h1 data-i18n="st.title">Stress-test des noeuds</h1>
-    <p class="status" data-i18n="st.lead">Stresse le housekeeping ou les coeurs non pines aux VM (SSH + stress-ng), puis observez les latences GOOSE dans l'onglet Listener.</p>
+    <div class="st-title-row">
+      <h1 data-i18n="st.title">Stress-test des noeuds</h1>
+      <span class="st-info" tabindex="0" data-i18n-title="st.lead" title="Stresse le housekeeping ou les coeurs non pines aux VM (SSH + stress-ng), puis observez les latences GOOSE dans l'onglet Listener.">i</span>
+    </div>
     <div id="st-running-banner" class="st-banner" hidden></div>
     <div class="gl-layout">
       <div class="gl-col">
@@ -611,52 +613,50 @@
           <div id="st-vms" class="st-vms"></div>
         </div>
         <div class="gl-card">
-          <h2 data-i18n="st.workloads">Type de stress</h2>
-          <p class="status" data-i18n="st.workloadsHelp">Les cases choisissent quoi lancer (stress-ng). Les coeurs choisis plus bas (carte ou presets) choisissent ou pinner les workers. On peut cocher plusieurs types a la fois.</p>
+          <h2 class="st-h">
+            <span data-i18n="st.workloads">Type de stress</span>
+            <span class="st-info" tabindex="0" data-i18n-title="st.workloadsHelp" title="Les cases choisissent quoi lancer. Les coeurs choisis (carte ou presets) choisissent ou pinner les workers.">i</span>
+          </h2>
           <div class="st-wl">
             <label class="st-check st-wl-item">
               <input type="checkbox" id="st-wl-cpu" checked>
-              <span>
-                <span data-i18n="st.wl.cpu">CPU</span>
-                <small data-i18n="st.wl.cpuHint">Boucles de calcul. Le curseur fixe le % cible.</small>
-              </span>
+              <span data-i18n="st.wl.cpu">CPU</span>
+              <span class="st-info" tabindex="0" data-i18n-title="st.wl.cpuHint" title="Boucles de calcul. Le curseur fixe le % cible.">i</span>
             </label>
             <label class="st-check st-wl-item">
               <input type="checkbox" id="st-wl-cache">
-              <span>
-                <span data-i18n="st.wl.cache">Cache</span>
-                <small data-i18n="st.wl.cacheHint">Martele L1/L2/L3. Souvent ~100 % CPU aussi.</small>
-              </span>
+              <span data-i18n="st.wl.cache">Cache</span>
+              <span class="st-info" tabindex="0" data-i18n-title="st.wl.cacheHint" title="Martele L1/L2/L3. Souvent ~100 % CPU aussi.">i</span>
             </label>
             <label class="st-check st-wl-item">
               <input type="checkbox" id="st-wl-vm">
-              <span>
-                <span data-i18n="st.wl.mem">Memoire</span>
-                <small data-i18n="st.wl.memHint">Alloue et touche 64 Mo par worker (bande passante RAM / TLB).</small>
-              </span>
+              <span data-i18n="st.wl.mem">Memoire</span>
+              <span class="st-info" tabindex="0" data-i18n-title="st.wl.memHint" title="Alloue et touche 64 Mo par worker (bande passante RAM / TLB).">i</span>
             </label>
             <label class="st-check st-wl-item">
               <input type="checkbox" id="st-wl-switch">
-              <span>
-                <span data-i18n="st.wl.switch">Chgmt. contexte</span>
-                <small data-i18n="st.wl.switchHint">Force des yield / switches. Charge le scheduler, souvent peu visible en %CPU.</small>
-              </span>
+              <span data-i18n="st.wl.switch">Chgmt. contexte</span>
+              <span class="st-info" tabindex="0" data-i18n-title="st.wl.switchHint" title="Force des yield / switches. Charge le scheduler, souvent peu visible en %CPU.">i</span>
             </label>
           </div>
           <div class="st-form st-form--compact">
             <label id="st-cpu-load-wrap">
-              <span data-i18n="st.cpuLoad">Cible CPU (%)</span>
+              <span class="st-label-row">
+                <span data-i18n="st.cpuLoad">Cible CPU (%)</span>
+                <span class="st-info" tabindex="0" data-i18n-title="st.cpuLoadHint" title="Uniquement si CPU est coche. Sans effet sur cache, memoire ou switch.">i</span>
+              </span>
               <input type="range" id="st-cpu-load" min="10" max="100" step="10" value="100">
               <span id="st-cpu-load-val">100 %</span>
-              <small class="st-field-hint" data-i18n="st.cpuLoadHint">Uniquement si CPU est coche. Sans effet sur cache, memoire ou switch.</small>
             </label>
             <label>
               <span data-i18n="st.duration">Duree (s, 0 = jusqu'a Arreter)</span>
               <input type="number" id="st-timeout" min="0" max="86400" step="10" value="0">
             </label>
           </div>
-          <h3 class="st-subhead" data-i18n="st.where">Coeurs cibles</h3>
-          <p class="status" data-i18n="st.whereHelp">Cliquez la carte ou un preset. Tous les stressors coches tournent uniquement sur cette selection.</p>
+          <h3 class="st-subhead">
+            <span data-i18n="st.where">Coeurs cibles</span>
+            <span class="st-info" tabindex="0" data-i18n-title="st.whereHelp" title="Cliquez la carte ou un preset. Tous les types coches tournent uniquement sur cette selection.">i</span>
+          </h3>
           <div class="st-presets">
             <button type="button" class="btn btn--small" data-st-preset="hk" data-i18n="st.presetHk">Housekeeping</button>
             <button type="button" class="btn btn--small" data-st-preset="free" data-i18n="st.presetFree">Isoles libres</button>
@@ -689,27 +689,27 @@
         <div class="gl-card">
           <div class="gl-panel-head">
             <h2 data-i18n="st.live">Occupation CPU</h2>
+            <span class="st-info" tabindex="0" data-i18n-title="st.liveHelp" title="Pourcentage busy /proc/stat des coeurs (ALU).">i</span>
             <div class="st-legend">
               <span class="st-leg st-leg--stress" data-i18n="st.chartStressed">Coeurs stresses</span>
               <span class="st-leg st-leg--hk" data-i18n="st.chartHk">Housekeeping</span>
               <span class="st-leg st-leg--vm" data-i18n="st.chartVm">VM</span>
             </div>
           </div>
-          <p class="status" data-i18n="st.liveHelp">Pourcentage busy /proc/stat des coeurs (ALU). Cache, memoire et contexte ont leur propre courbe dessous.</p>
-          <canvas id="st-chart" width="720" height="180" aria-label="Occupation CPU"></canvas>
+          <canvas id="st-chart" width="720" height="120" aria-label="Occupation CPU"></canvas>
           <p class="status" id="st-chart-meta">-</p>
         </div>
         <div class="gl-card">
           <div class="gl-panel-head">
             <h2 data-i18n="st.resTitle">Cache / memoire / contexte</h2>
+            <span class="st-info" tabindex="0" data-i18n-title="st.resHelp" title="Debits sur le noeud. Chaque courbe a son propre max. Cache : misses PMU. Memoire : page faults /s. Contexte : commutations /s.">i</span>
             <div class="st-legend">
               <span class="st-leg st-leg--cache" data-i18n="st.chartCache">Cache misses</span>
               <span class="st-leg st-leg--mem" data-i18n="st.chartMem">Defauts de page</span>
               <span class="st-leg st-leg--ctxt" data-i18n="st.chartCtxt">Chgmt. contexte</span>
             </div>
           </div>
-          <p class="status" data-i18n="st.resHelp">Debits sur le noeud. Chaque courbe a son propre max (fenetre). Cache : misses PMU. Memoire : page faults /s. Contexte : commutations /s.</p>
-          <canvas id="st-res-chart" width="720" height="180" aria-label="Debits cache memoire contexte"></canvas>
+          <canvas id="st-res-chart" width="720" height="120" aria-label="Debits cache memoire contexte"></canvas>
           <p class="status" id="st-res-chart-meta">-</p>
         </div>
       </div>
@@ -800,13 +800,62 @@
     }
     .st-form--compact { margin-top: 0.75rem; }
     .st-check { display: flex; align-items: center; gap: 0.4rem; margin: 0.55rem 0 0; font-size: 0.85rem; }
-    .st-wl { display: flex; flex-direction: column; gap: 0.55rem; margin: 0.4rem 0 0.2rem; }
+    .st-wl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.85rem; margin: 0.25rem 0 0.15rem; }
     .st-wl .st-check { margin: 0; }
-    .st-wl-item { align-items: flex-start; }
-    .st-wl-item small, .st-field-hint {
-      display: block; color: var(--muted); font-size: 0.75rem; font-weight: 400; margin-top: 0.12rem;
+    .st-wl-item { align-items: center; }
+    .st-h { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.4rem; font-size: 1.05rem; }
+    .st-subhead { display: flex; align-items: center; gap: 0.4rem; margin: 0.65rem 0 0.25rem; font-size: 0.82rem; color: var(--text); font-weight: 600; }
+    .st-label-row { display: flex; align-items: center; gap: 0.35rem; }
+    .st-title-row { display: flex; align-items: center; gap: 0.45rem; margin: 0 0 0.4rem; }
+    #panel-stress h1 { margin: 0; font-size: 1.25rem; }
+    #panel-stress .gl-layout { margin-top: 0.35rem; gap: 0.65rem; }
+    #panel-stress .gl-card { padding: 0.65rem 0.8rem; margin-bottom: 0.55rem; }
+    #panel-stress .st-banner { margin: 0 0 0.45rem; padding: 0.4rem 0.7rem; font-size: 0.82rem; }
+    #panel-stress .st-cpu { min-height: 2.55rem; padding: 0.22rem 0.3rem 0.3rem; }
+    #panel-stress .st-cpu-grid { gap: 0.28rem; grid-template-columns: repeat(auto-fill, minmax(3.5rem, 1fr)); }
+    #panel-stress .btn:disabled { opacity: 0.4; cursor: not-allowed; filter: none; }
+    #panel-stress .gl-panel-head { justify-content: flex-start; }
+    #panel-stress .gl-panel-head .st-legend { margin-left: auto; }
+    .st-info {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.05rem;
+      height: 1.05rem;
+      border-radius: 50%;
+      border: 1px solid var(--muted);
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-style: italic;
+      font-weight: 700;
+      line-height: 1;
+      cursor: help;
+      flex-shrink: 0;
+      z-index: 2;
     }
-    .st-subhead { margin: 1rem 0 0.25rem; font-size: 0.82rem; color: var(--text); font-weight: 600; }
+    .st-info:hover, .st-info:focus { color: var(--text); border-color: var(--accent); outline: none; }
+    .st-info:hover::after, .st-info:focus::after {
+      content: attr(data-hint);
+      position: absolute;
+      left: 0;
+      bottom: calc(100% + 6px);
+      width: max-content;
+      max-width: 18rem;
+      white-space: normal;
+      z-index: 8;
+      background: #1a1b26;
+      border: 1px solid rgba(255,255,255,0.14);
+      padding: 0.4rem 0.5rem;
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 0.75rem;
+      font-style: normal;
+      font-weight: 400;
+      line-height: 1.35;
+      pointer-events: none;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    }
     #st-cpu-load-wrap.is-disabled { opacity: 0.45; }
     .st-legend { display: flex; flex-wrap: wrap; gap: 0.45rem 0.75rem; font-size: 0.75rem; color: var(--muted); }
     .st-leg { display: inline-flex; align-items: center; gap: 0.3rem; }
@@ -1708,7 +1757,14 @@
         el.placeholder = t(el.dataset.i18nPlaceholder);
       });
       document.querySelectorAll('[data-i18n-title]').forEach(el => {
-        el.title = t(el.dataset.i18nTitle);
+        const text = t(el.dataset.i18nTitle);
+        if (el.classList.contains('st-info')) {
+          el.setAttribute('data-hint', text);
+          el.setAttribute('aria-label', text);
+          el.removeAttribute('title');
+        } else {
+          el.title = text;
+        }
       });
       document.querySelectorAll('[data-i18n-aria]').forEach(el => {
         el.setAttribute('aria-label', t(el.dataset.i18nAria));
@@ -4204,6 +4260,24 @@
       wrap?.classList.toggle('is-disabled', !cpuOn);
     }
 
+    function stSyncActionButtons() {
+      const cur = stStatus.current;
+      const connected = !!(cur && cur.connected);
+      const running = !!(connected && cur.running);
+      stEl('st-connect-btn')?.classList.toggle('btn--accent', !connected);
+      stEl('st-disconnect-btn')?.classList.toggle('btn--danger', connected);
+      const startBtn = stEl('st-start-btn');
+      const stopBtn = stEl('st-stop-btn');
+      if (startBtn) {
+        startBtn.classList.toggle('btn--accent', connected && !running);
+        startBtn.disabled = !connected || running;
+      }
+      if (stopBtn) {
+        stopBtn.classList.toggle('btn--danger', running);
+        stopBtn.disabled = !running;
+      }
+    }
+
     function stVmSet(cur) {
       return new Set((cur && cur.vm_cpus) || []);
     }
@@ -4464,6 +4538,7 @@
 
     function stRender() {
       stRenderPresets();
+      stSyncActionButtons();
       const cur = stStatus.current;
       const connected = !!(cur && cur.connected);
       const conn = stEl('st-conn-status');
@@ -4687,6 +4762,11 @@
       stEl(id)?.addEventListener('change', stSyncWorkloadUi);
     });
     stSyncWorkloadUi();
+    stSyncActionButtons();
+    document.querySelectorAll('.st-info').forEach(el => {
+      el.addEventListener('mousedown', e => e.preventDefault());
+      el.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); });
+    });
     document.querySelectorAll('[data-st-preset]').forEach(btn => {
       btn.addEventListener('click', () => stApplyPreset(btn.dataset.stPreset));
     });

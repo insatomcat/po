@@ -597,8 +597,6 @@ class StressManager:
             sess.running = True
             sess.stress = data
             sess.last_error = None
-            sess.history = []
-            sess.prev_counters = {}
             return {
                 "current": self._public_session(sess),
                 "sessions": self._summaries(),
