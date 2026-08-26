@@ -152,6 +152,8 @@ class StressSession:
     housekeeping: list[int] = field(default_factory=list)
     unassigned_isolated: list[int] = field(default_factory=list)
     vm_cpus: list[int] = field(default_factory=list)
+    occupied: list[int] = field(default_factory=list)
+    available: list[int] = field(default_factory=list)
     non_vm: list[int] = field(default_factory=list)
     cpu_source: str = ""
     free_logical_label: str = ""
@@ -321,7 +323,9 @@ class StressManager:
         sess.housekeeping = [int(x) for x in (data.get("housekeeping") or [])]
         sess.unassigned_isolated = [int(x) for x in (data.get("unassigned_isolated") or data.get("free_logical") or [])]
         sess.vm_cpus = [int(x) for x in (data.get("vm_cpus") or [])]
-        sess.non_vm = [int(x) for x in (data.get("non_vm") or [])]
+        sess.occupied = [int(x) for x in (data.get("occupied") or [])]
+        sess.available = [int(x) for x in (data.get("available") or data.get("non_vm") or [])]
+        sess.non_vm = list(sess.available)
         sess.cpu_source = str(data.get("cpu_source") or "")
         sess.free_logical_label = str(data.get("free_logical_label") or "")
         sess.stress_ng = data.get("stress_ng")
@@ -452,7 +456,9 @@ class StressManager:
             "housekeeping": sess.housekeeping,
             "unassigned_isolated": sess.unassigned_isolated,
             "vm_cpus": sess.vm_cpus,
-            "non_vm": sess.non_vm,
+            "occupied": sess.occupied,
+            "available": sess.available,
+            "non_vm": sess.available,
             "cpu_source": sess.cpu_source,
             "free_logical_label": sess.free_logical_label,
             "stress_ng": sess.stress_ng,

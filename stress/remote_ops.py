@@ -1012,16 +1012,16 @@ def probe() -> dict[str, Any]:
         source = "sysfs"
     rows = _cpu_rows(online, isolated, vms, free_logical=free_logical, actors=actors)
     vm_cpus = sorted({c for vm in vms for c in vm.get("cpus") or []})
-    actor_cpus = {c for a in actors for c in (a.get("cpus") or [])}
     hk = sorted(r["id"] for r in rows if r["housekeeping"])
     unassigned = sorted(free_logical) if free_logical is not None else sorted(
         r["id"] for r in rows if r["role"] == "isolated_free"
     )
-    if sea:
-        vm_related = set(isolated) - set(unassigned) - actor_cpus
-        non_vm = sorted(c for c in online if c not in vm_related)
-    else:
-        non_vm = sorted(c for c in online if c not in set(vm_cpus))
+    available = sorted(
+        r["id"] for r in rows if r["role"] in ("housekeeping", "isolated_free")
+    )
+    occupied = sorted(
+        r["id"] for r in rows if r["role"] not in ("housekeeping", "isolated_free")
+    )
     stress = _current_stress()
     return {
         "hostname": socket.gethostname(),
@@ -1036,7 +1036,9 @@ def probe() -> dict[str, Any]:
         "free_logical_label": format_cpu_list(unassigned),
         "free_physical": free_physical,
         "vm_cpus": vm_cpus,
-        "non_vm": non_vm,
+        "occupied": occupied,
+        "available": available,
+        "non_vm": available,
         "cpu_source": source,
         "stress_ng": shutil.which("stress-ng"),
         "isolcpus": (

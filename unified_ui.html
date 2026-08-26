@@ -661,11 +661,11 @@
           <div class="st-presets">
             <button type="button" class="btn btn--small" data-st-preset="hk" data-i18n="st.presetHk">Housekeeping</button>
             <button type="button" class="btn btn--small" data-st-preset="free" data-i18n="st.presetFree">Isoles libres</button>
-            <button type="button" class="btn btn--small" data-st-preset="nonvm" data-i18n="st.presetNonVm">Tous hors VM</button>
+            <button type="button" class="btn btn--small" data-st-preset="available" data-i18n="st.presetAvailable" data-i18n-title="st.presetAvailableHint" title="Housekeeping et isoles libres. Exclut VM, IRQ, conteneurs et claims.">Hors occupes</button>
             <button type="button" class="btn btn--small" data-st-preset="clear" data-i18n="st.clearSel">Effacer</button>
           </div>
           <p class="status" id="st-sel-meta">-</p>
-          <p class="status error-msg" id="st-vm-warn" hidden data-i18n="st.warnVm">Des coeurs VM sont selectionnes : la protection peut etre perturbee.</p>
+          <p class="status error-msg" id="st-vm-warn" hidden data-i18n="st.warnOccupied">Des coeurs isoles occupes sont selectionnes (VM, IRQ, conteneur, claim) : le trafic ou les outils pines peuvent etre perturbes.</p>
           <div class="toolbar" style="margin-top:0.75rem">
             <button type="button" class="btn btn--accent" id="st-start-btn" data-i18n="st.start">Demarrer le stress</button>
             <button type="button" class="btn btn--danger" id="st-stop-btn" data-i18n="st.stop">Arreter</button>
@@ -1118,7 +1118,8 @@
         "st.whereHelp": "Cliquez la carte ou un preset. Tous les types cochés tournent uniquement sur cette sélection.",
         "st.presetHk": "Housekeeping",
         "st.presetFree": "Isolés libres",
-        "st.presetNonVm": "Tous hors VM",
+        "st.presetAvailable": "Hors occupés",
+        "st.presetAvailableHint": "Housekeeping et isolés libres. Exclut VM, IRQ, conteneurs et claims seapath-alloc.",
         "st.clearSel": "Effacer",
         "st.start": "Démarrer le stress",
         "st.stop": "Arrêter",
@@ -1141,7 +1142,7 @@
         "st.chartStressed": "Cœurs stressés",
         "st.chartHk": "Housekeeping",
         "st.chartVm": "VM",
-        "st.warnVm": "Des cœurs VM sont sélectionnés : la protection peut être perturbée.",
+        "st.warnOccupied": "Des cœurs isolés occupés sont sélectionnés (VM, IRQ, conteneur, claim) : le trafic ou les outils pinés peuvent être perturbés.",
         "st.notConnected": "Non connecté.",
         "st.connectFailed": "Connexion impossible : {msg}",
         "st.connectedLocal": "Connecté en local à {host} ({n} CPU).",
@@ -1151,7 +1152,7 @@
         "st.needCpus": "Sélectionnez au moins un cœur.",
         "st.selectedCount": "{n} cœur(s) sélectionné(s)",
         "st.runningOn": "Stress en cours sur {host} (CPU {cpus}) depuis {s}s. Observez les latences dans GOOSE Listener.",
-        "st.confirmVm": "Des cœurs pinés à une VM sont sélectionnés. Continuer ?",
+        "st.confirmOccupied": "Des cœurs isolés occupés sont sélectionnés (VM, IRQ, conteneur, claim). Continuer ?",
         "st.hostsSaved": "Nœuds enregistrés.",
         "st.isolation": "isolcpus={isol} · nohz_full={nohz}",
         "st.vmChip": "{name}: CPU {cpus}",
@@ -1446,7 +1447,8 @@
         "st.whereHelp": "Click the map or a preset. Every checked stressor runs only on that selection.",
         "st.presetHk": "Housekeeping",
         "st.presetFree": "Free isolated",
-        "st.presetNonVm": "All non-VM",
+        "st.presetAvailable": "Except occupied",
+        "st.presetAvailableHint": "Housekeeping plus free isolated. Excludes VMs, IRQs, containers and seapath-alloc claims.",
         "st.clearSel": "Clear",
         "st.start": "Start stress",
         "st.stop": "Stop",
@@ -1469,7 +1471,7 @@
         "st.chartStressed": "Stressed cores",
         "st.chartHk": "Housekeeping",
         "st.chartVm": "VM",
-        "st.warnVm": "VM cores are selected: protection may be disturbed.",
+        "st.warnOccupied": "Occupied isolated cores are selected (VM, IRQ, container, claim): pinned traffic or tools may be disturbed.",
         "st.notConnected": "Not connected.",
         "st.connectFailed": "Connection failed: {msg}",
         "st.connectedLocal": "Connected locally to {host} ({n} CPUs).",
@@ -1479,7 +1481,7 @@
         "st.needCpus": "Select at least one core.",
         "st.selectedCount": "{n} core(s) selected",
         "st.runningOn": "Stress running on {host} (CPU {cpus}) for {s}s. Watch latencies in GOOSE Listener.",
-        "st.confirmVm": "Cores pinned to a VM are selected. Continue?",
+        "st.confirmOccupied": "Occupied isolated cores are selected (VM, IRQ, container, claim). Continue?",
         "st.hostsSaved": "Nodes saved.",
         "st.isolation": "isolcpus={isol} · nohz_full={nohz}",
         "st.vmChip": "{name}: CPU {cpus}",
@@ -4283,6 +4285,13 @@
       return new Set((cur && cur.vm_cpus) || []);
     }
 
+    function stOccupiedSet(cur) {
+      if (cur && cur.occupied && cur.occupied.length) {
+        return new Set(cur.occupied.map(Number));
+      }
+      return new Set((cur && cur.cpus || []).filter(c => c.role && c.role !== 'housekeeping' && c.role !== 'isolated_free').map(c => Number(c.id)));
+    }
+
     function stStressedSet(cur) {
       const cpus = (cur && cur.stress && cur.stress.cpus) || [];
       return new Set(cpus.map(Number));
@@ -4395,10 +4404,10 @@
         });
       }
       const cur = stStatus.current;
-      const vmSet = stVmSet(cur);
-      const hasVm = [...stSelected].some(id => vmSet.has(id));
+      const occSet = stOccupiedSet(cur);
+      const hasOcc = [...stSelected].some(id => occSet.has(id));
       const warn = stEl('st-vm-warn');
-      if (warn) warn.hidden = !hasVm;
+      if (warn) warn.hidden = !hasOcc;
       const meta = stEl('st-sel-meta');
       if (meta) meta.textContent = t('st.selectedCount', { n: stSelected.size });
     }
@@ -4697,13 +4706,14 @@
       stSelected = new Set();
       if (kind === 'hk') (cur.housekeeping || []).forEach(id => stSelected.add(Number(id)));
       if (kind === 'free') (cur.unassigned_isolated || []).forEach(id => stSelected.add(Number(id)));
-      if (kind === 'nonvm') {
-        if (cur.non_vm && cur.non_vm.length) {
-          cur.non_vm.forEach(id => stSelected.add(Number(id)));
+      if (kind === 'available' || kind === 'nonvm') {
+        const ids = (cur.available && cur.available.length) ? cur.available : (cur.non_vm || []);
+        if (ids.length) {
+          ids.forEach(id => stSelected.add(Number(id)));
         } else {
-          const vm = stVmSet(cur);
+          const occ = stOccupiedSet(cur);
           (cur.cpus || []).forEach(c => {
-            if (!vm.has(Number(c.id))) stSelected.add(Number(c.id));
+            if (!occ.has(Number(c.id))) stSelected.add(Number(c.id));
           });
         }
       }
@@ -4720,9 +4730,9 @@
         stEl('st-run-status').textContent = t('st.needCpus');
         return;
       }
-      const vmSet = stVmSet(cur);
-      if ([...stSelected].some(id => vmSet.has(id))) {
-        if (!confirm(t('st.confirmVm'))) return;
+      const occSet = stOccupiedSet(cur);
+      if ([...stSelected].some(id => occSet.has(id))) {
+        if (!confirm(t('st.confirmOccupied'))) return;
       }
       stEl('st-run-status').textContent = t('common.loading');
       try {
