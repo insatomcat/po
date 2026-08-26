@@ -8,7 +8,7 @@ Le but est de vérifier que l'isolation des VM (SSC600W sur ccv1, VMC7 sur ccv2)
 
 1. PO se connecte en **SSH** (ou en local si le nœud est la machine qui exécute `po_service`).
 2. Un script Python distant exécute `seapath-alloc` (sinon `isolcpus` / libvirt) et lit `/proc/stat`.
-3. L'UI propose des presets : **housekeeping**, **isolés libres** (`Free logical`), **tous hors VM** (hors vCPU/vhost et leurs siblings HT).
+3. L'UI propose des presets : **housekeeping**, **isolés libres** (`Free logical`), **hors occupés** (HK + libres : exclut VM, IRQ, conteneurs et claims `seapath-alloc`).
 4. `stress-ng` pinne le housekeeping en un masque, et chaque cœur isolé tout seul (`isolcpus` ignore un masque mixte). `seapath-run` si le cpuset SSH n'autorise pas le CPU.
 5. La carte CPU et la courbe (stressés vs housekeeping vs VM) se mettent à jour chaque seconde.
 6. L'utilisateur bascule sur **GOOSE Listener** pour voir si des Δ apparaissent.
