@@ -477,7 +477,10 @@
             </div>
           </div>
           <div class="gl-card">
-            <h2 data-i18n="gl.analysis">Analyse</h2>
+            <div class="gl-panel-head">
+              <h2 data-i18n="gl.analysis">Analyse</h2>
+              <span id="gl-analysis-elapsed" class="gl-elapsed" hidden aria-live="polite"></span>
+            </div>
             <p class="status" id="gl-analysis-status" data-i18n="gl.analysisStopped">Analyse arrêtée.</p>
             <div class="table-wrap" id="gl-targets-table-wrap">
               <table>
@@ -984,6 +987,29 @@
       margin-bottom: 0.5rem;
     }
     .gl-panel-head h2 { margin: 0; }
+    .gl-elapsed {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--success);
+      background: rgba(158, 206, 106, 0.15);
+      border: 1px solid var(--success);
+      border-radius: 999px;
+      padding: 0.15rem 0.65rem;
+      white-space: nowrap;
+    }
+    .gl-elapsed[hidden] { display: none !important; }
+    .gl-elapsed::before {
+      content: '';
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
     #gl-discovery-body.is-hidden { display: none; }
     .gl-events-scroll {
       max-height: calc(var(--gl-table-row-h) * 11);
@@ -1347,6 +1373,14 @@
         "gl.count.events": "{n} événement(s)",
         "gl.analysisRunning": "Analyse en cours - {cnt}",
         "gl.analysisStoppedCnt": "Analyse arrêtée - {cnt}",
+        "gl.elapsed": "depuis {t}",
+        "gl.elapsedTitle": "Durée depuis le lancement de l'analyse",
+        "gl.unit.s": "s",
+        "gl.unit.min": "min",
+        "gl.unit.h": "h",
+        "gl.unit.d": "j",
+        "gl.unit.w": "sem.",
+        "gl.unit.mo": "mois",
         "gl.captureUnreliable": " - capture non fiable ({reason})",
         "gl.noTripsRam": "Aucun déclenchement en mémoire.",
         "gl.noEventsRam": "Aucun événement en mémoire.",
@@ -1678,6 +1712,14 @@
         "gl.count.events": "{n} event(s)",
         "gl.analysisRunning": "Analysis running - {cnt}",
         "gl.analysisStoppedCnt": "Analysis stopped - {cnt}",
+        "gl.elapsed": "for {t}",
+        "gl.elapsedTitle": "Time since analysis started",
+        "gl.unit.s": "s",
+        "gl.unit.min": "min",
+        "gl.unit.h": "h",
+        "gl.unit.d": "d",
+        "gl.unit.w": "wk",
+        "gl.unit.mo": "mo",
         "gl.captureUnreliable": " - unreliable capture ({reason})",
         "gl.noTripsRam": "No trip in memory.",
         "gl.noEventsRam": "No event in memory.",
@@ -1809,6 +1851,10 @@
     let svLastRecents = [];
     let svviewRefreshTimer = null;
     let glRefreshTimer = null;
+    let glElapsedTimer = null;
+    let glElapsedBaseS = 0;
+    let glElapsedTickAt = 0;
+    let glAnalysisRunning = false;
     let glPollSeq = 0;
     let glTabActive = false;
     let glTargets = [];
@@ -2094,6 +2140,7 @@
       if (leavingSvview) void svviewOnTabLeave();
       if (activeTab === 'gooselistener' && id !== 'gooselistener') {
         glTabActive = false;
+        glStopElapsedTick();
         if (glRefreshTimer) {
           clearInterval(glRefreshTimer);
           glRefreshTimer = null;
@@ -3790,6 +3837,81 @@
       return t('gl.count.events', { n });
     }
 
+    function glFormatElapsed(seconds) {
+      const total = Math.max(0, Math.floor(Number(seconds) || 0));
+      const MIN = 60;
+      const HOUR = 3600;
+      const DAY = 86400;
+      const WEEK = 7 * DAY;
+      const MONTH = 30 * DAY;
+      const part = (n, unit) => n + '\u00a0' + t('gl.unit.' + unit);
+      const pair = (a, b) => a + ' ' + b;
+
+      if (total < MIN) return part(total, 's');
+      if (total < HOUR) {
+        const m = Math.floor(total / MIN);
+        const s = total % MIN;
+        return s ? pair(part(m, 'min'), part(s, 's')) : part(m, 'min');
+      }
+      if (total < DAY) {
+        const h = Math.floor(total / HOUR);
+        const m = Math.floor((total % HOUR) / MIN);
+        return m ? pair(part(h, 'h'), part(m, 'min')) : part(h, 'h');
+      }
+      if (total < 14 * DAY) {
+        const d = Math.floor(total / DAY);
+        const h = Math.floor((total % DAY) / HOUR);
+        return h ? pair(part(d, 'd'), part(h, 'h')) : part(d, 'd');
+      }
+      if (total < 60 * DAY) {
+        const w = Math.floor(total / WEEK);
+        const d = Math.floor((total % WEEK) / DAY);
+        return d ? pair(part(w, 'w'), part(d, 'd')) : part(w, 'w');
+      }
+      const mo = Math.floor(total / MONTH);
+      const d = Math.floor((total % MONTH) / DAY);
+      return d ? pair(part(mo, 'mo'), part(d, 'd')) : part(mo, 'mo');
+    }
+
+    function glStopElapsedTick() {
+      if (glElapsedTimer) {
+        clearInterval(glElapsedTimer);
+        glElapsedTimer = null;
+      }
+    }
+
+    function glPaintElapsed() {
+      const el = document.getElementById('gl-analysis-elapsed');
+      if (!el) return;
+      if (!glAnalysisRunning) {
+        el.hidden = true;
+        el.textContent = '';
+        el.removeAttribute('title');
+        return;
+      }
+      const extra = glElapsedTickAt ? (Date.now() - glElapsedTickAt) / 1000 : 0;
+      el.hidden = false;
+      el.textContent = t('gl.elapsed', { t: glFormatElapsed(glElapsedBaseS + extra) });
+      el.title = t('gl.elapsedTitle');
+    }
+
+    function glSyncElapsed(analysis) {
+      glAnalysisRunning = !!analysis.running;
+      if (!glAnalysisRunning) {
+        glElapsedBaseS = 0;
+        glElapsedTickAt = 0;
+        glStopElapsedTick();
+        glPaintElapsed();
+        return;
+      }
+      glElapsedBaseS = Number(analysis.elapsed_s) || 0;
+      glElapsedTickAt = Date.now();
+      glPaintElapsed();
+      if (glTabActive && !glElapsedTimer) {
+        glElapsedTimer = setInterval(glPaintElapsed, 1000);
+      }
+    }
+
     function glRenderAnalysis(analysis) {
       const filterSel = document.getElementById('gl-event-filter');
       if (filterSel && analysis.event_filter) {
@@ -3802,6 +3924,7 @@
         demoBtn.disabled = !analysis.running;
         demoBtn.title = t('gl.simulateDelayTitle');
       }
+      glSyncElapsed(analysis);
       const status = document.getElementById('gl-analysis-status');
       if (status) {
         const cnt = glFormatEventCount(analysis);
@@ -3940,6 +4063,7 @@
         if (e.message === 'unconfigured') {
           if (unconf) unconf.style.display = 'block';
           if (root) root.style.display = 'none';
+          glSyncElapsed({ running: false });
         } else {
           if (unconf) unconf.style.display = 'none';
           if (root) root.style.display = 'block';
