@@ -217,6 +217,7 @@ Base : **`/api/gooselistener`**
 | GET | `/scan` | État du scan |
 | POST | `/analysis/start` | Démarre l’analyse (voir corps ci-dessous) |
 | POST | `/analysis/stop` | Arrête l’analyse |
+| POST | `/analysis/reset` | Efface événements, histogramme et problèmes (l’analyse continue) |
 | GET | `/analysis` | État analyse (événements, histogramme, problèmes) |
 | POST | `/analysis/filter` | `{ "event_filter": "defauts_only" \| "all" }` |
 | POST | `/analysis/problems` | `{ "cycle_s": 4, "threshold_ms": 40 }` |

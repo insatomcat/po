@@ -440,7 +440,7 @@
 
   <div id="panel-gooselistener" class="panel">
     <h1 data-i18n="gl.title">GOOSE Listener – Délais de déclenchement</h1>
-    <p class="status" id="gl-service-status">—</p>
+    <p class="status" id="gl-service-status">-</p>
     <div id="gl-unconfigured" class="gl-card" style="display:none;max-width:560px">
       <p class="status" data-i18n-html="gl.unconfigured">GOOSE Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> (même interface que SV / sv_generator).</p>
     </div>
@@ -497,6 +497,7 @@
             <div class="toolbar" style="margin-top:0.75rem">
               <button type="button" class="btn btn--accent" id="gl-start-btn" data-i18n="gl.startAnalysis">Lancer l'analyse</button>
               <button type="button" class="btn btn--danger" id="gl-stop-btn" data-i18n="common.stop">Arrêter</button>
+              <button type="button" class="btn" id="gl-reset-btn" data-i18n="gl.reset" data-i18n-title="gl.resetTitle" title="Efface problèmes, histogramme et événements. L'analyse continue.">Réinitialiser</button>
             </div>
           </div>
           <div class="gl-card">
@@ -517,7 +518,7 @@
                 <input type="number" id="gl-problem-threshold" value="40" min="0" max="5000" step="1" style="width:5rem">
               </label>
             </div>
-            <p class="status" id="gl-problems-status">—</p>
+            <p class="status" id="gl-problems-status">-</p>
             <p class="status" style="margin-top:0.25rem;font-size:0.82rem" data-i18n-html="gl.problemsHelp">
               En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements (diagnostic).
               À chaque nouveau problème, les <strong>4 dernières secondes</strong> de trafic GOOSE sont enregistrées (bouton PCAP).
@@ -538,7 +539,7 @@
               <h2 data-i18n="gl.histogram">Histogramme des délais</h2>
               <button type="button" class="btn btn--small" id="gl-hist-log-y" aria-pressed="false" data-i18n="gl.yLog">Y logarithmique</button>
             </div>
-            <p class="status" id="gl-hist-meta">—</p>
+            <p class="status" id="gl-hist-meta">-</p>
             <div id="gl-histogram" class="gl-histogram"></div>
             <ul id="gl-legend" class="gl-legend"></ul>
             <div id="gl-hist-color-picker" class="gl-hist-color-picker" hidden role="dialog" aria-label="Couleur de la série" data-i18n-aria="gl.seriesColor">
@@ -555,11 +556,11 @@
               <h2 data-i18n="gl.recentEvents">Derniers événements</h2>
               <button type="button" class="btn btn--small" id="gl-events-download" data-i18n="gl.downloadTxt">Télécharger (.txt)</button>
             </div>
-            <p class="status" id="gl-events-meta" style="margin:0 0 0.5rem">—</p>
+            <p class="status" id="gl-events-meta" style="margin:0 0 0.5rem">-</p>
             <div class="table-wrap gl-events-scroll" id="gl-events-table-wrap">
               <table class="gl-events-table">
                 <thead><tr><th data-i18n="gl.col.rx">Réception GOOSE</th><th data-i18n="gl.col.type">Type</th><th>gocbRef</th><th>goID</th><th>stNum</th><th>Δ net (ms)</th></tr></thead>
-                <tbody id="gl-events-tbody"><tr><td colspan="6" class="status">—</td></tr></tbody>
+                <tbody id="gl-events-tbody"><tr><td colspan="6" class="status">-</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -1278,6 +1279,8 @@
         "gl.filter.triggers": "Seulement les déclenchements",
         "gl.filter.all": "Tous (déclenchements + retombées…)",
         "gl.startAnalysis": "Lancer l'analyse",
+        "gl.reset": "Réinitialiser",
+        "gl.resetTitle": "Efface problèmes, histogramme et événements. L'analyse continue.",
         "gl.problems": "Problèmes",
         "gl.downloadTxt": "Télécharger (.txt)",
         "gl.simulateDelay": "Simuler un retard",
@@ -1607,6 +1610,8 @@
         "gl.filter.triggers": "Trips only",
         "gl.filter.all": "All (trips + resets…)",
         "gl.startAnalysis": "Start analysis",
+        "gl.reset": "Reset",
+        "gl.resetTitle": "Clears problems, histogram and events. Analysis keeps running.",
         "gl.problems": "Problems",
         "gl.downloadTxt": "Download (.txt)",
         "gl.simulateDelay": "Simulate a delay",
@@ -2162,7 +2167,7 @@
       return `<dl class="details-grid">
         <dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd>
         <dt>${t('mms.col.domain')}</dt><dd>${escapeHtml(s.domain)}</dd>
-        <dt>SCL</dt><dd>${escapeHtml(s.scl) || '—'}</dd>
+        <dt>SCL</dt><dd>${escapeHtml(s.scl) || '-'}</dd>
         <dt>${t('mms.rcbList')}</dt><dd>${escapeHtml(s.rcb_list) || t('mms.rcbBuiltin')}</dd>
         <dt>${t('mms.col.debug')}</dt><dd>${s.debug ? t('common.yes') : t('common.no')}</dd>
         <dt>${t('mms.reports', { n: items.length })}</dt><dd>${rcbList}</dd>
@@ -2218,7 +2223,7 @@
         const isExp = expanded.has(r.id);
         const live = subsById.get(r.id);
         const payload = { ...r, rcb_items: (run && live?.rcb_items) ? live.rcb_items : (r.rcb_items || []) };
-        return `<div class="recent-card"><button type="button" class="btn btn--small expand-btn" data-action="mms-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button><div class="info"><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">' + t('common.runningParen') + '</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">${t('common.restart')}</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
+        return `<div class="recent-card"><button type="button" class="btn btn--small expand-btn" data-action="mms-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button><div class="info"><strong>${escapeHtml(r.id)}</strong> - ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">' + t('common.runningParen') + '</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">${t('common.restart')}</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
       }).join('');
       el.querySelectorAll('[data-action="mms-recent-expand"]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2560,13 +2565,13 @@
       return (await r.json()).recent || [];
     }
     function gooseDetailsHtml(s) {
-      const allData = s.all_data ? JSON.stringify(s.all_data).slice(0, 500) + (JSON.stringify(s.all_data).length > 500 ? '…' : '') : '—';
+      const allData = s.all_data ? JSON.stringify(s.all_data).slice(0, 500) + (JSON.stringify(s.all_data).length > 500 ? '…' : '') : '-';
       return `<dl class="details-grid">
         <dt>Interface</dt><dd>${escapeHtml(s.iface)}</dd>
         <dt>src_mac</dt><dd>${escapeHtml(s.src_mac)}</dd>
         <dt>dst_mac</dt><dd>${escapeHtml(s.dst_mac)}</dd>
         <dt>app_id</dt><dd>${escapeHtml(String(s.app_id ?? ''))}</dd>
-        <dt>VLAN</dt><dd>${s.vlan_id != null ? t('goose.vlan', { id: s.vlan_id, prio: s.vlan_priority ?? '—' }) : '—'}</dd>
+        <dt>VLAN</dt><dd>${s.vlan_id != null ? t('goose.vlan', { id: s.vlan_id, prio: s.vlan_priority ?? '-' }) : '-'}</dd>
         <dt>gocbRef</dt><dd>${escapeHtml(s.gocb_ref)}</dd>
         <dt>datSet</dt><dd>${escapeHtml(s.dat_set)}</dd>
         <dt>goID</dt><dd>${escapeHtml(s.go_id)}</dd>
@@ -2729,10 +2734,10 @@
       const smpLabels = {0: 'None', 1: 'Local', 2: 'Global'};
       const smpVal = f.smp_synch ?? 0;
       const smpStr = smpLabels[smpVal] ? `${smpVal} (${smpLabels[smpVal]})` : smpVal;
-      const vlanStr = f.vlan_id != null ? t('sv.vlan', { id: f.vlan_id, prio: f.vlan_priority ?? 0 }) : '—';
-      const faultBlock = f.fault ? `<dt>fault_i_peak</dt><dd>${f.fault_i_peak ?? '—'} A</dd>
-        <dt>fault_v_peak</dt><dd>${f.fault_v_peak ?? '—'} V</dd>
-        <dt>fault_phase_deg</dt><dd>${f.fault_phase_deg ?? '—'}°</dd>
+      const vlanStr = f.vlan_id != null ? t('sv.vlan', { id: f.vlan_id, prio: f.vlan_priority ?? 0 }) : '-';
+      const faultBlock = f.fault ? `<dt>fault_i_peak</dt><dd>${f.fault_i_peak ?? '-'} A</dd>
+        <dt>fault_v_peak</dt><dd>${f.fault_v_peak ?? '-'} V</dd>
+        <dt>fault_phase_deg</dt><dd>${f.fault_phase_deg ?? '-'}°</dd>
         <dt>fault_cycle_s</dt><dd>${f.fault_cycle_s ?? 1} s</dd>` : '';
       return `<dl class="details-grid">
         <dt>${t('common.name')}</dt><dd>${escapeHtml(f.name)}</dd>
@@ -2740,8 +2745,8 @@
         <dt>src_mac</dt><dd>${escapeHtml(f.src_mac)}</dd>
         <dt>dst_mac</dt><dd>${escapeHtml(f.dst_mac)}</dd>
         <dt>svID</dt><dd>${escapeHtml(f.svid)}</dd>
-        <dt>appID</dt><dd>${f.appid != null ? ('0x' + Number(f.appid).toString(16).padStart(4, '0') + ' (' + f.appid + ')') : '—'}</dd>
-        <dt>confRev</dt><dd>${f.conf_rev ?? '—'}</dd>
+        <dt>appID</dt><dd>${f.appid != null ? ('0x' + Number(f.appid).toString(16).padStart(4, '0') + ' (' + f.appid + ')') : '-'}</dd>
+        <dt>confRev</dt><dd>${f.conf_rev ?? '-'}</dd>
         <dt>smpSynch</dt><dd>${smpStr}</dd>
         <dt>VLAN</dt><dd>${vlanStr}</dd>
         <dt>freq_hz</dt><dd>${f.freq_hz ?? 50}</dd>
@@ -3370,7 +3375,7 @@
         return `<tr data-key="${escapeHtml(k)}">
           <td><input type="checkbox" class="gl-scan-cb" data-gocb="${escapeHtml(e.gocb_ref)}" data-goid="${escapeHtml(e.go_id)}"${checkedAttr}></td>
           <td>${escapeHtml(e.gocb_ref)}</td>
-          <td>${escapeHtml(e.go_id || '—')}</td>
+          <td>${escapeHtml(e.go_id || '-')}</td>
           <td>0x${(e.app_id >>> 0).toString(16).toUpperCase().padStart(4,'0')}</td>
           <td>${e.frames}</td>
         </tr>`;
@@ -3413,7 +3418,7 @@
       tbody.innerHTML = glTargets.map((t, i) => `<tr data-idx="${i}">
         <td><button type="button" class="btn btn--small btn--danger gl-remove-target" data-idx="${i}">✕</button></td>
         <td>${escapeHtml(t.gocb_ref)}</td>
-        <td>${escapeHtml(t.go_id || '—')}</td>
+        <td>${escapeHtml(t.go_id || '-')}</td>
         <td><input type="number" class="gl-delay-input" data-idx="${i}" value="${t.delay_ms}" min="0" step="1" style="width:6rem"></td>
       </tr>`).join('');
       tbody.querySelectorAll('.gl-remove-target').forEach(btn => {
@@ -3482,7 +3487,7 @@
 
     const GL_HIST_BIN_MS = 1;
 
-    /** Agrège les Δ bruts (API) en histogramme 1 ms — rendu côté navigateur. */
+    /** Agrège les Δ bruts (API) en histogramme 1 ms - rendu côté navigateur. */
     function glBuildHistogram(rawSeries) {
       const inputs = rawSeries || [];
       const allVals = inputs.flatMap(s => s.values || []);
@@ -3538,7 +3543,7 @@
       };
       if (!root || !hist || !hist.bin_edges || hist.bin_edges.length < 2) {
         if (root) root.innerHTML = '<p class="status">' + t('gl.noData') + '</p>';
-        if (meta) meta.textContent = '—';
+        if (meta) meta.textContent = '-';
         if (legend) legend.innerHTML = '';
         return;
       }
@@ -3647,7 +3652,7 @@
     }
 
     function glFmtProblemTs(ts) {
-      if (!ts) return '—';
+      if (!ts) return '-';
       const d = new Date(ts * 1000);
       return d.toLocaleString(i18nDateLocale(), {
         year: 'numeric', month: '2-digit', day: '2-digit',
@@ -3735,8 +3740,8 @@
         const kind = p.kind || 'unknown';
         const label = kindLabel[kind] || kind;
         const ts = p.ts_goose ?? p.ts_expected;
-        const delta = p.delta_net_ms != null ? p.delta_net_ms.toFixed(2) : '—';
-        let sqCell = '—';
+        const delta = p.delta_net_ms != null ? p.delta_net_ms.toFixed(2) : '-';
+        let sqCell = '-';
         if (kind === 'delay_exceeded' && p.sq_num != null) {
           const sqLost = p.sq_num !== 0;
           sqCell = `<span class="gl-problem-sqnum${sqLost ? ' lost' : ''}" title="${sqLost ? t('gl.sqLost') : t('gl.sqOk')}">${escapeHtml(String(p.sq_num))}</span>`;
@@ -3751,7 +3756,7 @@
         const main = `<tr>
           <td class="gl-problem-kind ${escapeHtml(kind)}">${escapeHtml(label)}</td>
           <td>${escapeHtml(glFmtProblemTs(ts))}</td>
-          <td>${escapeHtml(p.go_id || '—')}</td>
+          <td>${escapeHtml(p.go_id || '-')}</td>
           <td>${delta}</td>
           <td>${sqCell}</td>
           <td>${escapeHtml(glProblemMessage(p, cfg))}${pcapBtn ? ' ' + pcapBtn : ''}</td>
@@ -3858,7 +3863,7 @@
           <td title="ts unix: ${tsUnix}">${escapeHtml(tsLocal)}</td>
           <td class="gl-event-kind ${escapeHtml(kind)}" title="${escapeHtml(detail)}">${escapeHtml(label)}</td>
           <td>${escapeHtml(e.gocb_ref)}</td>
-          <td>${escapeHtml(e.go_id || '—')}</td>
+          <td>${escapeHtml(e.go_id || '-')}</td>
           <td>${e.st_num}</td>
           <td>${e.delta_net_ms.toFixed(2)}</td>
         </tr>`;
@@ -3869,7 +3874,7 @@
     function glRenderServiceStatus(data) {
       const el = document.getElementById('gl-service-status');
       if (!el) return;
-      const iface = data.iface || '—';
+      const iface = data.iface || '-';
       const cap = data.capture_running ? t('gl.cap.active') : t('gl.cap.stopped');
       const mode = data.mode || 'idle';
       const c = data.capture || {};
@@ -4125,6 +4130,15 @@
     document.getElementById('gl-stop-btn')?.addEventListener('click', async () => {
       try {
         await glFetchJson('/analysis/stop', { method: 'POST' });
+        await glPoll();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-reset-btn')?.addEventListener('click', async () => {
+      try {
+        await glFetchJson('/analysis/reset', { method: 'POST' });
         await glPoll();
       } catch (e) {
         alert(e.message);

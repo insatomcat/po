@@ -1038,6 +1038,34 @@ class GooseListenerManager:
         self._disable_ring_capture()
         self._persist_analysis_state()
 
+    def reset_session(self) -> None:
+        """Efface événements, histogramme et problèmes. L'analyse continue."""
+        dumps_to_delete: List[Dict[str, Any]] = []
+        analyzing = False
+        with self._lock:
+            self._events.clear()
+            self._events_by_key.clear()
+            self._hist_all_buckets.clear()
+            self._hist_declenchement_buckets.clear()
+            self._problems_ram.clear()
+            self._problem_identity_keys.clear()
+            self._last_declenchement_ts.clear()
+            self._events_rev += 1
+            self._analysis_poll_cache.key = None
+            dumps_to_delete = list(self._ring_dump_records)
+            self._ring_dump_records.clear()
+            analyzing = self._mode == "analyze"
+        for rec in dumps_to_delete:
+            for key in ("path", "meta_path"):
+                p = rec.get(key)
+                if isinstance(p, Path):
+                    try:
+                        p.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+        if analyzing:
+            self._schedule_capture_baseline()
+
     def _scan_from_snapshot(self, snap: _PollSnapshot, now: float) -> Dict[str, Any]:
         remaining = (
             max(0.0, snap.scan_deadline - now) if snap.scan_running else 0.0

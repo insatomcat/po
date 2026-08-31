@@ -89,6 +89,10 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
         mgr.stop_analysis()
         return HTTPStatus.OK, mgr.analysis_status()
 
+    if path == "/analysis/reset" and method == "POST":
+        mgr.reset_session()
+        return HTTPStatus.OK, mgr.analysis_status()
+
     if path == "/analysis" and method == "GET":
         return HTTPStatus.OK, mgr.analysis_status()
 
