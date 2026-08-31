@@ -492,6 +492,7 @@ class _PollSnapshot:
     scan_deadline: float
     scan_entries: List[ScanEntry]
     analysis_running: bool
+    analysis_started_at: float
     event_filter: str
     targets: Dict[Key, AnalysisTarget]
     events: List[TriggerEvent]
@@ -568,6 +569,7 @@ class GooseListenerManager:
     _last_declenchement_ts: Dict[Key, float] = field(default_factory=dict, repr=False)
     _ring_dump_records: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     _ring_dump_seq: int = field(default=0, repr=False)
+    _analysis_started_at: float = field(default=0.0, repr=False)
 
     MAX_EVENTS = 10000
     CAPTURE_QUEUE_WARN = 100
@@ -620,6 +622,7 @@ class GooseListenerManager:
                 scan_deadline=self._scan_deadline,
                 scan_entries=list(self._scan_entries.values()),
                 analysis_running=analysis_running,
+                analysis_started_at=self._analysis_started_at if analysis_running else 0.0,
                 event_filter=self._event_filter,
                 targets=dict(self._targets),
                 events=list(self._events) if load_events else [],
@@ -1022,6 +1025,7 @@ class GooseListenerManager:
             self._targets_frozen = frozenset(self._targets.keys())
             self._analysis_poll_cache.key = None
             self._last_error = None
+            self._analysis_started_at = time.time()
         self._ensure_capture()
         self._enable_ring_capture()
         self._schedule_capture_baseline()
@@ -1032,6 +1036,7 @@ class GooseListenerManager:
         with self._lock:
             if self._mode == "analyze":
                 self._mode = "idle"
+            self._analysis_started_at = 0.0
             self._targets_frozen = frozenset()
             self._analysis_baseline_active = False
             self._analysis_capture_baseline = {}
@@ -1105,6 +1110,10 @@ class GooseListenerManager:
         all_events = snap.events
         event_filter = snap.event_filter
         running = snap.analysis_running
+        started_at = snap.analysis_started_at if running and snap.analysis_started_at else None
+        elapsed_s = (
+            round(max(0.0, now - started_at), 1) if started_at is not None else 0.0
+        )
         cycle_s = snap.cycle_s
         threshold_ms = snap.threshold_ms
 
@@ -1175,6 +1184,8 @@ class GooseListenerManager:
         )[:PANEL_PROBLEMS_MAX]
         return {
             "running": running,
+            "started_at": started_at,
+            "elapsed_s": elapsed_s,
             "targets": targets,
             "event_filter": event_filter,
             "capture": capture_rel,
