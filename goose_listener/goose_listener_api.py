@@ -12,10 +12,10 @@ GooseListenerResponse = Union[
 ]
 
 from goose_listener_service import (
-    AnalysisTarget,
     get_goose_listener,
     init_goose_listener,
     _normalize_event_filter,
+    _targets_from_payload,
 )
 
 
@@ -49,24 +49,7 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
         return HTTPStatus.OK, mgr.scan_status()
 
     if path == "/analysis/start" and method == "POST":
-        raw_targets = data.get("targets") or []
-        targets: list[AnalysisTarget] = []
-        if isinstance(raw_targets, list):
-            for item in raw_targets:
-                if not isinstance(item, dict):
-                    continue
-                gocb_ref = str(item.get("gocb_ref") or "").strip()
-                if not gocb_ref:
-                    continue
-                go_id = str(item.get("go_id") or "").strip()
-                delay_ms = float(item.get("delay_ms") or 0)
-                targets.append(
-                    AnalysisTarget(
-                        gocb_ref=gocb_ref,
-                        go_id=go_id,
-                        delay_ms=max(0.0, delay_ms),
-                    )
-                )
+        targets = _targets_from_payload(data.get("targets") or [])
         event_filter = _normalize_event_filter(
             str(data.get("event_filter") or "declenchements_only").strip()
         )
@@ -131,3 +114,10 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
 def configure_goose_listener(iface: Optional[str]) -> None:
     if iface:
         init_goose_listener(iface)
+
+
+def restore_goose_listener_analysis() -> None:
+    """Relance l'analyse persistée une fois le service prêt (après init SV/GOOSE)."""
+    mgr = get_goose_listener()
+    if mgr is not None:
+        mgr.restore_analysis_if_needed()

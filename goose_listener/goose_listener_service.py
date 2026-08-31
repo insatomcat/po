@@ -1,6 +1,7 @@
 """GOOSE Listener : scan de flux et mesure delta déclenchement → seconde pile."""
 from __future__ import annotations
 
+import json
 import math
 import random
 import sys
@@ -45,11 +46,37 @@ HIST_BIN_MS = 1.0
 NIC_DELTA_SANITY_MAX = 10_000_000
 RING_WINDOW_S = 4.0
 MAX_RING_DUMPS = 80
-DUMPS_DIR = Path(__file__).resolve().parent / "dumps"
+CAPTURE_WARMUP_S = 2.0
+CAPTURE_WARMUP_MAX_S = 8.0
+_GL_DIR = Path(__file__).resolve().parent
+DUMPS_DIR = _GL_DIR / "dumps"
+ANALYSIS_STATE_PATH = _GL_DIR / "analysis_state.json"
 
 
 def _stream_key(gocb_ref: str, go_id: Optional[str]) -> Key:
     return (gocb_ref, go_id or "")
+
+
+def _targets_from_payload(raw_targets: Any) -> List[AnalysisTarget]:
+    """Construit la liste de cibles depuis un JSON (API ou fichier d'état)."""
+    targets: List[AnalysisTarget] = []
+    if not isinstance(raw_targets, list):
+        return targets
+    for item in raw_targets:
+        if not isinstance(item, dict):
+            continue
+        gocb_ref = str(item.get("gocb_ref") or "").strip()
+        if not gocb_ref:
+            continue
+        go_id = str(item.get("go_id") or "").strip()
+        try:
+            delay_ms = max(0.0, float(item.get("delay_ms") or 0))
+        except (TypeError, ValueError):
+            delay_ms = 0.0
+        targets.append(
+            AnalysisTarget(gocb_ref=gocb_ref, go_id=go_id, delay_ms=delay_ms)
+        )
+    return targets
 
 
 def _missing_grace_s(cycle_s: float) -> float:
@@ -215,7 +242,7 @@ def _problem_capture_incomplete(evt: TriggerEvent) -> Dict[str, Any]:
         "st_num": evt.st_num,
         "sq_num": sq,
         "message": (
-            f"sqNum={sq} (sqNum=0 manqué en capture) — "
+            f"sqNum={sq} (sqNum=0 manqué en capture) - "
             f"Δ={evt.delta_net_ms:.2f} ms non fiable"
         ),
     }
@@ -289,7 +316,7 @@ def _compute_overdue_missing_problems(
             "st_num": None,
             "message": (
                 f"Déclenchement manquant (cycle {cycle_s:.0f} s, "
-                f"écart {gap:.1f} s) — en retard"
+                f"écart {gap:.1f} s) - en retard"
             ),
             "context": context,
             "gap_s": round(gap, 3),
@@ -339,11 +366,11 @@ def _event_export_line(e: TriggerEvent) -> str:
 def _problem_export_line(p: Dict[str, Any]) -> str:
     kind = p.get("kind", "")
     ts = p.get("ts_goose") or p.get("ts_expected")
-    ts_s = _fmt_ts_export(float(ts)) if ts is not None else "—"
+    ts_s = _fmt_ts_export(float(ts)) if ts is not None else "-"
     parts = [
         ts_s,
         str(kind),
-        f"goID={p.get('go_id') or '—'}",
+        f"goID={p.get('go_id') or '-'}",
     ]
     if p.get("delta_net_ms") is not None:
         parts.append(f"Δ={p['delta_net_ms']:.3f} ms")
@@ -531,6 +558,8 @@ class GooseListenerManager:
     _status_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _analysis_capture_baseline: Dict[str, Any] = field(default_factory=dict, repr=False)
     _analysis_baseline_active: bool = field(default=False, repr=False)
+    _analysis_warmup_deadline: float = field(default=0.0, repr=False)
+    _analysis_warmup_started: float = field(default=0.0, repr=False)
     _problems_ram: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     _problem_identity_keys: Set[Tuple[Any, ...]] = field(default_factory=set, repr=False)
     _last_declenchement_ts: Dict[Key, float] = field(default_factory=dict, repr=False)
@@ -749,6 +778,83 @@ class GooseListenerManager:
         if pending_problems:
             self._accumulate_problems(pending_problems)
 
+    def _analysis_state_dict_unlocked(self) -> Dict[str, Any]:
+        return {
+            "running": self._mode == "analyze",
+            "event_filter": self._event_filter,
+            "cycle_s": self._problem_cycle_s,
+            "threshold_ms": self._problem_threshold_ms,
+            "targets": [
+                {
+                    "gocb_ref": t.gocb_ref,
+                    "go_id": t.go_id,
+                    "delay_ms": t.delay_ms,
+                }
+                for t in self._targets.values()
+            ],
+        }
+
+    def _persist_analysis_state(self) -> None:
+        """Écrit la config d'analyse (cibles + options) pour survivre à un restart."""
+        try:
+            with self._lock:
+                payload = self._analysis_state_dict_unlocked()
+            tmp_path = ANALYSIS_STATE_PATH.with_suffix(
+                ANALYSIS_STATE_PATH.suffix + ".tmp"
+            )
+            tmp_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            tmp_path.replace(ANALYSIS_STATE_PATH)
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"[GOOSE Listener] Erreur sauvegarde état: {exc}")
+
+    def restore_analysis_if_needed(self) -> None:
+        """Relance l'analyse si elle tournait au stop du service (sans l'historique)."""
+        if not ANALYSIS_STATE_PATH.exists():
+            return
+        try:
+            raw = json.loads(ANALYSIS_STATE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(
+                f"[GOOSE Listener] Impossible de charger {ANALYSIS_STATE_PATH}: {exc}"
+            )
+            return
+        if not isinstance(raw, dict) or not raw.get("running"):
+            return
+        targets = _targets_from_payload(raw.get("targets"))
+        if not targets:
+            return
+        try:
+            cycle_s = (
+                float(raw["cycle_s"]) if raw.get("cycle_s") is not None else None
+            )
+            threshold_ms = (
+                float(raw["threshold_ms"])
+                if raw.get("threshold_ms") is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            cycle_s = None
+            threshold_ms = None
+        with self._lock:
+            if cycle_s is not None and cycle_s >= 1.0:
+                self._problem_cycle_s = cycle_s
+            if threshold_ms is not None and threshold_ms >= 0:
+                self._problem_threshold_ms = threshold_ms
+        event_filter = _normalize_event_filter(
+            str(raw.get("event_filter") or EVENT_FILTER_DECLENCHEMENTS_ONLY).strip()
+        )
+        err = self.start_analysis(targets, event_filter=event_filter)
+        if err:
+            print(f"[GOOSE Listener] Relance analyse ignorée: {err}")
+            return
+        print(
+            f"[GOOSE Listener] Analyse relancée ({len(targets)} flux) "
+            f"après restart du service"
+        )
+
     def start_scan(self, duration_s: float = 5.0) -> Optional[str]:
         duration_s = max(0.5, min(float(duration_s), 120.0))
         with self._lock:
@@ -785,10 +891,14 @@ class GooseListenerManager:
                 f"Filtre invalide (attendu: {EVENT_FILTER_DECLENCHEMENTS_ONLY} "
                 f"ou {EVENT_FILTER_ALL})."
             )
+        persist = False
         with self._lock:
             self._event_filter = event_filter
             self._purge_events_unlocked()
             self._analysis_poll_cache.key = None
+            persist = self._mode == "analyze"
+        if persist:
+            self._persist_analysis_state()
         return None
 
     def set_problem_config(
@@ -796,6 +906,7 @@ class GooseListenerManager:
         cycle_s: Optional[float] = None,
         threshold_ms: Optional[float] = None,
     ) -> Optional[str]:
+        persist = False
         with self._lock:
             if cycle_s is not None:
                 if cycle_s < 1.0:
@@ -806,6 +917,9 @@ class GooseListenerManager:
                     return "Le seuil doit être ≥ 0 ms."
                 self._problem_threshold_ms = float(threshold_ms)
             self._analysis_poll_cache.key = None
+            persist = self._mode == "analyze"
+        if persist:
+            self._persist_analysis_state()
         return None
 
 
@@ -907,8 +1021,8 @@ class GooseListenerManager:
             self._last_error = None
         self._ensure_capture()
         self._enable_ring_capture()
-        self._analysis_capture_baseline = self._snapshot_capture_baseline()
-        self._analysis_baseline_active = True
+        self._schedule_capture_baseline()
+        self._persist_analysis_state()
         return None
 
     def stop_analysis(self) -> None:
@@ -918,8 +1032,11 @@ class GooseListenerManager:
             self._targets_frozen = frozenset()
             self._analysis_baseline_active = False
             self._analysis_capture_baseline = {}
+            self._analysis_warmup_deadline = 0.0
+            self._analysis_warmup_started = 0.0
             self._stop_capture_if_idle()
         self._disable_ring_capture()
+        self._persist_analysis_state()
 
     def _scan_from_snapshot(self, snap: _PollSnapshot, now: float) -> Dict[str, Any]:
         remaining = (
@@ -1011,7 +1128,7 @@ class GooseListenerManager:
                     "st_num": None,
                     "sq_num": None,
                     "message": (
-                        "Capture non fiable — mesures invalides : "
+                        "Capture non fiable - mesures invalides : "
                         f"{capture_rel['invalid_reason']}"
                     ),
                 },
@@ -1064,7 +1181,7 @@ class GooseListenerManager:
             if filt == EVENT_FILTER_DECLENCHEMENTS_ONLY
             else "tous les événements"
         )
-        header = f"# GOOSE Listener — {len(events)} événement(s) ({filt_label})\n"
+        header = f"# GOOSE Listener - {len(events)} événement(s) ({filt_label})\n"
         return header + "\n".join(_event_export_line(e) for e in events) + "\n"
 
     def export_problems_txt(self) -> str:
@@ -1073,7 +1190,7 @@ class GooseListenerManager:
         if not problems:
             return "# Aucun problème détecté\n"
         ordered = sorted(problems, key=_problem_sort_key)
-        header = f"# GOOSE Listener — {len(ordered)} problème(s) (session)\n"
+        header = f"# GOOSE Listener - {len(ordered)} problème(s) (session)\n"
         return header + "\n".join(_problem_export_line(p) for p in ordered) + "\n"
 
     def _enable_ring_capture(self) -> None:
@@ -1292,6 +1409,44 @@ class GooseListenerManager:
         base["processbus_active"] = bool(mux.get("running"))
         return base
 
+    def _mux_capture_ready(self, mux: Optional[Dict[str, Any]] = None) -> bool:
+        mux = mux if mux is not None else self._mux_stats()
+        if not mux.get("running"):
+            return False
+        return int(mux.get("packets") or 0) > 0
+
+    def _schedule_capture_baseline(self) -> None:
+        """Ignore le burst d'ouverture libpcap (restart / capture froide)."""
+        if self._mux_capture_ready():
+            self._analysis_capture_baseline = self._snapshot_capture_baseline()
+            self._analysis_baseline_active = True
+            self._analysis_warmup_deadline = 0.0
+            self._analysis_warmup_started = 0.0
+            return
+        now = time.time()
+        self._analysis_capture_baseline = {}
+        self._analysis_baseline_active = False
+        self._analysis_warmup_started = now
+        self._analysis_warmup_deadline = now + CAPTURE_WARMUP_S
+
+    def _maybe_arm_capture_baseline(self) -> None:
+        if self._analysis_baseline_active or self._analysis_warmup_deadline <= 0:
+            return
+        now = time.time()
+        ready = self._mux_capture_ready()
+        overdue = (
+            self._analysis_warmup_started > 0
+            and (now - self._analysis_warmup_started) >= CAPTURE_WARMUP_MAX_S
+        )
+        if not overdue and (now < self._analysis_warmup_deadline or not ready):
+            if not ready and now >= self._analysis_warmup_deadline:
+                self._analysis_warmup_deadline = now + 0.5
+            return
+        self._analysis_capture_baseline = self._snapshot_capture_baseline()
+        self._analysis_baseline_active = True
+        self._analysis_warmup_deadline = 0.0
+        self._analysis_warmup_started = 0.0
+
     def _snapshot_capture_baseline(self) -> Dict[str, Any]:
         stats = self._subscriber_stats()
         mux = stats.get("processbus") or stats.get("mux") or {}
@@ -1304,6 +1459,7 @@ class GooseListenerManager:
         }
 
     def _capture_reliability(self, *, analysis_running: bool) -> Dict[str, Any]:
+        self._maybe_arm_capture_baseline()
         stats = self._subscriber_stats()
         mux = stats.get("processbus") or stats.get("mux") or {}
         nic_now = stats.get("nic") or {}

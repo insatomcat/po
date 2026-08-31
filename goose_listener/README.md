@@ -80,6 +80,7 @@ goose_listener/
 ├── goose_ring_pcap.py          # Tampon glissant GOOSE + export PCAP
 ├── trigger_classify.py         # Classification défaut / fin défaut
 ├── dumps/                      # PCAP auto (4 s avant chaque problème, gitignored)
+├── analysis_state.json         # (généré) config d'analyse si elle tournait
 └── README.md                   # Ce fichier
 
 goose/goose61850/transport.py   # GooseSubscriber (pcapy, BPF, file bytes bruts)
@@ -151,7 +152,7 @@ Types d’anomalies :
 - **`missing`** : trou dans le cycle défaut ; détail des GOOSE reçus entre les deux défauts
 
 Affichage : **50 derniers** problèmes, **~10 lignes visibles** avec défilement.  
-Les problèmes sont **accumulés dans une liste RAM dédiée** (`_problems_ram`) à la **réception de chaque déclenchement** (même chemin que l'histogramme), puis conservés pour toute la session — indépendamment de la rotation des 10 000 événements.  
+Les problèmes sont **accumulés dans une liste RAM dédiée** (`_problems_ram`) à la **réception de chaque déclenchement** (même chemin que l'histogramme), puis conservés pour toute la session - indépendamment de la rotation des 10 000 événements.  
 Bouton **Télécharger (.txt)** : export de **tous** les problèmes de la session.
 Bouton **Simuler un retard** : injecte un déclenchement fictif avec Δ > seuil sur un flux d'analyse tiré au sort, **sans envoyer de GOOSE** sur le process bus (démo du panneau, de l'événement et du PCAP des 4 dernières secondes de trafic réel).
 
@@ -181,6 +182,7 @@ Bouton **Simuler un retard** : injecte un déclenchement fictif avec Δ > seuil 
 - `drops_since_analysis_start` > 0 → paquets GOOSE perdus (file Python pleine)
 - `nic_delta_since_analysis_start.rx_missed_errors` > 0 → pertes noyau/NIC avant libpcap
 - `reliable: false` → problème `capture_unreliable` ; les Δ ne sont pas validables
+- Au démarrage (ou après restart de `po_service`), le suivi des pertes attend ~2 s que la socket libpcap soit chaude, pour ne pas marquer la session non fiable à cause du burst d'ouverture
 
 Chaque événement expose aussi `processing_lag_ms` (écart traitement − réception pcap).
 
@@ -193,13 +195,14 @@ Chaque événement expose aussi `processing_lag_ms` (écart traitement − réce
 | `_events` | **10 000** événements max (`deque`) | RAM uniquement ; les plus anciens sont éjectés |
 | `_problems_ram` | Liste session (sans plafond) | Accumulation à la détection ; non liée à `_events` |
 | `_hist_*_buckets` | Compteurs par bin Δ | Session entière (comme les problèmes) |
-| Panneau UI | 50 derniers affichés | — |
+| Panneau UI | 50 derniers affichés | - |
 | Export `.txt` événements | Tout le contenu de `_events` | Téléchargement navigateur |
 | Export `.txt` problèmes | Tout `_problems_ram` | Téléchargement navigateur |
+| `analysis_state.json` | Config d'analyse (cibles, filtre, cycle, seuil) | Disque ; relance auto si l'analyse tournait |
 
-- **Nouvelle analyse** → événements, histogramme et problèmes effacés
-- **Redémarrage `po_service`** → tout perdu
-- Pas de fichier ni base de données
+- **Nouvelle analyse** : événements, histogramme et problèmes effacés
+- **Arrêt explicite** (bouton Arrêter) : l'analyse ne redémarre pas au prochain `po_service`
+- **Redémarrage `po_service`** : historique (trips, problèmes, histogramme) perdu ; si l'analyse était en cours, elle est relancée avec les mêmes gocbRef / goID / temporisations / filtre / cycle / seuil
 
 ---
 
@@ -331,7 +334,7 @@ Même source de problèmes que l’onglet GUI.
 
 | Abonnés actifs | Filtre kernel |
 |----------------|---------------|
-| GOOSE seul | `0x88b8` uniquement — le trafic SV (~2400 pkt/s) n’est **pas** copié vers Python |
+| GOOSE seul | `0x88b8` uniquement - le trafic SV (~2400 pkt/s) n’est **pas** copié vers Python |
 | SV seul | `0x88ba` uniquement |
 | GOOSE + SV | les deux |
 
@@ -390,5 +393,6 @@ Souvent :
 |---------|------|
 | [po_service.py](../po_service.py) | Monte l’API `/api/gooselistener/*` |
 | [unified_ui.html](../unified_ui.html) | Onglet GOOSE Listener |
+| `analysis_state.json` | (généré) relance de l'analyse après restart de `po_service` |
 | [goose/examples/listen_goose.py](../goose/examples/listen_goose.py) | CLI |
 | [goose/goose61850/transport.py](../goose/goose61850/transport.py) | Capture (BPF, file, `run_until`) |

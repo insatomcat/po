@@ -42,3 +42,4 @@ svgenerator/flows.json
 svgenerator/recents.json
 svgenerator/pids/
 stress/hosts.json
+goose_listener/analysis_state.json

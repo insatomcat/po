@@ -39,7 +39,11 @@ from goose61850.service import GooseService, _handle_api as goose_handle_api
 from svgenerator.sv_api import handle_sv, init_sv_api
 
 sys.path.insert(0, str(ROOT / "goose_listener"))
-from goose_listener_api import configure_goose_listener, handle_goose_listener  # noqa: E402
+from goose_listener_api import (  # noqa: E402
+    configure_goose_listener,
+    handle_goose_listener,
+    restore_goose_listener_analysis,
+)
 
 from stress.stress_api import handle_stress  # noqa: E402
 from stress.stress_service import get_stress_manager  # noqa: E402
@@ -420,6 +424,8 @@ def main() -> int:
     sys.stdout = _TeeStdout(sys.__stdout__)
 
     init_sv_api()
+
+    restore_goose_listener_analysis()
 
     server_address = (args.listen_host, args.listen_port)
     httpd = ThreadingHTTPServer(server_address, UnifiedHandler)
