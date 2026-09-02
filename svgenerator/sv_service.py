@@ -225,6 +225,22 @@ recents: list[FlowConfig] = []
 recents_lock = threading.Lock()
 
 
+def list_flows_for_listener() -> list[dict]:
+    """Flux SV du module chargé par l'API (même dict que /api/sv/flows)."""
+    with flows_lock:
+        return [
+            {
+                "name": fr.config.name,
+                "svid": fr.config.svid,
+                "fault": fr.config.fault,
+                "fault_cycle_s": int(fr.config.fault_cycle_s),
+                "fault_smpcnt": int(getattr(fr.config, "fault_smpcnt", 0)),
+                "fault_offset_s": int(getattr(fr.config, "fault_offset_s", 0)),
+            }
+            for fr in flows.values()
+        ]
+
+
 def _add_to_recents(cfg: FlowConfig) -> None:
     """Ajoute un flux aux récents (10 uniques max, dédup par nom). Persisté sur disque."""
     with recents_lock:

@@ -28,7 +28,7 @@ Pour le service seul (sans pcapy/Flask) : `fastapi`, `uvicorn`, `pydantic`, `req
 Compilation de l’émetteur temps-réel (exemple Linux) :
 
 ```bash
-gcc -o rt_sender rt_sender.c -lrt
+gcc -o rt_sender rt_sender.c -lrt -lm
 # Placer rt_sender dans svgenerator/ ou dans le PATH
 ```
 
