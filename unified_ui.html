@@ -3517,6 +3517,9 @@
           off: target.fault_offset_s ?? 0,
         });
       }
+      if (target.timing_frozen) {
+        return t('gl.svidUnlinked');
+      }
       const flow = target.svid ? glSvFlowBySvid(target.svid) : null;
       if (flow) {
         return t('gl.svidMeta', {
@@ -3540,7 +3543,7 @@
         <td>${escapeHtml(t.gocb_ref)}</td>
         <td>${escapeHtml(t.go_id || '-')}</td>
         <td>
-          <select class="gl-svid-select" data-idx="${i}" style="max-width:14rem;padding:0.25rem 0.4rem;border-radius:6px;border:1px solid var(--surface);background:var(--bg);color:var(--text);font:inherit">
+          <select class="gl-svid-select" data-idx="${i}"${t.timing_frozen && glAnalysisRunning ? ' disabled' : ''} style="max-width:14rem;padding:0.25rem 0.4rem;border-radius:6px;border:1px solid var(--surface);background:var(--bg);color:var(--text);font:inherit">
             ${glSvidOptionsHtml(t)}
           </select>
           <div class="status" style="font-size:0.75rem;margin-top:0.15rem">${escapeHtml(glSvidMetaHtml(t))}</div>
@@ -4118,6 +4121,66 @@
       el.className = ok ? 'status' : 'status error-msg';
     }
 
+    function glTargetFromServer(t) {
+      return {
+        gocb_ref: t.gocb_ref,
+        go_id: t.go_id || '',
+        delay_ms: t.delay_ms || 0,
+        svid: t.svid || '',
+        svid_manual: !!t.svid_manual,
+        sv_linked: !!t.sv_linked,
+        cycle_s: t.cycle_s,
+        fault_smpcnt: t.fault_smpcnt,
+        fault_offset_s: t.fault_offset_s,
+        timing_frozen: !!t.timing_frozen,
+      };
+    }
+
+    function glTargetsSig(list) {
+      return JSON.stringify((list || []).map(t => [
+        glTargetKey(t),
+        t.svid || '',
+        !!t.svid_manual,
+        t.delay_ms || 0,
+        !!t.sv_linked,
+        t.cycle_s ?? null,
+        t.fault_smpcnt ?? null,
+        t.fault_offset_s ?? null,
+        !!t.timing_frozen,
+      ]));
+    }
+
+    function glSyncTargetsFromAnalysis(analysis) {
+      const server = (analysis.targets || []).map(glTargetFromServer);
+      if (!glTargets.length) {
+        if (!server.length) return;
+        glTargets = server;
+        glRenderTargets();
+        return;
+      }
+      const prev = glTargetsSig(glTargets);
+      const serverByKey = new Map(server.map(t => [glTargetKey(t), t]));
+      glTargets = glTargets.map(local => {
+        const s = serverByKey.get(glTargetKey(local));
+        if (!s) return local;
+        return {
+          ...local,
+          svid: local.svid_manual ? (local.svid || s.svid) : (s.svid || local.svid),
+          sv_linked: s.sv_linked,
+          cycle_s: s.cycle_s ?? local.cycle_s,
+          fault_smpcnt: s.fault_smpcnt ?? local.fault_smpcnt,
+          fault_offset_s: s.fault_offset_s ?? local.fault_offset_s,
+          timing_frozen: s.timing_frozen,
+        };
+      });
+      if (glTargetsSig(glTargets) === prev) return;
+      const ae = document.activeElement;
+      if (ae && (ae.classList.contains('gl-delay-input') || ae.classList.contains('gl-svid-select'))) {
+        return;
+      }
+      glRenderTargets();
+    }
+
     function glRenderStatus(data) {
       document.getElementById('gl-unconfigured').style.display = 'none';
       document.getElementById('gl-root').style.display = 'block';
@@ -4125,20 +4188,8 @@
       glRenderServiceStatus(data);
       glRenderScan(data.scan || {});
       const analysis = data.analysis || {};
-      if (analysis.targets && analysis.targets.length) {
-        glTargets = analysis.targets.map(t => ({
-          gocb_ref: t.gocb_ref,
-          go_id: t.go_id || '',
-          delay_ms: t.delay_ms || 0,
-          svid: t.svid || '',
-          svid_manual: !!t.svid_manual,
-          sv_linked: !!t.sv_linked,
-          cycle_s: t.cycle_s,
-          fault_smpcnt: t.fault_smpcnt,
-          fault_offset_s: t.fault_offset_s,
-        }));
-        glRenderTargets();
-      }
+      glAnalysisRunning = !!analysis.running;
+      glSyncTargetsFromAnalysis(analysis);
       glRenderAnalysis(analysis);
       glRenderProblems(analysis);
     }

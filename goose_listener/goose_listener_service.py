@@ -311,9 +311,8 @@ def _compute_overdue_missing_problems(
         return []
     problems: List[Dict[str, Any]] = []
     index = _index_events_by_key(events)
-    flows = list_sv_flow_infos()
     for key, target in targets.items():
-        timing = resolve_target_timing(target, flows)
+        timing = resolve_target_timing(target)
         if timing.cycle_s is None:
             continue
         cycle_s = max(1.0, float(timing.cycle_s))
@@ -505,6 +504,11 @@ class AnalysisTarget:
     delay_ms: float = 0.0
     svid: Optional[str] = None
     svid_manual: bool = False
+    cycle_s: Optional[float] = None
+    fault_smpcnt: Optional[int] = None
+    fault_offset_s: Optional[int] = None
+    sv_linked: bool = False
+    timing_frozen: bool = False
 
 
 @dataclass
@@ -670,7 +674,7 @@ def apply_auto_svid(
     return target
 
 
-def resolve_target_timing(
+def _resolve_target_timing_live(
     target: AnalysisTarget, flows: Optional[List[SvFlowInfo]] = None
 ) -> TargetTiming:
     flows = flows if flows is not None else list_sv_flow_infos()
@@ -697,6 +701,38 @@ def resolve_target_timing(
     )
 
 
+def snapshot_target_timing(
+    target: AnalysisTarget, flows: Optional[List[SvFlowInfo]] = None
+) -> AnalysisTarget:
+    """Fige cycle / smpCnt / offset au lancement. Plus de relecture SV pendant le run."""
+    timing = _resolve_target_timing_live(target, flows)
+    target.svid = timing.svid
+    target.cycle_s = timing.cycle_s
+    target.fault_smpcnt = timing.smpcnt if timing.linked else None
+    target.fault_offset_s = timing.offset_s if timing.linked else None
+    target.sv_linked = timing.linked
+    target.timing_frozen = True
+    return target
+
+
+def resolve_target_timing(
+    target: AnalysisTarget, flows: Optional[List[SvFlowInfo]] = None
+) -> TargetTiming:
+    if target.timing_frozen:
+        linked = bool(target.sv_linked) and target.cycle_s is not None
+        smpcnt = int(target.fault_smpcnt or 0)
+        offset = int(target.fault_offset_s or 0)
+        return TargetTiming(
+            svid=target.svid,
+            cycle_s=float(target.cycle_s) if linked else None,
+            smpcnt=smpcnt,
+            offset_s=offset,
+            phase_s=fault_phase_s(smpcnt, offset),
+            linked=linked,
+        )
+    return _resolve_target_timing_live(target, flows)
+
+
 def compute_delta_net_ms(
     ts_goose: float, delay_ms: float, timing: TargetTiming
 ) -> Tuple[float, float]:
@@ -721,15 +757,15 @@ def _target_public_dict(
         "fault_smpcnt": timing.smpcnt if timing.linked else None,
         "fault_offset_s": timing.offset_s if timing.linked else None,
         "sv_linked": timing.linked,
+        "timing_frozen": t.timing_frozen,
     }
 
 
 def _targets_fingerprint(targets: Dict[Key, AnalysisTarget]) -> Tuple[Any, ...]:
-    flows = list_sv_flow_infos()
     rows = []
     for key in sorted(targets.keys()):
         t = targets[key]
-        timing = resolve_target_timing(t, flows)
+        timing = resolve_target_timing(t)
         rows.append(
             (
                 key,
@@ -1054,6 +1090,11 @@ class GooseListenerManager:
                     "delay_ms": t.delay_ms,
                     "svid": t.svid,
                     "svid_manual": t.svid_manual,
+                    "cycle_s": t.cycle_s,
+                    "fault_smpcnt": t.fault_smpcnt,
+                    "fault_offset_s": t.fault_offset_s,
+                    "sv_linked": t.sv_linked,
+                    "timing_frozen": t.timing_frozen,
                 }
                 for t in self._targets.values()
             ],
@@ -1269,7 +1310,9 @@ class GooseListenerManager:
             self._last_all_data.clear()
             sv_flows = list_sv_flow_infos()
             for t in targets:
+                t.timing_frozen = False
                 apply_auto_svid(t, sv_flows)
+                snapshot_target_timing(t, sv_flows)
                 key = _stream_key(t.gocb_ref, t.go_id)
                 self._targets[key] = t
             self._events.clear()
@@ -1300,6 +1343,8 @@ class GooseListenerManager:
             self._analysis_capture_baseline = {}
             self._analysis_warmup_deadline = 0.0
             self._analysis_warmup_started = 0.0
+            for t in self._targets.values():
+                t.timing_frozen = False
             self._stop_capture_if_idle()
         self._disable_ring_capture()
         self._persist_analysis_state()
@@ -1374,10 +1419,7 @@ class GooseListenerManager:
         }
 
     def _analysis_from_snapshot(self, snap: _PollSnapshot, now: float) -> Dict[str, Any]:
-        sv_flows = list_sv_flow_infos()
-        targets = [
-            _target_public_dict(t, sv_flows) for t in snap.targets.values()
-        ]
+        targets = [_target_public_dict(t) for t in snap.targets.values()]
         targets_snap = snap.targets
         all_events = snap.events
         event_filter = snap.event_filter
