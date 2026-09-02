@@ -65,6 +65,10 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
             return HTTPStatus.BAD_REQUEST, {"error": err}
         return HTTPStatus.OK, mgr.analysis_status()
 
+    if path == "/analysis/problems/clear" and method == "POST":
+        mgr.clear_problems()
+        return HTTPStatus.OK, mgr.analysis_status()
+
     if path == "/analysis/problems" and method == "POST":
         cycle_s = data.get("cycle_s")
         threshold_ms = data.get("threshold_ms")

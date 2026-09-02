@@ -1071,6 +1071,24 @@ class GooseListenerManager:
         if analyzing:
             self._schedule_capture_baseline()
 
+    def clear_problems(self) -> None:
+        """Efface uniquement la liste des problèmes (et dumps PCAP associés). L'analyse continue."""
+        dumps_to_delete: List[Dict[str, Any]] = []
+        with self._lock:
+            self._problems_ram.clear()
+            self._problem_identity_keys.clear()
+            self._analysis_poll_cache.key = None
+            dumps_to_delete = list(self._ring_dump_records)
+            self._ring_dump_records.clear()
+        for rec in dumps_to_delete:
+            for key in ("path", "meta_path"):
+                p = rec.get(key)
+                if isinstance(p, Path):
+                    try:
+                        p.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+
     def _scan_from_snapshot(self, snap: _PollSnapshot, now: float) -> Dict[str, Any]:
         remaining = (
             max(0.0, snap.scan_deadline - now) if snap.scan_running else 0.0

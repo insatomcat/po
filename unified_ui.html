@@ -509,6 +509,7 @@
               <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
                 <button type="button" class="btn btn--small" id="gl-demo-delay-btn" data-i18n="gl.simulateDelay" disabled title="Injecte un déclenchement fictif au-delà du seuil, sans envoyer de GOOSE sur le bus">Simuler un retard</button>
                 <button type="button" class="btn btn--small" id="gl-problems-download" data-i18n="gl.downloadTxt">Télécharger (.txt)</button>
+                <button type="button" class="btn btn--small" id="gl-problems-clear" data-i18n="gl.clearProblems" data-i18n-title="gl.clearProblemsTitle" title="Efface uniquement la liste des problèmes. Histogramme et événements restent. L'analyse continue.">Vider</button>
               </div>
             </div>
             <div class="gl-problems-config" style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;margin-bottom:0.75rem">
@@ -1307,6 +1308,8 @@
         "gl.startAnalysis": "Lancer l'analyse",
         "gl.reset": "Réinitialiser",
         "gl.resetTitle": "Efface problèmes, histogramme et événements. L'analyse continue.",
+        "gl.clearProblems": "Vider",
+        "gl.clearProblemsTitle": "Efface uniquement la liste des problèmes. Histogramme et événements restent. L'analyse continue.",
         "gl.problems": "Problèmes",
         "gl.downloadTxt": "Télécharger (.txt)",
         "gl.simulateDelay": "Simuler un retard",
@@ -1646,6 +1649,8 @@
         "gl.startAnalysis": "Start analysis",
         "gl.reset": "Reset",
         "gl.resetTitle": "Clears problems, histogram and events. Analysis keeps running.",
+        "gl.clearProblems": "Clear",
+        "gl.clearProblemsTitle": "Clears the problems list only. Histogram and events stay. Analysis keeps running.",
         "gl.problems": "Problems",
         "gl.downloadTxt": "Download (.txt)",
         "gl.simulateDelay": "Simulate a delay",
@@ -4134,6 +4139,15 @@
       try {
         const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         await glDownloadExport('/analysis/problems/export', `goose-problems-${ts}.txt`);
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+
+    document.getElementById('gl-problems-clear')?.addEventListener('click', async () => {
+      try {
+        await glFetchJson('/analysis/problems/clear', { method: 'POST' });
+        await glPoll();
       } catch (e) {
         alert(e.message);
       }
