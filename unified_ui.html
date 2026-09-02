@@ -485,9 +485,9 @@
             <div class="table-wrap" id="gl-targets-table-wrap">
               <table>
                 <thead><tr>
-                  <th></th><th>gocbRef</th><th>goID</th><th data-i18n="gl.col.delay">Temporisation (ms)</th>
+                  <th></th><th>gocbRef</th><th>goID</th><th data-i18n="gl.col.svid">svID</th><th data-i18n="gl.col.delay">Temporisation (ms)</th>
                 </tr></thead>
-                <tbody id="gl-targets-tbody"><tr><td colspan="4" class="status" data-i18n="gl.selectFromScan">Sélectionnez des flux depuis le scan.</td></tr></tbody>
+                <tbody id="gl-targets-tbody"><tr><td colspan="5" class="status" data-i18n="gl.selectFromScan">Sélectionnez des flux depuis le scan.</td></tr></tbody>
               </table>
             </div>
             <label class="gl-event-filter-label" style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap">
@@ -513,10 +513,6 @@
               </div>
             </div>
             <div class="gl-problems-config" style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;margin-bottom:0.75rem">
-              <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
-                <span class="status" data-i18n="gl.cycle">Cycle déclenchement (s)</span>
-                <input type="number" id="gl-problem-cycle" value="4" min="1" max="600" step="1" style="width:5rem">
-              </label>
               <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
                 <span class="status" data-i18n="gl.threshold">Seuil Δ (ms)</span>
                 <input type="number" id="gl-problem-threshold" value="40" min="0" max="5000" step="1" style="width:5rem">
@@ -1301,6 +1297,10 @@
         "gl.analysis": "Analyse",
         "gl.analysisStopped": "Analyse arrêtée.",
         "gl.col.delay": "Temporisation (ms)",
+        "gl.col.svid": "svID",
+        "gl.svidAuto": "Auto (DEP)",
+        "gl.svidUnlinked": "Non lié : manquants non surveillés",
+        "gl.svidMeta": "{cycle} s · smp {smp} · off {off} s",
         "gl.selectFromScan": "Sélectionnez des flux depuis le scan.",
         "gl.show": "Afficher",
         "gl.filter.triggers": "Seulement les déclenchements",
@@ -1318,7 +1318,7 @@
         "gl.msg.delayDemo": "Δ net {delta} ms > seuil {th} ms (démo)",
         "gl.cycle": "Cycle déclenchement (s)",
         "gl.threshold": "Seuil Δ (ms)",
-        "gl.problemsHelp": "En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements (diagnostic). À chaque nouveau problème, les <strong>4 dernières secondes</strong> de trafic GOOSE sont enregistrées (bouton PCAP).",
+        "gl.problemsHelp": "Le cycle et le smpCnt de référence viennent du flux SV lié (auto via DEP, ou manuel). En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements. À chaque nouveau problème, les <strong>4 dernières secondes</strong> de trafic GOOSE sont enregistrées (bouton PCAP).",
         "gl.col.type": "Type",
         "gl.col.time": "Heure",
         "gl.col.detail": "Détail",
@@ -1351,7 +1351,7 @@
         "gl.chooseColor": "Choisir la couleur",
         "gl.chooseColorFor": "Choisir la couleur - {label}",
         "gl.problemsStart": "Lancez une analyse pour détecter les problèmes.",
-        "gl.problemsNoneCfg": "Aucun problème (cycle {cycle} s · seuil {th} ms).",
+        "gl.problemsNoneCfg": "Aucun problème (seuil {th} ms).",
         "gl.problemsTrunc": " · {shown} affiché(s) sur {total}",
         "gl.problemsCap": " · {n} capture(s)",
         "gl.problemsUnreliable": " · capture NON FIABLE",
@@ -1642,6 +1642,10 @@
         "gl.analysis": "Analysis",
         "gl.analysisStopped": "Analysis stopped.",
         "gl.col.delay": "Delay (ms)",
+        "gl.col.svid": "svID",
+        "gl.svidAuto": "Auto (DEP)",
+        "gl.svidUnlinked": "Unlinked: missing trips not monitored",
+        "gl.svidMeta": "{cycle} s · smp {smp} · off {off} s",
         "gl.selectFromScan": "Select streams from the scan.",
         "gl.show": "Show",
         "gl.filter.triggers": "Trips only",
@@ -1659,7 +1663,7 @@
         "gl.msg.delayDemo": "Net Δ {delta} ms > threshold {th} ms (demo)",
         "gl.cycle": "Trip cycle (s)",
         "gl.threshold": "Δ threshold (ms)",
-        "gl.problemsHelp": "When a trip is missing, the details list GOOSE frames received between two trips (diagnostics). Each new problem records the <strong>last 4 seconds</strong> of GOOSE traffic (PCAP button).",
+        "gl.problemsHelp": "Cycle and reference smpCnt come from the linked SV stream (auto via DEP, or manual). When a trip is missing, the details list GOOSE frames received between two trips. Each new problem records the <strong>last 4 seconds</strong> of GOOSE traffic (PCAP button).",
         "gl.col.type": "Type",
         "gl.col.time": "Time",
         "gl.col.detail": "Detail",
@@ -1692,7 +1696,7 @@
         "gl.chooseColor": "Choose color",
         "gl.chooseColorFor": "Choose color - {label}",
         "gl.problemsStart": "Start an analysis to detect problems.",
-        "gl.problemsNoneCfg": "No problem (cycle {cycle} s · threshold {th} ms).",
+        "gl.problemsNoneCfg": "No problem (threshold {th} ms).",
         "gl.problemsTrunc": " · {shown} shown of {total}",
         "gl.problemsCap": " · {n} capture(s)",
         "gl.problemsUnreliable": " · UNRELIABLE capture",
@@ -1863,6 +1867,7 @@
     let glPollSeq = 0;
     let glTabActive = false;
     let glTargets = [];
+    let glSvFlows = [];
     let glScanEntries = [];
     let glScanEntriesSig = '';
     let glScanRunning = false;
@@ -2790,7 +2795,9 @@
       const faultBlock = f.fault ? `<dt>fault_i_peak</dt><dd>${f.fault_i_peak ?? '-'} A</dd>
         <dt>fault_v_peak</dt><dd>${f.fault_v_peak ?? '-'} V</dd>
         <dt>fault_phase_deg</dt><dd>${f.fault_phase_deg ?? '-'}°</dd>
-        <dt>fault_cycle_s</dt><dd>${f.fault_cycle_s ?? 1} s</dd>` : '';
+        <dt>fault_cycle_s</dt><dd>${f.fault_cycle_s ?? 2} s</dd>
+        <dt>fault_smpcnt</dt><dd>${f.fault_smpcnt ?? 0}</dd>
+        <dt>fault_offset_s</dt><dd>${f.fault_offset_s ?? 0} s</dd>` : '';
       return `<dl class="details-grid">
         <dt>${t('common.name')}</dt><dd>${escapeHtml(f.name)}</dd>
         <dt>${t('common.interface')}</dt><dd>${escapeHtml(f.interface)}</dd>
@@ -3361,7 +3368,7 @@
 
     function glProblemMessage(p, cfg) {
       const kind = p.kind;
-      const cycle = cfg?.cycle_s ?? '';
+      const cycle = p.cycle_s ?? cfg?.cycle_s ?? '';
       const gap = p.gap_s != null ? Number(p.gap_s).toFixed(1) : '';
       if (kind === 'delay_exceeded') {
         const key = p.demo ? 'gl.msg.delayDemo' : 'gl.msg.delay';
@@ -3460,17 +3467,77 @@
       }
     }
 
+    function glExtractDep(text) {
+      const m = String(text || '').match(/DEP(\d+)/i);
+      return m ? ('DEP' + m[1]) : '';
+    }
+
+    function glAutoSvid(gocb, goid) {
+      const token = glExtractDep(gocb) || glExtractDep(goid);
+      if (!token) return '';
+      const matches = [];
+      const seen = new Set();
+      for (const f of glSvFlows) {
+        if (glExtractDep(f.svid) === token && !seen.has(f.svid)) {
+          seen.add(f.svid);
+          matches.push(f.svid);
+        }
+      }
+      return matches.length === 1 ? matches[0] : '';
+    }
+
+    function glSvFlowBySvid(svid) {
+      return glSvFlows.find(f => f.svid === svid) || null;
+    }
+
+    function glSvidOptionsHtml(target) {
+      const current = target.svid || '';
+      const svids = [];
+      const seen = new Set();
+      for (const f of glSvFlows) {
+        if (f.svid && !seen.has(f.svid)) {
+          seen.add(f.svid);
+          svids.push(f.svid);
+        }
+      }
+      if (current && !seen.has(current)) svids.push(current);
+      const autoLabel = t('gl.svidAuto');
+      let html = `<option value="">${escapeHtml(autoLabel)}</option>`;
+      for (const s of svids) {
+        html += `<option value="${escapeHtml(s)}"${s === current ? ' selected' : ''}>${escapeHtml(s)}</option>`;
+      }
+      return html;
+    }
+
+    function glSvidMetaHtml(target) {
+      const flow = target.svid ? glSvFlowBySvid(target.svid) : null;
+      if (flow) {
+        return t('gl.svidMeta', {
+          cycle: flow.fault_cycle_s ?? '-',
+          smp: flow.fault_smpcnt ?? 0,
+          off: flow.fault_offset_s ?? 0,
+        });
+      }
+      return t('gl.svidUnlinked');
+    }
+
     function glRenderTargets() {
       const tbody = document.getElementById('gl-targets-tbody');
       if (!tbody) return;
       if (!glTargets.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="status">' + t('gl.selectFromScan') + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="status">' + t('gl.selectFromScan') + '</td></tr>';
         return;
       }
       tbody.innerHTML = glTargets.map((t, i) => `<tr data-idx="${i}">
         <td><button type="button" class="btn btn--small btn--danger gl-remove-target" data-idx="${i}">✕</button></td>
         <td>${escapeHtml(t.gocb_ref)}</td>
         <td>${escapeHtml(t.go_id || '-')}</td>
+        <td>
+          <select class="gl-svid-select" data-idx="${i}" style="max-width:14rem;padding:0.25rem 0.4rem;border-radius:6px;border:1px solid var(--surface);background:var(--bg);color:var(--text);font:inherit">
+            ${glSvidOptionsHtml(t)}
+          </select>
+          <div class="status" style="font-size:0.75rem;margin-top:0.15rem">${escapeHtml(glSvidMetaHtml(t))}</div>
+        </td>
         <td><input type="number" class="gl-delay-input" data-idx="${i}" value="${t.delay_ms}" min="0" step="1" style="width:6rem"></td>
       </tr>`).join('');
       tbody.querySelectorAll('.gl-remove-target').forEach(btn => {
@@ -3483,6 +3550,23 @@
         inp.addEventListener('change', () => {
           const idx = Number(inp.dataset.idx);
           if (glTargets[idx]) glTargets[idx].delay_ms = Math.max(0, Number(inp.value) || 0);
+        });
+      });
+      tbody.querySelectorAll('.gl-svid-select').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const idx = Number(sel.dataset.idx);
+          if (!glTargets[idx]) return;
+          const v = (sel.value || '').trim();
+          if (!v) {
+            glTargets[idx].svid = '';
+            glTargets[idx].svid_manual = false;
+            const auto = glAutoSvid(glTargets[idx].gocb_ref, glTargets[idx].go_id);
+            if (auto) glTargets[idx].svid = auto;
+          } else {
+            glTargets[idx].svid = v;
+            glTargets[idx].svid_manual = true;
+          }
+          glRenderTargets();
         });
       });
     }
@@ -3714,11 +3798,7 @@
 
     function glRenderProblems(analysis) {
       const cfg = analysis.problems_config || {};
-      const cycleInp = document.getElementById('gl-problem-cycle');
       const threshInp = document.getElementById('gl-problem-threshold');
-      if (cycleInp && cfg.cycle_s != null && document.activeElement !== cycleInp) {
-        cycleInp.value = cfg.cycle_s;
-      }
       if (threshInp && cfg.threshold_ms != null && document.activeElement !== threshInp) {
         threshInp.value = cfg.threshold_ms;
       }
@@ -3738,7 +3818,7 @@
         if (!analysis.running && !analysis.targets?.length) {
           status.textContent = t('gl.problemsStart');
         } else if (!totalProblems) {
-          status.textContent = t('gl.problemsNoneCfg', { cycle: cfg.cycle_s ?? 4, th: cfg.threshold_ms ?? 40 });
+          status.textContent = t('gl.problemsNoneCfg', { th: cfg.threshold_ms ?? 40 });
         } else {
           const shown = problems.length;
           const trunc = totalProblems > shown ? t('gl.problemsTrunc', { shown, total: totalProblems }) : '';
@@ -3820,12 +3900,11 @@
     }
 
     async function glPostProblemConfig() {
-      const cycle_s = Number(document.getElementById('gl-problem-cycle')?.value) || 4;
       const threshold_ms = Number(document.getElementById('gl-problem-threshold')?.value) || 40;
       await glFetchJson('/analysis/problems', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cycle_s, threshold_ms }),
+        body: JSON.stringify({ threshold_ms }),
       });
     }
 
@@ -4035,6 +4114,7 @@
     function glRenderStatus(data) {
       document.getElementById('gl-unconfigured').style.display = 'none';
       document.getElementById('gl-root').style.display = 'block';
+      glSvFlows = data.sv_flows || data.analysis?.sv_flows || glSvFlows;
       glRenderServiceStatus(data);
       glRenderScan(data.scan || {});
       const analysis = data.analysis || {};
@@ -4043,6 +4123,8 @@
           gocb_ref: t.gocb_ref,
           go_id: t.go_id || '',
           delay_ms: t.delay_ms || 0,
+          svid: t.svid || '',
+          svid_manual: !!t.svid_manual,
         }));
         glRenderTargets();
       }
@@ -4196,7 +4278,13 @@
 
     document.getElementById('gl-add-selected-btn')?.addEventListener('click', () => {
       document.querySelectorAll('.gl-scan-cb:checked').forEach(cb => {
-        const t = { gocb_ref: cb.dataset.gocb, go_id: cb.dataset.goid || '', delay_ms: 0 };
+        const t = {
+          gocb_ref: cb.dataset.gocb,
+          go_id: cb.dataset.goid || '',
+          delay_ms: 0,
+          svid: glAutoSvid(cb.dataset.gocb, cb.dataset.goid || ''),
+          svid_manual: false,
+        };
         const k = glTargetKey(t);
         if (!glTargets.some(x => glTargetKey(x) === k)) glTargets.push(t);
       });
@@ -4214,7 +4302,6 @@
         }
       }, 300);
     }
-    document.getElementById('gl-problem-cycle')?.addEventListener('input', glScheduleProblemConfig);
     document.getElementById('gl-problem-threshold')?.addEventListener('input', glScheduleProblemConfig);
 
     document.getElementById('gl-event-filter')?.addEventListener('change', async () => {

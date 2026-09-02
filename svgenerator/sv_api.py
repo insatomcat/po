@@ -17,7 +17,6 @@ if str(_here) not in sys.path:
 
 from sv_service import (
     FlowConfig,
-    FlowState,
     FlowRuntime,
     flows,
     flows_lock,
@@ -30,6 +29,7 @@ from sv_service import (
     _load_recents,
     _is_pid_alive,
     rebuild_from_config,
+    to_flow_state,
 )
 
 
@@ -66,34 +66,7 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
                     (fr.proc is not None and fr.proc.poll() is None)
                     or (fr.pid is not None and _is_pid_alive(fr.pid))
                 )
-                result.append(
-                    FlowState(
-                        name=fr.config.name,
-                        interface=fr.config.interface,
-                        src_mac=fr.config.src_mac,
-                        dst_mac=fr.config.dst_mac,
-                        svid=fr.config.svid,
-                        appid=fr.config.appid,
-                        conf_rev=fr.config.conf_rev,
-                        smp_synch=fr.config.smp_synch,
-                        vlan_id=fr.config.vlan_id,
-                        vlan_priority=fr.config.vlan_priority,
-                        freq_hz=fr.config.freq_hz,
-                        i_peak=fr.config.i_peak,
-                        v_peak=fr.config.v_peak,
-                        phase_deg=fr.config.phase_deg,
-                        fault=fr.config.fault,
-                        fault_i_peak=fr.config.fault_i_peak,
-                        fault_v_peak=fr.config.fault_v_peak,
-                        fault_phase_deg=fr.config.fault_phase_deg,
-                        fault_cycle_s=fr.config.fault_cycle_s,
-                        seapath_isolation=fr.config.seapath_isolation,
-                        seapath_scheduler=fr.config.seapath_scheduler,
-                        seapath_priority=fr.config.seapath_priority,
-                        seapath_cpu_cores=fr.config.seapath_cpu_cores,
-                        running=running,
-                    ).dict()
-                )
+                result.append(to_flow_state(fr.config, running).dict())
         return 200, result
 
     # GET /flows/recents
@@ -117,32 +90,7 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
             flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
         _add_to_recents(cfg)
         save_config()
-        return 201, FlowState(
-            name=cfg.name,
-            interface=cfg.interface,
-            src_mac=cfg.src_mac,
-            dst_mac=cfg.dst_mac,
-            svid=cfg.svid,
-            appid=cfg.appid,
-            conf_rev=cfg.conf_rev,
-            smp_synch=cfg.smp_synch,
-            vlan_id=cfg.vlan_id,
-            vlan_priority=cfg.vlan_priority,
-            freq_hz=cfg.freq_hz,
-            i_peak=cfg.i_peak,
-            v_peak=cfg.v_peak,
-            phase_deg=cfg.phase_deg,
-            fault=cfg.fault,
-            fault_i_peak=cfg.fault_i_peak,
-            fault_v_peak=cfg.fault_v_peak,
-            fault_phase_deg=cfg.fault_phase_deg,
-            fault_cycle_s=cfg.fault_cycle_s,
-            seapath_isolation=cfg.seapath_isolation,
-            seapath_scheduler=cfg.seapath_scheduler,
-            seapath_priority=cfg.seapath_priority,
-            seapath_cpu_cores=cfg.seapath_cpu_cores,
-            running=True,
-        ).dict()
+        return 201, to_flow_state(cfg, True).dict()
 
     # PUT /flows/{name}
     if path.startswith("/flows/") and path != "/flows/" and path != "/flows/recents" and method == "PUT":
@@ -163,32 +111,7 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
             flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
         _add_to_recents(cfg)
         save_config()
-        return 200, FlowState(
-            name=cfg.name,
-            interface=cfg.interface,
-            src_mac=cfg.src_mac,
-            dst_mac=cfg.dst_mac,
-            svid=cfg.svid,
-            appid=cfg.appid,
-            conf_rev=cfg.conf_rev,
-            smp_synch=cfg.smp_synch,
-            vlan_id=cfg.vlan_id,
-            vlan_priority=cfg.vlan_priority,
-            freq_hz=cfg.freq_hz,
-            i_peak=cfg.i_peak,
-            v_peak=cfg.v_peak,
-            phase_deg=cfg.phase_deg,
-            fault=cfg.fault,
-            fault_i_peak=cfg.fault_i_peak,
-            fault_v_peak=cfg.fault_v_peak,
-            fault_phase_deg=cfg.fault_phase_deg,
-            fault_cycle_s=cfg.fault_cycle_s,
-            seapath_isolation=cfg.seapath_isolation,
-            seapath_scheduler=cfg.seapath_scheduler,
-            seapath_priority=cfg.seapath_priority,
-            seapath_cpu_cores=cfg.seapath_cpu_cores,
-            running=True,
-        ).dict()
+        return 200, to_flow_state(cfg, True).dict()
 
     # DELETE /flows/{name}
     if path.startswith("/flows/") and path != "/flows/" and path != "/flows/recents" and method == "DELETE":

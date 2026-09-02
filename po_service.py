@@ -41,6 +41,7 @@ from svgenerator.sv_api import handle_sv, init_sv_api
 sys.path.insert(0, str(ROOT / "goose_listener"))
 from goose_listener_api import (  # noqa: E402
     configure_goose_listener,
+    configure_sv_flows_getter,
     handle_goose_listener,
     restore_goose_listener_analysis,
 )
@@ -424,6 +425,24 @@ def main() -> int:
     sys.stdout = _TeeStdout(sys.__stdout__)
 
     init_sv_api()
+
+    def _sv_flows_for_listener():
+        from svgenerator.sv_service import flows, flows_lock
+
+        with flows_lock:
+            return [
+                {
+                    "name": fr.config.name,
+                    "svid": fr.config.svid,
+                    "fault": fr.config.fault,
+                    "fault_cycle_s": int(fr.config.fault_cycle_s),
+                    "fault_smpcnt": int(getattr(fr.config, "fault_smpcnt", 0)),
+                    "fault_offset_s": int(getattr(fr.config, "fault_offset_s", 0)),
+                }
+                for fr in flows.values()
+            ]
+
+    configure_sv_flows_getter(_sv_flows_for_listener)
 
     restore_goose_listener_analysis()
 

@@ -1,16 +1,17 @@
-"""GOOSE Listener : scan de flux et mesure delta déclenchement → seconde pile."""
+"""GOOSE Listener : scan de flux et mesure delta déclenchement → référence SV (smpCnt / cycle)."""
 from __future__ import annotations
 
 import json
 import math
 import random
+import re
 import sys
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Set, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 GOOSE_ROOT = ROOT / "goose"
@@ -37,7 +38,6 @@ def _normalize_event_filter(event_filter: str) -> str:
         return EVENT_FILTER_DECLENCHEMENTS_ONLY
     return event_filter
 
-DEFAULT_PROBLEM_CYCLE_S = 4.0
 DEFAULT_PROBLEM_THRESHOLD_MS = 40.0
 DEMO_DELAY_MARGIN_MS = 45.0
 PROBLEMS_TIME_BUCKET_S = 10.0
@@ -51,6 +51,16 @@ CAPTURE_WARMUP_MAX_S = 8.0
 _GL_DIR = Path(__file__).resolve().parent
 DUMPS_DIR = _GL_DIR / "dumps"
 ANALYSIS_STATE_PATH = _GL_DIR / "analysis_state.json"
+SMP_PER_SEC = 4800
+_DEP_RE = re.compile(r"DEP(\d+)", re.IGNORECASE)
+
+_sv_flows_getter: Optional[Callable[[], List[Dict[str, Any]]]] = None
+
+
+def set_sv_flows_getter(fn: Optional[Callable[[], List[Dict[str, Any]]]]) -> None:
+    """Enregistre un getter des flux SV (po_service) pour lier gocbRef → svID."""
+    global _sv_flows_getter
+    _sv_flows_getter = fn
 
 
 def _stream_key(gocb_ref: str, go_id: Optional[str]) -> Key:
@@ -73,8 +83,19 @@ def _targets_from_payload(raw_targets: Any) -> List[AnalysisTarget]:
             delay_ms = max(0.0, float(item.get("delay_ms") or 0))
         except (TypeError, ValueError):
             delay_ms = 0.0
+        svid = str(item.get("svid") or "").strip() or None
+        if "svid_manual" in item:
+            svid_manual = bool(item.get("svid_manual"))
+        else:
+            svid_manual = bool(svid)
         targets.append(
-            AnalysisTarget(gocb_ref=gocb_ref, go_id=go_id, delay_ms=delay_ms)
+            AnalysisTarget(
+                gocb_ref=gocb_ref,
+                go_id=go_id,
+                delay_ms=delay_ms,
+                svid=svid,
+                svid_manual=svid_manual,
+            )
         )
     return targets
 
@@ -272,6 +293,7 @@ def _problem_missing_between(
         ),
         "context": context,
         "gap_s": round(gap, 3),
+        "cycle_s": cycle_s,
         "declenchement_prev_ts": t_prev,
         "declenchement_next_ts": t_next,
     }
@@ -281,7 +303,6 @@ def _compute_overdue_missing_problems(
     targets: Dict[Key, AnalysisTarget],
     events: List[TriggerEvent],
     *,
-    cycle_s: float,
     running: bool,
     now: float,
 ) -> List[Dict[str, Any]]:
@@ -289,9 +310,13 @@ def _compute_overdue_missing_problems(
     if not running:
         return []
     problems: List[Dict[str, Any]] = []
-    cycle_s = max(1.0, float(cycle_s))
     index = _index_events_by_key(events)
+    flows = list_sv_flow_infos()
     for key, target in targets.items():
+        timing = resolve_target_timing(target, flows)
+        if timing.cycle_s is None:
+            continue
+        cycle_s = max(1.0, float(timing.cycle_s))
         declenchements = _declenchements_from_index(index, key)
         if not declenchements:
             continue
@@ -320,6 +345,7 @@ def _compute_overdue_missing_problems(
             ),
             "context": context,
             "gap_s": round(gap, 3),
+            "cycle_s": cycle_s,
             "declenchement_prev_ts": t_last,
             "declenchement_next_ts": None,
         })
@@ -477,6 +503,237 @@ class AnalysisTarget:
     gocb_ref: str
     go_id: str
     delay_ms: float = 0.0
+    svid: Optional[str] = None
+    svid_manual: bool = False
+
+
+@dataclass
+class SvFlowInfo:
+    name: str
+    svid: str
+    fault: bool
+    fault_cycle_s: int
+    fault_smpcnt: int
+    fault_offset_s: int
+
+
+@dataclass
+class TargetTiming:
+    svid: Optional[str]
+    cycle_s: Optional[float]
+    smpcnt: int
+    offset_s: int
+    phase_s: float
+    linked: bool
+
+
+def extract_dep_token(text: str) -> Optional[str]:
+    m = _DEP_RE.search(text or "")
+    if not m:
+        return None
+    return f"DEP{m.group(1)}"
+
+
+def list_sv_flow_infos() -> List[SvFlowInfo]:
+    raw: List[Any] = []
+    getter = _sv_flows_getter
+    if getter is not None:
+        try:
+            raw = list(getter() or [])
+        except Exception:
+            raw = []
+    else:
+        try:
+            from sv_service import flows, flows_lock  # type: ignore
+
+            with flows_lock:
+                raw = [
+                    {
+                        "name": fr.config.name,
+                        "svid": fr.config.svid,
+                        "fault": fr.config.fault,
+                        "fault_cycle_s": int(fr.config.fault_cycle_s),
+                        "fault_smpcnt": int(getattr(fr.config, "fault_smpcnt", 0)),
+                        "fault_offset_s": int(getattr(fr.config, "fault_offset_s", 0)),
+                    }
+                    for fr in flows.values()
+                ]
+        except Exception:
+            raw = []
+    out: List[SvFlowInfo] = []
+    seen: Set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        svid = str(item.get("svid") or "").strip()
+        if not svid or svid in seen:
+            continue
+        seen.add(svid)
+        try:
+            cycle = max(1, int(item.get("fault_cycle_s") or 2))
+        except (TypeError, ValueError):
+            cycle = 2
+        try:
+            smpcnt = max(0, min(SMP_PER_SEC - 1, int(item.get("fault_smpcnt") or 0)))
+        except (TypeError, ValueError):
+            smpcnt = 0
+        try:
+            offset = max(0, int(item.get("fault_offset_s") or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        out.append(
+            SvFlowInfo(
+                name=str(item.get("name") or ""),
+                svid=svid,
+                fault=bool(item.get("fault")),
+                fault_cycle_s=cycle,
+                fault_smpcnt=smpcnt,
+                fault_offset_s=offset,
+            )
+        )
+    return out
+
+
+def sv_flows_public() -> List[Dict[str, Any]]:
+    return [
+        {
+            "name": f.name,
+            "svid": f.svid,
+            "fault": f.fault,
+            "fault_cycle_s": f.fault_cycle_s,
+            "fault_smpcnt": f.fault_smpcnt,
+            "fault_offset_s": f.fault_offset_s,
+        }
+        for f in list_sv_flow_infos()
+    ]
+
+
+def auto_svid_for_goose(
+    gocb_ref: str, go_id: str, flows: List[SvFlowInfo]
+) -> Optional[str]:
+    token = extract_dep_token(gocb_ref) or extract_dep_token(go_id)
+    if not token:
+        return None
+    matches: List[str] = []
+    seen: Set[str] = set()
+    for f in flows:
+        if extract_dep_token(f.svid) == token and f.svid not in seen:
+            seen.add(f.svid)
+            matches.append(f.svid)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def lookup_sv_flow(svid: str, flows: List[SvFlowInfo]) -> Optional[SvFlowInfo]:
+    want = (svid or "").strip()
+    if not want:
+        return None
+    for f in flows:
+        if f.svid == want:
+            return f
+    return None
+
+
+def fault_phase_s(smpcnt: int, offset_s: int) -> float:
+    return float(offset_s) + (float(smpcnt) / float(SMP_PER_SEC))
+
+
+def nearest_fault_t_ref(ts_goose: float, cycle_s: float, phase_s: float) -> float:
+    n = math.floor((ts_goose - phase_s) / cycle_s)
+    t0 = n * cycle_s + phase_s
+    t1 = t0 + cycle_s
+    if abs(ts_goose - t1) < abs(ts_goose - t0):
+        return t1
+    return t0
+
+
+def apply_auto_svid(
+    target: AnalysisTarget, flows: Optional[List[SvFlowInfo]] = None
+) -> AnalysisTarget:
+    if target.svid_manual and (target.svid or "").strip():
+        return target
+    flows = flows if flows is not None else list_sv_flow_infos()
+    auto = auto_svid_for_goose(target.gocb_ref, target.go_id, flows)
+    if auto:
+        target.svid = auto
+        target.svid_manual = False
+    elif not target.svid_manual:
+        target.svid = None
+    return target
+
+
+def resolve_target_timing(
+    target: AnalysisTarget, flows: Optional[List[SvFlowInfo]] = None
+) -> TargetTiming:
+    flows = flows if flows is not None else list_sv_flow_infos()
+    svid = (target.svid or "").strip() or None
+    if not svid and not target.svid_manual:
+        svid = auto_svid_for_goose(target.gocb_ref, target.go_id, flows)
+    info = lookup_sv_flow(svid or "", flows) if svid else None
+    if info is None:
+        return TargetTiming(
+            svid=svid,
+            cycle_s=None,
+            smpcnt=0,
+            offset_s=0,
+            phase_s=0.0,
+            linked=False,
+        )
+    return TargetTiming(
+        svid=info.svid,
+        cycle_s=float(info.fault_cycle_s),
+        smpcnt=info.fault_smpcnt,
+        offset_s=info.fault_offset_s,
+        phase_s=fault_phase_s(info.fault_smpcnt, info.fault_offset_s),
+        linked=True,
+    )
+
+
+def compute_delta_net_ms(
+    ts_goose: float, delay_ms: float, timing: TargetTiming
+) -> Tuple[float, float]:
+    if timing.linked and timing.cycle_s is not None:
+        t_ref = nearest_fault_t_ref(ts_goose, timing.cycle_s, timing.phase_s)
+    else:
+        t_ref = float(math.floor(ts_goose))
+    return (ts_goose - t_ref) * 1000.0 - delay_ms, t_ref
+
+
+def _target_public_dict(
+    t: AnalysisTarget, flows: Optional[List[SvFlowInfo]] = None
+) -> Dict[str, Any]:
+    timing = resolve_target_timing(t, flows)
+    return {
+        "gocb_ref": t.gocb_ref,
+        "go_id": t.go_id,
+        "delay_ms": t.delay_ms,
+        "svid": timing.svid or t.svid,
+        "svid_manual": t.svid_manual,
+        "cycle_s": timing.cycle_s,
+        "fault_smpcnt": timing.smpcnt if timing.linked else None,
+        "fault_offset_s": timing.offset_s if timing.linked else None,
+        "sv_linked": timing.linked,
+    }
+
+
+def _targets_fingerprint(targets: Dict[Key, AnalysisTarget]) -> Tuple[Any, ...]:
+    flows = list_sv_flow_infos()
+    rows = []
+    for key in sorted(targets.keys()):
+        t = targets[key]
+        timing = resolve_target_timing(t, flows)
+        rows.append(
+            (
+                key,
+                t.svid,
+                t.svid_manual,
+                timing.cycle_s,
+                timing.smpcnt,
+                timing.offset_s,
+            )
+        )
+    return tuple(rows)
 
 
 @dataclass
@@ -495,7 +752,6 @@ class _PollSnapshot:
     events: List[TriggerEvent]
     events_total: int
     events_rev: int
-    cycle_s: float
     threshold_ms: float
     hist_buckets: HistBuckets
 
@@ -544,7 +800,6 @@ class GooseListenerManager:
     _last_trigger_st: Dict[Key, int] = field(default_factory=dict, repr=False)
     _last_all_data: Dict[Key, list] = field(default_factory=dict, repr=False)
     _event_filter: str = EVENT_FILTER_DECLENCHEMENTS_ONLY
-    _problem_cycle_s: float = DEFAULT_PROBLEM_CYCLE_S
     _problem_threshold_ms: float = DEFAULT_PROBLEM_THRESHOLD_MS
     _events: Deque[TriggerEvent] = field(default_factory=lambda: deque(maxlen=10000), repr=False)
     _events_by_key: Dict[Key, List[float]] = field(default_factory=dict, repr=False)
@@ -587,7 +842,6 @@ class GooseListenerManager:
         return (
             snap.events_rev,
             snap.event_filter,
-            snap.cycle_s,
             snap.threshold_ms,
             snap.analysis_running,
             int(now // PROBLEMS_TIME_BUCKET_S),
@@ -598,6 +852,7 @@ class GooseListenerManager:
             mux.get("pcap_drop", 0),
             mux.get("pcap_ifdrop", 0),
             mux.get("bpf_mode"),
+            _targets_fingerprint(snap.targets),
         )
 
     def _poll_snapshot(self, *, load_events: bool = True) -> _PollSnapshot:
@@ -625,7 +880,6 @@ class GooseListenerManager:
                 events=list(self._events) if load_events else [],
                 events_total=len(self._events),
                 events_rev=self._events_rev,
-                cycle_s=self._problem_cycle_s,
                 threshold_ms=self._problem_threshold_ms,
                 hist_buckets=self._active_hist_buckets_locked(),
             )
@@ -739,8 +993,8 @@ class GooseListenerManager:
         if not is_trigger:
             return
 
-        ts_pile = math.floor(ts_goose)
-        delta_ms = (ts_goose - ts_pile) * 1000.0 - delay_ms
+        timing = resolve_target_timing(target)
+        delta_ms, t_ref = compute_delta_net_ms(ts_goose, delay_ms, timing)
         kind, label, detail = classify_trigger(prev_data_copy, pdu_data_copy)
         evt = TriggerEvent(
             ts_goose=ts_goose,
@@ -749,7 +1003,7 @@ class GooseListenerManager:
             app_id=frame.app_id,
             st_num=pdu.st_num,
             sq_num=pdu.sq_num,
-            ts_seconde_pile=ts_pile,
+            ts_seconde_pile=t_ref,
             delta_net_ms=delta_ms,
             processing_lag_ms=max(0.0, (ts_now - ts_goose) * 1000.0),
             event_kind=kind,
@@ -785,13 +1039,14 @@ class GooseListenerManager:
         return {
             "running": self._mode == "analyze",
             "event_filter": self._event_filter,
-            "cycle_s": self._problem_cycle_s,
             "threshold_ms": self._problem_threshold_ms,
             "targets": [
                 {
                     "gocb_ref": t.gocb_ref,
                     "go_id": t.go_id,
                     "delay_ms": t.delay_ms,
+                    "svid": t.svid,
+                    "svid_manual": t.svid_manual,
                 }
                 for t in self._targets.values()
             ],
@@ -830,20 +1085,14 @@ class GooseListenerManager:
         if not targets:
             return
         try:
-            cycle_s = (
-                float(raw["cycle_s"]) if raw.get("cycle_s") is not None else None
-            )
             threshold_ms = (
                 float(raw["threshold_ms"])
                 if raw.get("threshold_ms") is not None
                 else None
             )
         except (TypeError, ValueError):
-            cycle_s = None
             threshold_ms = None
         with self._lock:
-            if cycle_s is not None and cycle_s >= 1.0:
-                self._problem_cycle_s = cycle_s
             if threshold_ms is not None and threshold_ms >= 0:
                 self._problem_threshold_ms = threshold_ms
         event_filter = _normalize_event_filter(
@@ -911,10 +1160,6 @@ class GooseListenerManager:
     ) -> Optional[str]:
         persist = False
         with self._lock:
-            if cycle_s is not None:
-                if cycle_s < 1.0:
-                    return "Le cycle doit être ≥ 1 s."
-                self._problem_cycle_s = float(cycle_s)
             if threshold_ms is not None:
                 if threshold_ms < 0:
                     return "Le seuil doit être ≥ 0 ms."
@@ -951,12 +1196,19 @@ class GooseListenerManager:
             delay_ms = float(target.delay_ms)
             offset_ms = min(max(delay_ms + threshold_ms + DEMO_DELAY_MARGIN_MS, 1.0), 900.0)
             now = time.time()
-            sec = math.floor(now)
-            ts_goose = sec + offset_ms / 1000.0
+            timing = resolve_target_timing(target)
+            if timing.linked and timing.cycle_s is not None:
+                t_ref = nearest_fault_t_ref(now, timing.cycle_s, timing.phase_s)
+            else:
+                t_ref = float(math.floor(now))
+            ts_goose = t_ref + offset_ms / 1000.0
             if ts_goose > now:
-                ts_goose -= 1.0
-            ts_pile = math.floor(ts_goose)
-            delta_ms = (ts_goose - ts_pile) * 1000.0 - delay_ms
+                if timing.linked and timing.cycle_s is not None:
+                    t_ref = t_ref - float(timing.cycle_s)
+                else:
+                    t_ref -= 1.0
+                ts_goose = t_ref + offset_ms / 1000.0
+            delta_ms = (ts_goose - t_ref) * 1000.0 - delay_ms
             scan_ent = self._scan_entries.get(key)
             app_id = scan_ent.app_id if scan_ent is not None else 0
             st_num = int(self._last_st_num.get(key) or 0) + 1
@@ -967,7 +1219,7 @@ class GooseListenerManager:
                 app_id=app_id,
                 st_num=st_num,
                 sq_num=0,
-                ts_seconde_pile=ts_pile,
+                ts_seconde_pile=t_ref,
                 delta_net_ms=delta_ms,
                 processing_lag_ms=0.0,
                 event_kind="declenchement",
@@ -1008,7 +1260,9 @@ class GooseListenerManager:
             self._last_st_num.clear()
             self._last_trigger_st.clear()
             self._last_all_data.clear()
+            sv_flows = list_sv_flow_infos()
             for t in targets:
+                apply_auto_svid(t, sv_flows)
                 key = _stream_key(t.gocb_ref, t.go_id)
                 self._targets[key] = t
             self._events.clear()
@@ -1113,13 +1367,9 @@ class GooseListenerManager:
         }
 
     def _analysis_from_snapshot(self, snap: _PollSnapshot, now: float) -> Dict[str, Any]:
+        sv_flows = list_sv_flow_infos()
         targets = [
-            {
-                "gocb_ref": t.gocb_ref,
-                "go_id": t.go_id,
-                "delay_ms": t.delay_ms,
-            }
-            for t in snap.targets.values()
+            _target_public_dict(t, sv_flows) for t in snap.targets.values()
         ]
         targets_snap = snap.targets
         all_events = snap.events
@@ -1129,7 +1379,6 @@ class GooseListenerManager:
         elapsed_s = (
             round(max(0.0, now - started_at), 1) if started_at is not None else 0.0
         )
-        cycle_s = snap.cycle_s
         threshold_ms = snap.threshold_ms
 
         cache_key = self._analysis_cache_key(snap, now)
@@ -1160,7 +1409,6 @@ class GooseListenerManager:
             live_problems = _compute_overdue_missing_problems(
                 targets_snap,
                 all_events,
-                cycle_s=cycle_s,
                 running=running,
                 now=now,
             )
@@ -1211,12 +1459,12 @@ class GooseListenerManager:
             "events_panel_max": PANEL_EVENTS_MAX,
             "histogram": histogram,
             "problems_config": {
-                "cycle_s": cycle_s,
                 "threshold_ms": threshold_ms,
             },
             "problems": problems_recent,
             "problem_count": len(problems_all),
             "problems_panel_max": PANEL_PROBLEMS_MAX,
+            "sv_flows": sv_flows_public(),
             "last_error": snap.last_error,
         }
 
@@ -1290,11 +1538,13 @@ class GooseListenerManager:
     ) -> List[Dict[str, Any]]:
         """Détecte Δ/sqNum/manquants à la réception (comme l'histogramme)."""
         out: List[Dict[str, Any]] = []
-        cycle_s = max(1.0, float(self._problem_cycle_s))
+        timing = resolve_target_timing(target)
+        cycle_s = timing.cycle_s
         threshold_ms = max(0.0, float(self._problem_threshold_ms))
         t_next = evt.ts_goose
         t_prev = self._last_declenchement_ts.get(key)
-        if t_prev is not None:
+        if t_prev is not None and cycle_s is not None:
+            cycle_s = max(1.0, float(cycle_s))
             key_events = [
                 e for e in self._events
                 if _stream_key(e.gocb_ref, e.go_id) == key
@@ -1631,6 +1881,7 @@ class GooseListenerManager:
             "mode": snap.mode,
             "scan": self._scan_from_snapshot(snap, now),
             "analysis": self._analysis_from_snapshot(snap, now),
+            "sv_flows": sv_flows_public(),
             "last_error": snap.last_error,
         }
 

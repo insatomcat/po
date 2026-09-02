@@ -215,6 +215,33 @@ static void fill_seqdata_6i3u(uint8_t *seqData, uint16_t smpCnt,
     }
 }
 
+/* Défaut aligné sur l'époque UNIX : période cycle_s, départ à
+ * offset_s + smpCnt, durée = moitié de la période (sample près). */
+static int in_fault_at(int64_t unix_sec, uint16_t smp_cnt,
+                       int cycle_s, int offset_s, int fault_smpcnt)
+{
+    int64_t period, phase, abs_sample, pos;
+    int off, smp;
+
+    if (cycle_s < 1)
+        cycle_s = 1;
+    period = (int64_t)cycle_s * (int64_t)SMP_PER_SEC;
+    off = offset_s % cycle_s;
+    if (off < 0)
+        off += cycle_s;
+    smp = fault_smpcnt;
+    if (smp < 0)
+        smp = 0;
+    if (smp >= SMP_PER_SEC)
+        smp = SMP_PER_SEC - 1;
+    phase = (int64_t)off * (int64_t)SMP_PER_SEC + (int64_t)smp;
+    abs_sample = unix_sec * (int64_t)SMP_PER_SEC + (int64_t)smp_cnt;
+    pos = (abs_sample - phase) % period;
+    if (pos < 0)
+        pos += period;
+    return pos < (period / 2);
+}
+
 /* Parse "aa:bb:cc:dd:ee:ff" into 6 bytes. Returns 0 on success. */
 static int parse_mac(const char *str, uint8_t *mac) {
     unsigned int u[6];
@@ -234,7 +261,9 @@ int main(int argc, char **argv) {
     double phase_deg = 0.0; /* déphasage I/V en degrés (>0 = courant en retard) */
     int fault_mode = 0;     /* 1 = mode défaut phase A alterné */
     double fault_i = 0.0, fault_v = 0.0, fault_phase = 0.0;
-    double fault_cycle = 1.0; /* secondes par demi-cycle (1s normal, 1s fault) */
+    int fault_cycle_s = 2;  /* période entre débuts de défaut (s entières) */
+    int fault_offset_s = 0; /* décalage du début de défaut dans le cycle (s) */
+    int fault_smpcnt = 0;   /* smpCnt du premier échantillon en défaut */
     int vlan_id = -1;       /* -1 = pas de VLAN; 0-4095 = VLAN tagué */
     int vlan_priority = 0;  /* PCP 0-7, utilisé si vlan_id >= 0 */
     uint16_t appid = 0;       /* APPID 0-65535 (0x0000-0xFFFF), obligatoire */
@@ -302,8 +331,20 @@ int main(int argc, char **argv) {
             continue;
         }
         if (strcmp(argv[i], "--fault-cycle") == 0 && i + 1 < argc) {
-            fault_cycle = atof(argv[++i]);
-            if (fault_cycle <= 0) fault_cycle = 1.0;
+            double v = atof(argv[++i]);
+            fault_cycle_s = (int)(v + (v >= 0 ? 0.5 : -0.5));
+            if (fault_cycle_s < 1) fault_cycle_s = 1;
+            continue;
+        }
+        if (strcmp(argv[i], "--fault-smpcnt") == 0 && i + 1 < argc) {
+            fault_smpcnt = atoi(argv[++i]);
+            if (fault_smpcnt < 0) fault_smpcnt = 0;
+            if (fault_smpcnt >= SMP_PER_SEC) fault_smpcnt = SMP_PER_SEC - 1;
+            continue;
+        }
+        if (strcmp(argv[i], "--fault-offset") == 0 && i + 1 < argc) {
+            fault_offset_s = atoi(argv[++i]);
+            if (fault_offset_s < 0) fault_offset_s = 0;
             continue;
         }
         if (strcmp(argv[i], "--vlan-id") == 0 && i + 1 < argc) {
@@ -360,7 +401,8 @@ int main(int argc, char **argv) {
     if (npos != 4 || !ifname || !src_mac_str || !dst_mac_str || !svid || !*svid || !appid_set || !conf_rev_set) {
         fprintf(stderr, "Usage: %s [opts] <interface> <src_mac> <dst_mac> <svid>\n", argv[0]);
         fprintf(stderr, "  opts: --smp-synch 0|1|2  --freq Hz  --zero  --i-peak A  --v-peak V  --phase deg\n");
-        fprintf(stderr, "        --fault  --fault-i-peak A  --fault-v-peak V  --fault-phase deg  --fault-cycle s\n");
+        fprintf(stderr, "        --fault  --fault-i-peak A  --fault-v-peak V  --fault-phase deg\n");
+        fprintf(stderr, "        --fault-cycle s  --fault-smpcnt 0-%d  --fault-offset s\n", SMP_PER_SEC - 1);
         fprintf(stderr, "        --vlan-id <0-4095>  --vlan-priority <0-7>  (défaut: pas de VLAN)\n");
         fprintf(stderr, "        --appid <0-65535|0x0000-0xFFFF>  (obligatoire)\n");
         fprintf(stderr, "        --conf-rev <0-4294967295|0x00000000-0xFFFFFFFF>  (obligatoire)\n");
@@ -472,8 +514,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "6I3U: sinusoïdes %.1f Hz, I_peak=%.1f A, V_peak=%.1f V, déphasage=%.1f° (facteurs I×%d, V×%d).\n",
                 freq_hz, i_peak_a, v_peak_v, phase_deg, I_SCALE, V_SCALE);
         if (fault_mode)
-            fprintf(stderr, "Fault: phase A I=%.1f A V=%.1f V phase=%.1f°, cycle=%.1fs (%.1fs normal, %.1fs fault).\n",
-                    fault_i, fault_v, fault_phase, fault_cycle, fault_cycle, fault_cycle);
+            fprintf(stderr, "Fault: phase A I=%.1f A V=%.1f V phase=%.1f°, cycle=%ds (%.1fs normal, %.1fs fault), smpCnt=%d, offset=%ds.\n",
+                    fault_i, fault_v, fault_phase, fault_cycle_s,
+                    fault_cycle_s / 2.0, fault_cycle_s / 2.0, fault_smpcnt, fault_offset_s);
     } else
         fprintf(stderr, "6I3U: toutes valeurs à zéro (--zero ou --freq 0).\n");
 
@@ -512,12 +555,15 @@ int main(int argc, char **argv) {
             if (ret != 0)
                 perror("clock_nanosleep");
 
-            /* fault_cycle: (sec_index % (2*cycle)) >= cycle => fault */
-            int in_fault = fault_mode && (double)(sec_index % (uint64_t)(2.0 * fault_cycle + 0.5)) >= fault_cycle;
-            fill_seqdata_6i3u(seqData0, (uint16_t)(k * 2), freq_hz, i_peak_a, v_peak_v, phase_deg,
-                              in_fault, fault_i, fault_v, fault_phase);
-            fill_seqdata_6i3u(seqData1, (uint16_t)(k * 2 + 1), freq_hz, i_peak_a, v_peak_v, phase_deg,
-                              in_fault, fault_i, fault_v, fault_phase);
+            int64_t unix_sec = (int64_t)start_wall_sec + (int64_t)sec_index;
+            uint16_t smp0 = (uint16_t)(k * 2);
+            uint16_t smp1 = (uint16_t)(k * 2 + 1);
+            int in_fault0 = fault_mode && in_fault_at(unix_sec, smp0, fault_cycle_s, fault_offset_s, fault_smpcnt);
+            int in_fault1 = fault_mode && in_fault_at(unix_sec, smp1, fault_cycle_s, fault_offset_s, fault_smpcnt);
+            fill_seqdata_6i3u(seqData0, smp0, freq_hz, i_peak_a, v_peak_v, phase_deg,
+                              in_fault0, fault_i, fault_v, fault_phase);
+            fill_seqdata_6i3u(seqData1, smp1, freq_hz, i_peak_a, v_peak_v, phase_deg,
+                              in_fault1, fault_i, fault_v, fault_phase);
             size_t payload_len = ber_build_sv_packet(svid, (uint16_t)(k * 2), (uint16_t)(k * 2 + 1),
                                                      smp_synch, appid, conf_rev, seqData0, seqData1);
 

@@ -79,6 +79,8 @@ def cmd_list(args: argparse.Namespace) -> None:
         print(f"  fault_v_peak  : {f.get('fault_v_peak')}")
         print(f"  fault_phase_d : {f.get('fault_phase_deg')}")
         print(f"  fault_cycle_s : {f.get('fault_cycle_s')}")
+        print(f"  fault_smpcnt  : {f.get('fault_smpcnt')}")
+        print(f"  fault_offset_s: {f.get('fault_offset_s')}")
         print(f"  rt_isolation  : {f.get('seapath_isolation')}")
         print(f"  rt_scheduler  : {f.get('seapath_scheduler')}")
         print(f"  rt_priority   : {f.get('seapath_priority')}")
@@ -118,7 +120,11 @@ def cmd_create(args: argparse.Namespace) -> None:
     if args.fault_phase is not None:
         payload["fault_phase_deg"] = args.fault_phase
     if args.fault_cycle is not None:
-        payload["fault_cycle_s"] = args.fault_cycle
+        payload["fault_cycle_s"] = int(args.fault_cycle)
+    if args.fault_smpcnt is not None:
+        payload["fault_smpcnt"] = args.fault_smpcnt
+    if args.fault_offset is not None:
+        payload["fault_offset_s"] = args.fault_offset
     if args.rt_priority is not None:
         payload["seapath_priority"] = args.rt_priority
     if args.rt_cpu is not None:
@@ -171,7 +177,11 @@ def cmd_update(args: argparse.Namespace) -> None:
     if args.fault_phase is not None:
         payload["fault_phase_deg"] = args.fault_phase
     if args.fault_cycle is not None:
-        payload["fault_cycle_s"] = args.fault_cycle
+        payload["fault_cycle_s"] = int(args.fault_cycle)
+    if args.fault_smpcnt is not None:
+        payload["fault_smpcnt"] = args.fault_smpcnt
+    if args.fault_offset is not None:
+        payload["fault_offset_s"] = args.fault_offset
     if args.rt_priority is not None:
         payload["seapath_priority"] = args.rt_priority
     if args.rt_cpu is not None:
@@ -251,7 +261,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("--fault-i-peak", type=float)
     p_create.add_argument("--fault-v-peak", type=float)
     p_create.add_argument("--fault-phase", type=float)
-    p_create.add_argument("--fault-cycle", type=float)
+    p_create.add_argument("--fault-cycle", type=int, help="Période entre débuts de défaut (s entières)")
+    p_create.add_argument("--fault-smpcnt", type=int, help="smpCnt du premier échantillon en défaut (0-4799)")
+    p_create.add_argument("--fault-offset", type=int, help="Décalage en secondes dans le cycle")
     p_create.add_argument("--rt-priority", type=int, metavar="1-99", help="Priorité RT FIFO/RR (défaut: 80)")
     p_create.add_argument("--rt-cpu", metavar="CORES", help="CPU(s) pour le fallback taskset, ex: '4' ou '4,5'")
     p_create.add_argument("--rt-isolation", choices=["exclusive_logical", "exclusive_physical", "shared"], help="Mode d'isolation seapath-alloc")
@@ -277,7 +289,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--fault-i-peak", type=float)
     p_update.add_argument("--fault-v-peak", type=float)
     p_update.add_argument("--fault-phase", type=float)
-    p_update.add_argument("--fault-cycle", type=float)
+    p_update.add_argument("--fault-cycle", type=int, help="Période entre débuts de défaut (s entières)")
+    p_update.add_argument("--fault-smpcnt", type=int, help="smpCnt du premier échantillon en défaut (0-4799)")
+    p_update.add_argument("--fault-offset", type=int, help="Décalage en secondes dans le cycle")
     p_update.add_argument("--rt-priority", type=int, metavar="1-99", help="Priorité RT FIFO/RR (défaut: 80)")
     p_update.add_argument("--rt-cpu", metavar="CORES", help="CPU(s) pour le fallback taskset, ex: '4' ou '4,5'")
     p_update.add_argument("--rt-isolation", choices=["exclusive_logical", "exclusive_physical", "shared"], help="Mode d'isolation seapath-alloc")

@@ -14,6 +14,7 @@ GooseListenerResponse = Union[
 from goose_listener_service import (
     get_goose_listener,
     init_goose_listener,
+    set_sv_flows_getter,
     _normalize_event_filter,
     _targets_from_payload,
 )
@@ -122,6 +123,10 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
 def configure_goose_listener(iface: Optional[str]) -> None:
     if iface:
         init_goose_listener(iface)
+
+
+def configure_sv_flows_getter(fn) -> None:
+    set_sv_flows_getter(fn)
 
 
 def restore_goose_listener_analysis() -> None:

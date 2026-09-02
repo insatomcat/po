@@ -1,6 +1,6 @@
 # GOOSE Listener – Mesure des délais de déclenchement
 
-Module PO pour **écouter les GOOSE** sur le bus process, **détecter les déclenchements** (changement d’état relais), mesurer le **délai net Δ** entre la réception du GOOSE et la « seconde pile » (frontière de seconde UNIX), et signaler les **anomalies** (délai hors seuil, défauts manquants).
+Module PO pour **écouter les GOOSE** sur le bus process, **détecter les déclenchements** (changement d’état relais), mesurer le **délai net Δ** entre la réception du GOOSE et l’instant d’émission du sample SV qui démarre le défaut, et signaler les **anomalies** (délai hors seuil, défauts manquants).
 
 Intégré dans **`po_service`** (onglet **GOOSE Listener** de `unified_ui.html`) et utilisable en **CLI** via `goose/examples/listen_goose.py`.
 
@@ -8,7 +8,7 @@ Intégré dans **`po_service`** (onglet **GOOSE Listener** de `unified_ui.html`)
 
 ## Objectif métier
 
-Sur un relais type SSC600, chaque **défaut** envoie un GOOSE de déclenchement vers ~**24 ms** dans la seconde (offset par rapport à la pile SV). L’objectif est de vérifier que ce délai reste dans une marge (ex. **< 40 ms**) et que les défauts arrivent au **cycle attendu** (ex. toutes les **4 s** sur LDPX_GSI_DEP5).
+Sur un relais type SSC600, chaque **défaut** envoie un GOOSE de déclenchement vers ~**24 ms** après le sample SV de début de défaut. L’objectif est de vérifier que ce délai reste dans une marge (ex. **< 40 ms**) et que les défauts arrivent au **cycle attendu** du flux SV lié (ex. toutes les **4 s** sur LDPX_GSI_DEP5).
 
 Le listener ne remplace pas une analyse réseau complète : il agrège capture, mesure et alertes pour le diagnostic opérationnel.
 
@@ -22,12 +22,21 @@ Le Δ est calculé à partir du **timestamp libpcap** (`pkt.time`) à la récept
 
 ### Formule
 
+Chaque cible d’analyse est **liée à un flux SV** (`svID`). Le lien est :
+
+- **automatique** s’il existe exactement un `svID` dont le jeton `DEPn` (chiffres exacts, `DEP5` ≠ `DEP6` ≠ `DEP10`) apparaît aussi dans le `gocbRef` (sinon le `goID`)
+- **manuel** sinon (liste déroulante svID), y compris s’il y a 0 ou plusieurs SV pour le même `DEPn`
+
+Une fois le lien fait, le listener lit sur ce flux `fault_cycle_s`, `fault_smpcnt` et `fault_offset_s`.
+
 ```
-ts_rx     = instant de réception (seconde fractionnaire)
-ts_pile   = floor(ts_rx)          # début de la seconde UNIX (« seconde pile »)
-Δ brut    = (ts_rx - ts_pile) × 1000   (en ms)
+phase     = offset_s + smpCnt / 4800
+t_ref     = multiple de cycle le plus proche de ts_rx, décalé de phase
+Δ brut    = (ts_rx - t_ref) × 1000   (en ms)
 Δ net     = Δ brut - temporisation_ms
 ```
+
+`smpCnt 0` reste aligné sur la seconde pile côté générateur. Sans lien SV, le Δ retombe sur la pile (`floor(ts_rx)`) et la détection de manquants est inactive.
 
 La **temporisation** (ms) est configurable par flux analysé (protection / paramètre relais à soustraire).
 
@@ -133,7 +142,7 @@ Sans `--svview-interface` : l’onglet affiche « non configuré » et l’API r
 
 ### Analyse
 
-- Cibles : `(gocbRef, goID, temporisation_ms)`
+- Cibles : `(gocbRef, goID, svID, temporisation_ms)` ; svID auto via DEPn, ou choisi a la main
 - Filtre d’affichage : **défauts seuls** ou **tous les événements**
 - **Lancer / Arrêter** l’analyse
 
@@ -143,8 +152,9 @@ Paramètres :
 
 | Paramètre | Défaut | Rôle |
 |-----------|--------|------|
-| Cycle défaut (s) | 4 | Intervalle attendu entre deux **Défaut** consécutifs |
 | Seuil Δ (ms) | 40 | Alerte si Δ net > seuil (sur **sqNum=0** uniquement) |
+
+Le **cycle défaut** n’est plus global : il vient du flux SV lié à chaque cible.
 
 Types d’anomalies :
 
@@ -199,11 +209,11 @@ Chaque événement expose aussi `processing_lag_ms` (écart traitement − réce
 | Panneau UI | 50 derniers affichés | - |
 | Export `.txt` événements | Tout le contenu de `_events` | Téléchargement navigateur |
 | Export `.txt` problèmes | Tout `_problems_ram` | Téléchargement navigateur |
-| `analysis_state.json` | Config d'analyse (cibles, filtre, cycle, seuil) | Disque ; relance auto si l'analyse tournait |
+| `analysis_state.json` | Config d'analyse (cibles dont svID, filtre, seuil) | Disque ; relance auto si l'analyse tournait |
 
 - **Nouvelle analyse** : événements, histogramme et problèmes effacés
 - **Arrêt explicite** (bouton Arrêter) : l'analyse ne redémarre pas au prochain `po_service`
-- **Redémarrage `po_service`** : historique (trips, problèmes, histogramme) perdu ; si l'analyse était en cours, elle est relancée avec les mêmes gocbRef / goID / temporisations / filtre / cycle / seuil
+- **Redémarrage `po_service`** : historique (trips, problèmes, histogramme) perdu ; si l'analyse était en cours, elle est relancée avec les mêmes gocbRef / goID / svID / temporisations / filtre / seuil
 
 ---
 
@@ -222,7 +232,7 @@ Base : **`/api/gooselistener`**
 | POST | `/analysis/problems/clear` | Efface uniquement la liste des problèmes et les PCAP associés (l’analyse continue) |
 | GET | `/analysis` | État analyse (événements, histogramme, problèmes) |
 | POST | `/analysis/filter` | `{ "event_filter": "defauts_only" \| "all" }` |
-| POST | `/analysis/problems` | `{ "cycle_s": 4, "threshold_ms": 40 }` |
+| POST | `/analysis/problems` | `{ "threshold_ms": 40 }` |
 | POST | `/analysis/demo-delay` | Injecte un `delay_exceeded` de démo (analyse en cours, pas d'émission GOOSE) |
 | GET | `/analysis/events/export` | Téléchargement texte de tous les événements en RAM |
 | GET | `/analysis/problems/export` | Téléchargement texte de tous les problèmes |
@@ -240,6 +250,8 @@ curl -s -X POST http://127.0.0.1:7050/api/gooselistener/analysis/start \
       {
         "gocb_ref": "SSC600SW_BLD0/LLN0$GO$CB_LDPX_GSI_DEP5",
         "go_id": "LDPX_GSI_DEP5_B",
+        "svid": "LDTM1_SVI_DEP5",
+        "svid_manual": true,
         "delay_ms": 0
       }
     ]
@@ -251,7 +263,7 @@ Configurer les problèmes au démarrage ou en cours :
 ```bash
 curl -s -X POST http://127.0.0.1:7050/api/gooselistener/analysis/problems \
   -H 'Content-Type: application/json' \
-  -d '{"cycle_s": 4, "threshold_ms": 40}'
+  -d '{"threshold_ms": 40}'
 ```
 
 ---
@@ -322,7 +334,7 @@ Même source de problèmes que l’onglet GUI.
 | `--measure-delay` | Calcule Δ net sur déclenchements |
 | `--triggers-only` | N’affiche que les déclenchements (pas les retransmissions) |
 | `--problem-diag` | Mode diagnostic silencieux |
-| `--problem-cycle` | Cycle défaut attendu (s) |
+| `--problem-cycle` | Cycle défaut attendu (s), CLI standalone uniquement (le service utilise le cycle du flux SV lié) |
 | `--problem-threshold` | Seuil Δ (ms) |
 | `--from-api URL` | Lit les problèmes via `po_service` |
 | `--sqnum-zero` / `--bool-true` | Filtres affichage |
@@ -369,8 +381,7 @@ Si `tcpdump` aussi ne voit que sqNum=4 → surcharge interface / buffers kernel.
 
 ### Cycle défaut vs intervalle GOOSE
 
-Sur LDPX, un **GOOSE** (défaut + fin défaut) peut arriver toutes les **~2 s**, mais un **défaut** seulement toutes les **~4 s**.  
-Le paramètre **cycle défaut** doit refléter l’intervalle entre **Défaut**, pas entre tous les GOOSE.
+Le cycle défaut de chaque flux vient du générateur SV lié (`fault_cycle_s`). Sur LDPX, un **GOOSE** (défaut + fin défaut) peut arriver toutes les **~2 s**, mais un **défaut** seulement toutes les **~4 s**.
 
 ### Faux Δ ~130 ms
 
