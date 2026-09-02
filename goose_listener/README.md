@@ -27,7 +27,7 @@ Chaque cible d’analyse est **liée à un flux SV** (`svID`). Le lien est :
 - **automatique** s’il existe exactement un `svID` dont le jeton `DEPn` (chiffres exacts, `DEP5` ≠ `DEP6` ≠ `DEP10`) apparaît aussi dans le `gocbRef` (sinon le `goID`)
 - **manuel** sinon (liste déroulante svID), y compris s’il y a 0 ou plusieurs SV pour le même `DEPn`
 
-Une fois le lien fait, le listener lit sur ce flux `fault_cycle_s`, `fault_smpcnt` et `fault_offset_s`.
+Une fois le lien fait, le listener lit sur ce flux `fault_cycle_s`, `fault_smpcnt` et `fault_offset_s` **au lancement de l’analyse**, puis fige ces valeurs pour toute la session. Un changement côté générateur SV (cycle, smpCnt, offset, svID) n’est pris en compte qu’au prochain **Lancer l’analyse**.
 
 ```
 phase     = offset_s + smpCnt / 4800
