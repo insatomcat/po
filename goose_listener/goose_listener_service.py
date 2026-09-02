@@ -540,26 +540,33 @@ def list_sv_flow_infos() -> List[SvFlowInfo]:
     if getter is not None:
         try:
             raw = list(getter() or [])
-        except Exception:
+        except Exception as exc:
+            print(f"[GOOSE Listener] Lecture des flux SV impossible: {exc}")
             raw = []
     else:
         try:
-            from sv_service import flows, flows_lock  # type: ignore
+            from sv_service import list_flows_for_listener  # type: ignore
 
-            with flows_lock:
-                raw = [
-                    {
-                        "name": fr.config.name,
-                        "svid": fr.config.svid,
-                        "fault": fr.config.fault,
-                        "fault_cycle_s": int(fr.config.fault_cycle_s),
-                        "fault_smpcnt": int(getattr(fr.config, "fault_smpcnt", 0)),
-                        "fault_offset_s": int(getattr(fr.config, "fault_offset_s", 0)),
-                    }
-                    for fr in flows.values()
-                ]
+            raw = list(list_flows_for_listener() or [])
         except Exception:
-            raw = []
+            try:
+                from sv_service import flows, flows_lock  # type: ignore
+
+                with flows_lock:
+                    raw = [
+                        {
+                            "name": fr.config.name,
+                            "svid": fr.config.svid,
+                            "fault": fr.config.fault,
+                            "fault_cycle_s": int(fr.config.fault_cycle_s),
+                            "fault_smpcnt": int(getattr(fr.config, "fault_smpcnt", 0)),
+                            "fault_offset_s": int(getattr(fr.config, "fault_offset_s", 0)),
+                        }
+                        for fr in flows.values()
+                    ]
+            except Exception as exc:
+                print(f"[GOOSE Listener] Lecture des flux SV impossible: {exc}")
+                raw = []
     out: List[SvFlowInfo] = []
     seen: Set[str] = set()
     for item in raw:

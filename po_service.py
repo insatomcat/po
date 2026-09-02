@@ -427,20 +427,9 @@ def main() -> int:
     init_sv_api()
 
     def _sv_flows_for_listener():
-        from svgenerator.sv_service import flows, flows_lock
+        from sv_service import list_flows_for_listener
 
-        with flows_lock:
-            return [
-                {
-                    "name": fr.config.name,
-                    "svid": fr.config.svid,
-                    "fault": fr.config.fault,
-                    "fault_cycle_s": int(fr.config.fault_cycle_s),
-                    "fault_smpcnt": int(getattr(fr.config, "fault_smpcnt", 0)),
-                    "fault_offset_s": int(getattr(fr.config, "fault_offset_s", 0)),
-                }
-                for fr in flows.values()
-            ]
+        return list_flows_for_listener()
 
     configure_sv_flows_getter(_sv_flows_for_listener)
 

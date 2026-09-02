@@ -3510,6 +3510,13 @@
     }
 
     function glSvidMetaHtml(target) {
+      if (target.sv_linked || (target.svid && target.cycle_s != null)) {
+        return t('gl.svidMeta', {
+          cycle: target.cycle_s ?? '-',
+          smp: target.fault_smpcnt ?? 0,
+          off: target.fault_offset_s ?? 0,
+        });
+      }
       const flow = target.svid ? glSvFlowBySvid(target.svid) : null;
       if (flow) {
         return t('gl.svidMeta', {
@@ -4125,6 +4132,10 @@
           delay_ms: t.delay_ms || 0,
           svid: t.svid || '',
           svid_manual: !!t.svid_manual,
+          sv_linked: !!t.sv_linked,
+          cycle_s: t.cycle_s,
+          fault_smpcnt: t.fault_smpcnt,
+          fault_offset_s: t.fault_offset_s,
         }));
         glRenderTargets();
       }
