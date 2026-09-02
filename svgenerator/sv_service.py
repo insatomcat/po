@@ -27,6 +27,7 @@ CONFIG_PATH = BASE_DIR / "flows.json"
 RECENTS_PATH = BASE_DIR / "recents.json"
 RT_SENDER_PATH = BASE_DIR / "rt_sender"
 PIDS_DIR = BASE_DIR / "pids"
+SMP_PER_SEC = 4800
 
 
 class FlowConfig(BaseModel):
@@ -70,8 +71,21 @@ class FlowConfig(BaseModel):
     fault_phase_deg: Optional[float] = Field(
         None, description="Phase défaut en degrés pour --fault-phase"
     )
-    fault_cycle_s: float = Field(
-        1.0, description="Durée d'un demi-cycle normal/fault en s pour --fault-cycle"
+    fault_cycle_s: int = Field(
+        2,
+        ge=1,
+        description="Période entre débuts de défaut (secondes entières) pour --fault-cycle",
+    )
+    fault_smpcnt: int = Field(
+        0,
+        ge=0,
+        le=SMP_PER_SEC - 1,
+        description="smpCnt du premier échantillon en défaut (0 = seconde pile)",
+    )
+    fault_offset_s: int = Field(
+        0,
+        ge=0,
+        description="Décalage en secondes du début de défaut dans le cycle (0 = même seconde que les autres flux de même cycle)",
     )
 
     # Allocation CPU temps réel (seapath-alloc ou fallback taskset/chrt)
@@ -114,7 +128,9 @@ class FlowState(BaseModel):
     fault_i_peak: Optional[float]
     fault_v_peak: Optional[float]
     fault_phase_deg: Optional[float]
-    fault_cycle_s: float
+    fault_cycle_s: int
+    fault_smpcnt: int
+    fault_offset_s: int
     seapath_isolation: str
     seapath_scheduler: str
     seapath_priority: int
@@ -138,6 +154,64 @@ class FlowRuntime:
         self.config = config
         self.proc: Optional[Popen] = proc
         self.pid: Optional[int] = pid
+
+
+def to_flow_state(cfg: FlowConfig, running: bool) -> FlowState:
+    return FlowState(
+        name=cfg.name,
+        interface=cfg.interface,
+        src_mac=cfg.src_mac,
+        dst_mac=cfg.dst_mac,
+        svid=cfg.svid,
+        appid=cfg.appid,
+        conf_rev=cfg.conf_rev,
+        smp_synch=cfg.smp_synch,
+        vlan_id=cfg.vlan_id,
+        vlan_priority=cfg.vlan_priority,
+        freq_hz=cfg.freq_hz,
+        i_peak=cfg.i_peak,
+        v_peak=cfg.v_peak,
+        phase_deg=cfg.phase_deg,
+        fault=cfg.fault,
+        fault_i_peak=cfg.fault_i_peak,
+        fault_v_peak=cfg.fault_v_peak,
+        fault_phase_deg=cfg.fault_phase_deg,
+        fault_cycle_s=cfg.fault_cycle_s,
+        fault_smpcnt=cfg.fault_smpcnt,
+        fault_offset_s=cfg.fault_offset_s,
+        seapath_isolation=cfg.seapath_isolation,
+        seapath_scheduler=cfg.seapath_scheduler,
+        seapath_priority=cfg.seapath_priority,
+        seapath_cpu_cores=cfg.seapath_cpu_cores,
+        running=running,
+    )
+
+
+def migrate_flow_dict(item: dict) -> dict:
+    """Ancien fault_cycle_s = demi-période. Les nouveaux champs marquent le format actuel."""
+    raw = dict(item)
+    new_format = "fault_smpcnt" in raw or "fault_offset_s" in raw
+    if not new_format and "fault_cycle_s" in raw:
+        try:
+            old_half = float(raw["fault_cycle_s"])
+            raw["fault_cycle_s"] = max(1, int(round(old_half * 2.0)))
+        except (TypeError, ValueError):
+            raw["fault_cycle_s"] = 2
+    raw.setdefault("fault_smpcnt", 0)
+    raw.setdefault("fault_offset_s", 0)
+    try:
+        raw["fault_cycle_s"] = max(1, int(round(float(raw.get("fault_cycle_s", 2)))))
+    except (TypeError, ValueError):
+        raw["fault_cycle_s"] = 2
+    try:
+        raw["fault_smpcnt"] = max(0, min(SMP_PER_SEC - 1, int(raw.get("fault_smpcnt", 0))))
+    except (TypeError, ValueError):
+        raw["fault_smpcnt"] = 0
+    try:
+        raw["fault_offset_s"] = max(0, int(raw.get("fault_offset_s", 0)))
+    except (TypeError, ValueError):
+        raw["fault_offset_s"] = 0
+    return raw
 
 
 app = FastAPI(title="SV Generator Service")
@@ -176,7 +250,7 @@ def _load_recents() -> None:
         recents.clear()
         for item in data.get("recents", [])[:RECENTS_MAX]:
             try:
-                recents.append(FlowConfig(**item))
+                recents.append(FlowConfig(**migrate_flow_dict(item)))
             except Exception:
                 pass
 
@@ -198,7 +272,7 @@ def load_config() -> Dict[str, FlowConfig]:
     result: Dict[str, FlowConfig] = {}
     for item in data.get("flows", []):
         try:
-            cfg = FlowConfig(**item)
+            cfg = FlowConfig(**migrate_flow_dict(item))
         except Exception as exc:
             name = item.get("name", "<unknown>")
             print(f"Skipping invalid SV flow config '{name}': {exc}")
@@ -244,7 +318,9 @@ def build_rt_sender_cmd(cfg: FlowConfig) -> list[str]:
             cmd += ["--fault-v-peak", str(cfg.fault_v_peak)]
         if cfg.fault_phase_deg is not None:
             cmd += ["--fault-phase", str(cfg.fault_phase_deg)]
-        cmd += ["--fault-cycle", str(cfg.fault_cycle_s)]
+        cmd += ["--fault-cycle", str(int(cfg.fault_cycle_s))]
+        cmd += ["--fault-smpcnt", str(int(cfg.fault_smpcnt))]
+        cmd += ["--fault-offset", str(int(cfg.fault_offset_s))]
 
     # Arguments positionnels: interface, MACs, svID
     cmd += [
@@ -603,6 +679,8 @@ def _webui_html() -> str:
         ['fault_v_peak', f.fault_v_peak],
         ['fault_phase_deg', f.fault_phase_deg],
         ['fault_cycle_s', f.fault_cycle_s],
+        ['fault_smpcnt', f.fault_smpcnt],
+        ['fault_offset_s', f.fault_offset_s],
         ['seapath_isolation', f.seapath_isolation],
         ['seapath_scheduler', f.seapath_scheduler],
         ['seapath_priority', f.seapath_priority],
@@ -757,34 +835,7 @@ def list_flows() -> list[FlowState]:
                 (fr.proc is not None and fr.proc.poll() is None)
                 or (fr.pid is not None and _is_pid_alive(fr.pid))
             )
-            result.append(
-                FlowState(
-                    name=fr.config.name,
-                    interface=fr.config.interface,
-                    src_mac=fr.config.src_mac,
-                    dst_mac=fr.config.dst_mac,
-                    svid=fr.config.svid,
-                    appid=fr.config.appid,
-                    conf_rev=fr.config.conf_rev,
-                    smp_synch=fr.config.smp_synch,
-                    vlan_id=fr.config.vlan_id,
-                    vlan_priority=fr.config.vlan_priority,
-                    freq_hz=fr.config.freq_hz,
-                    i_peak=fr.config.i_peak,
-                    v_peak=fr.config.v_peak,
-                    phase_deg=fr.config.phase_deg,
-                    fault=fr.config.fault,
-                    fault_i_peak=fr.config.fault_i_peak,
-                    fault_v_peak=fr.config.fault_v_peak,
-                    fault_phase_deg=fr.config.fault_phase_deg,
-                    fault_cycle_s=fr.config.fault_cycle_s,
-                    seapath_isolation=fr.config.seapath_isolation,
-                    seapath_scheduler=fr.config.seapath_scheduler,
-                    seapath_priority=fr.config.seapath_priority,
-                    seapath_cpu_cores=fr.config.seapath_cpu_cores,
-                    running=running,
-                )
-            )
+            result.append(to_flow_state(fr.config, running))
     return result
 
 
@@ -800,32 +851,7 @@ def create_flow(cfg: FlowConfig) -> FlowState:
         flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
     _add_to_recents(cfg)
     save_config()
-    return FlowState(
-        name=cfg.name,
-        interface=cfg.interface,
-        src_mac=cfg.src_mac,
-        dst_mac=cfg.dst_mac,
-        svid=cfg.svid,
-        appid=cfg.appid,
-        conf_rev=cfg.conf_rev,
-        smp_synch=cfg.smp_synch,
-        vlan_id=cfg.vlan_id,
-        vlan_priority=cfg.vlan_priority,
-        freq_hz=cfg.freq_hz,
-        i_peak=cfg.i_peak,
-        v_peak=cfg.v_peak,
-        phase_deg=cfg.phase_deg,
-        fault=cfg.fault,
-        fault_i_peak=cfg.fault_i_peak,
-        fault_v_peak=cfg.fault_v_peak,
-        fault_phase_deg=cfg.fault_phase_deg,
-        fault_cycle_s=cfg.fault_cycle_s,
-        seapath_isolation=cfg.seapath_isolation,
-        seapath_scheduler=cfg.seapath_scheduler,
-        seapath_priority=cfg.seapath_priority,
-        seapath_cpu_cores=cfg.seapath_cpu_cores,
-        running=True,
-    )
+    return to_flow_state(cfg, True)
 
 
 @api.put("/flows/{name}", response_model=FlowState)
@@ -843,32 +869,7 @@ def update_flow(name: str, cfg: FlowConfig) -> FlowState:
         flows[name] = FlowRuntime(config=cfg, proc=proc)
     _add_to_recents(cfg)
     save_config()
-    return FlowState(
-        name=cfg.name,
-        interface=cfg.interface,
-        src_mac=cfg.src_mac,
-        dst_mac=cfg.dst_mac,
-        svid=cfg.svid,
-        appid=cfg.appid,
-        conf_rev=cfg.conf_rev,
-        smp_synch=cfg.smp_synch,
-        vlan_id=cfg.vlan_id,
-        vlan_priority=cfg.vlan_priority,
-        freq_hz=cfg.freq_hz,
-        i_peak=cfg.i_peak,
-        v_peak=cfg.v_peak,
-        phase_deg=cfg.phase_deg,
-        fault=cfg.fault,
-        fault_i_peak=cfg.fault_i_peak,
-        fault_v_peak=cfg.fault_v_peak,
-        fault_phase_deg=cfg.fault_phase_deg,
-        fault_cycle_s=cfg.fault_cycle_s,
-        seapath_isolation=cfg.seapath_isolation,
-        seapath_scheduler=cfg.seapath_scheduler,
-        seapath_priority=cfg.seapath_priority,
-        seapath_cpu_cores=cfg.seapath_cpu_cores,
-        running=True,
-    )
+    return to_flow_state(cfg, True)
 
 
 @api.get("/flows/recents")

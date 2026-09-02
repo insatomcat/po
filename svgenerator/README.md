@@ -75,7 +75,11 @@ python3 svctl.py clear
 
 Paramètres obligatoires pour `create`/`update` : `--appid`, `--conf-rev`.
 
-Paramètres optionnels courants : `--smp-synch`, `--vlan-id`, `--vlan-priority`, `--freq`, `--i-peak`, `--v-peak`, `--phase`, `--fault`, `--fault-i-peak`, `--fault-v-peak`, `--fault-phase`, `--fault-cycle`.
+Paramètres optionnels courants : `--smp-synch`, `--vlan-id`, `--vlan-priority`, `--freq`, `--i-peak`, `--v-peak`, `--phase`, `--fault`, `--fault-i-peak`, `--fault-v-peak`, `--fault-phase`, `--fault-cycle` (période entre débuts de défaut, secondes entières), `--fault-smpcnt` (0-4799), `--fault-offset` (secondes dans le cycle).
+
+Le cycle défaut est aligné sur l'époque UNIX. Deux flux avec le même `fault_cycle_s` et `fault_offset_s=0` démarrent le défaut à la même seconde. `fault_smpcnt` décale le premier échantillon en défaut dans cette seconde ; `fault_offset_s` décale d'un nombre entier de secondes dans le cycle. La durée du défaut est la moitié de la période (bascule au sample).
+
+Les configs persistées d'avant ce changement (où `fault_cycle_s` était un demi-cycle) sont converties à la lecture : l'ancienne valeur est multipliée par 2.
 
 ### 4. Exécution directe du binaire `rt_sender`
 
