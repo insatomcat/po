@@ -1050,6 +1050,24 @@
     .gl-legend .gl-hist-vis-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .gl-legend .gl-hist-vis-btn svg { display: block; }
     .gl-legend .gl-hist-vis-btn[aria-pressed="false"] { color: var(--danger); }
+    .gl-legend > li.gl-legend-group {
+      display: flex; flex-direction: column; align-items: stretch; gap: 0.35rem;
+      padding: 0.4rem 0 0.15rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .gl-legend > li.gl-legend-group:first-child { border-top: none; padding-top: 0; }
+    .gl-legend-group-head {
+      display: flex; align-items: center; gap: 0.4rem;
+      font-size: 0.78rem; font-weight: 600; min-width: 0;
+    }
+    .gl-legend-group-head .gl-legend-label { color: var(--accent); }
+    .gl-legend-group-items {
+      list-style: none; margin: 0; padding: 0 0 0 1.45rem;
+      display: flex; flex-direction: column; gap: 0.35rem;
+    }
+    .gl-legend-group.is-hidden .gl-legend-group-head .gl-legend-label,
+    .gl-legend-group.is-hidden .gl-legend-group-head .gl-legend-count { opacity: 0.45; }
+    .gl-legend-group.is-hidden .gl-legend-group-head .gl-legend-label { text-decoration: line-through; }
     .gl-legend li.is-hidden .gl-legend-label,
     .gl-legend li.is-hidden .gl-legend-count { opacity: 0.45; }
     .gl-legend li.is-hidden .gl-legend-label { text-decoration: line-through; }
@@ -1488,6 +1506,12 @@
         "gl.showSeries": "Afficher la série",
         "gl.hideSeriesFor": "Masquer {label}",
         "gl.showSeriesFor": "Afficher {label}",
+        "gl.hideDepart": "Masquer le départ",
+        "gl.showDepart": "Afficher le départ",
+        "gl.hideDepartFor": "Masquer le départ {svid}",
+        "gl.showDepartFor": "Afficher le départ {svid}",
+        "gl.unlinkedDepart": "Non lié",
+        "gl.departSeries": "{n} série(s)",
         "gl.problemsStart": "Lancez une analyse pour détecter les problèmes.",
         "gl.problemsNoneCfg": "Aucun problème (seuil {th} ms).",
         "gl.problemsTrunc": " · {shown} affiché(s) sur {total}",
@@ -1847,6 +1871,12 @@
         "gl.showSeries": "Show series",
         "gl.hideSeriesFor": "Hide {label}",
         "gl.showSeriesFor": "Show {label}",
+        "gl.hideDepart": "Hide feeder",
+        "gl.showDepart": "Show feeder",
+        "gl.hideDepartFor": "Hide feeder {svid}",
+        "gl.showDepartFor": "Show feeder {svid}",
+        "gl.unlinkedDepart": "Unlinked",
+        "gl.departSeries": "{n} series",
         "gl.problemsStart": "Start an analysis to detect problems.",
         "gl.problemsNoneCfg": "No problem (threshold {th} ms).",
         "gl.problemsTrunc": " · {shown} shown of {total}",
@@ -2090,6 +2120,63 @@
       else glHistSeriesHidden[seriesKey] = true;
       glSaveHistSeriesHidden();
       glDrawHistogram();
+    }
+
+    function glSeriesSvid(s) {
+      const direct = String(s?.svid || '').trim();
+      if (direct) return direct;
+      const gocb = s?.gocb_ref || '';
+      const goid = s?.go_id || '';
+      const t = (glTargets || []).find(x => (x.gocb_ref || '') === gocb && (x.go_id || '') === goid);
+      return String(t?.svid || '').trim();
+    }
+
+    function glToggleHistDepartHidden(svid) {
+      const members = (glLastHistogram?.series || []).filter(s => glSeriesSvid(s) === svid);
+      if (!members.length) return;
+      const allHidden = members.every(s => glSeriesHidden(s));
+      members.forEach(s => {
+        const key = glSeriesKey(s);
+        if (allHidden) delete glHistSeriesHidden[key];
+        else glHistSeriesHidden[key] = true;
+      });
+      glSaveHistSeriesHidden();
+      glDrawHistogram();
+    }
+
+    function glHistDepartGroups(series) {
+      const map = new Map();
+      for (const s of series) {
+        const svid = glSeriesSvid(s);
+        if (!map.has(svid)) map.set(svid, []);
+        map.get(svid).push(s);
+      }
+      const linked = [...map.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      const keys = map.has('') ? [...linked, ''] : linked;
+      return keys.map(svid => ({ svid, items: map.get(svid) || [] }));
+    }
+
+    function glHistSeriesLegendRow(s) {
+      const col = glSeriesColor(s);
+      const key = glSeriesKey(s);
+      const skey = encodeURIComponent(key);
+      const hidden = !!glHistSeriesHidden[key];
+      const visLabel = hidden
+        ? t('gl.showSeriesFor', { label: s.label })
+        : t('gl.hideSeriesFor', { label: s.label });
+      const visTitle = hidden ? t('gl.showSeries') : t('gl.hideSeries');
+      return `<li class="${hidden ? 'is-hidden' : ''}" title="${escapeHtml(s.label)}">
+            <span class="gl-legend-btns">
+              <button type="button" class="gl-hist-swatch-btn" data-series-key="${skey}" aria-label="${t('gl.chooseColorFor', { label: escapeHtml(s.label) })}" title="${t('gl.chooseColor')}">
+                <span class="swatch" style="background:${col}"></span>
+              </button>
+              <button type="button" class="gl-hist-vis-btn" data-series-key="${skey}" aria-pressed="${hidden ? 'false' : 'true'}" aria-label="${escapeHtml(visLabel)}" title="${escapeHtml(visTitle)}">
+                ${glHistVisIcon(hidden)}
+              </button>
+            </span>
+            <span class="gl-legend-label">${escapeHtml(s.label)}</span>
+            <span class="gl-legend-count">${s.total}</span>
+          </li>`;
     }
 
     function glHistVisIcon(hidden) {
@@ -3995,6 +4082,7 @@
           label: s.label,
           gocb_ref: s.key?.gocb_ref,
           go_id: s.key?.go_id,
+          svid: s.svid || s.key?.svid,
           color_index: s.color_index,
           counts,
           total: s.count ?? (s.values || []).length,
@@ -4117,26 +4205,28 @@
         meta.textContent = t('gl.histMeta', { n: totalEvents, step: glFormatMs(hist.bin_width_ms || 1), bins: numBins, lo: glFormatMs(edges[0]), hi: glFormatMs(edges[edges.length - 1]) });
       }
       if (legend) {
-        legend.innerHTML = series.map(s => {
-          const col = glSeriesColor(s);
-          const key = glSeriesKey(s);
-          const skey = encodeURIComponent(key);
-          const hidden = !!glHistSeriesHidden[key];
-          const visLabel = hidden
-            ? t('gl.showSeriesFor', { label: s.label })
-            : t('gl.hideSeriesFor', { label: s.label });
-          const visTitle = hidden ? t('gl.showSeries') : t('gl.hideSeries');
-          return `<li class="${hidden ? 'is-hidden' : ''}" title="${escapeHtml(s.label)}">
-            <span class="gl-legend-btns">
-              <button type="button" class="gl-hist-swatch-btn" data-series-key="${skey}" aria-label="${t('gl.chooseColorFor', { label: escapeHtml(s.label) })}" title="${t('gl.chooseColor')}">
-                <span class="swatch" style="background:${col}"></span>
+        legend.innerHTML = glHistDepartGroups(series).map(g => {
+          const allHidden = g.items.every(s => glSeriesHidden(s));
+          const total = g.items.reduce((n, s) => n + (s.total || 0), 0);
+          const label = g.svid || t('gl.unlinkedDepart');
+          const dep = g.svid ? glExtractDep(g.svid) : '';
+          const shown = (dep && g.svid && dep !== g.svid) ? `${dep} · ${g.svid}` : label;
+          const dkey = encodeURIComponent(g.svid);
+          const visLabel = allHidden
+            ? t('gl.showDepartFor', { svid: label })
+            : t('gl.hideDepartFor', { svid: label });
+          const visTitle = allHidden ? t('gl.showDepart') : t('gl.hideDepart');
+          return `<li class="gl-legend-group${allHidden ? ' is-hidden' : ''}">
+            <div class="gl-legend-group-head">
+              <button type="button" class="gl-hist-vis-btn" data-depart-key="${dkey}" aria-pressed="${allHidden ? 'false' : 'true'}" aria-label="${escapeHtml(visLabel)}" title="${escapeHtml(visTitle)}">
+                ${glHistVisIcon(allHidden)}
               </button>
-              <button type="button" class="gl-hist-vis-btn" data-series-key="${skey}" aria-pressed="${hidden ? 'false' : 'true'}" aria-label="${escapeHtml(visLabel)}" title="${escapeHtml(visTitle)}">
-                ${glHistVisIcon(hidden)}
-              </button>
-            </span>
-            <span class="gl-legend-label">${escapeHtml(s.label)}</span>
-            <span class="gl-legend-count">${s.total}</span>
+              <span class="gl-legend-label" title="${escapeHtml(label)} · ${t('gl.departSeries', { n: g.items.length })}">${escapeHtml(shown)}</span>
+              <span class="gl-legend-count">${total}</span>
+            </div>
+            <ul class="gl-legend-group-items">
+              ${g.items.map(glHistSeriesLegendRow).join('')}
+            </ul>
           </li>`;
         }).join('');
       }
@@ -4606,6 +4696,11 @@
 
     document.getElementById('gl-legend')?.addEventListener('click', (e) => {
       const vis = e.target.closest('.gl-hist-vis-btn');
+      if (vis?.hasAttribute('data-depart-key')) {
+        e.stopPropagation();
+        glToggleHistDepartHidden(decodeURIComponent(vis.getAttribute('data-depart-key') || ''));
+        return;
+      }
       if (vis?.dataset.seriesKey) {
         e.stopPropagation();
         glToggleHistSeriesHidden(decodeURIComponent(vis.dataset.seriesKey));

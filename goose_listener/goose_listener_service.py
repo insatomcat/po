@@ -481,6 +481,7 @@ def _build_histogram_from_buckets(
             "label": label,
             "gocb_ref": t.gocb_ref,
             "go_id": t.go_id,
+            "svid": t.svid,
             "color_index": palette_idx,
             "counts": counts,
             "total": total,
