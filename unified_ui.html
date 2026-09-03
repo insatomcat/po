@@ -587,10 +587,7 @@
           <div class="gl-card">
             <div class="gl-panel-head">
               <h2 data-i18n="gl.analysis">Analyse</h2>
-              <div class="gl-analysis-head-actions">
-                <span id="gl-analysis-elapsed" class="gl-elapsed" hidden aria-live="polite"></span>
-                <button type="button" class="btn btn--small" id="gl-refresh-sv-btn" disabled data-i18n="gl.refreshSv" data-i18n-title="gl.refreshSvTitle" title="Relit cycle, smpCnt et offset depuis les flux SV. Disponible lorsque l'analyse est arrêtée.">Actualiser SV</button>
-              </div>
+              <span id="gl-analysis-elapsed" class="gl-elapsed" hidden aria-live="polite"></span>
             </div>
             <p class="status" id="gl-analysis-status" data-i18n="gl.analysisStopped">Analyse arrêtée.</p>
             <div class="table-wrap" id="gl-targets-table-wrap">
@@ -1141,9 +1138,6 @@
       margin-bottom: 0.5rem;
     }
     .gl-panel-head h2 { margin: 0; }
-    .gl-analysis-head-actions {
-      display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-left: auto;
-    }
     .gl-elapsed {
       display: inline-flex;
       align-items: center;
@@ -1476,9 +1470,6 @@
         "gl.filter.triggers": "Seulement les déclenchements",
         "gl.filter.all": "Tous (déclenchements + retombées…)",
         "gl.startAnalysis": "Lancer l'analyse",
-        "gl.refreshSv": "Actualiser SV",
-        "gl.refreshSvTitle": "Relit cycle, smpCnt et offset depuis les flux SV liés. Les gocbRef restent en place. Disponible uniquement lorsque l'analyse est arrêtée.",
-        "gl.refreshSvRunningTitle": "Le timing SV est figé pendant l'analyse. Arrêtez-la pour relire cycle, smpCnt et offset.",
         "gl.reset": "Réinitialiser",
         "gl.resetTitle": "Efface problèmes, histogramme et événements. L'analyse continue.",
         "gl.clearProblems": "Vider",
@@ -1845,9 +1836,6 @@
         "gl.filter.triggers": "Trips only",
         "gl.filter.all": "All (trips + resets…)",
         "gl.startAnalysis": "Start analysis",
-        "gl.refreshSv": "Refresh SV",
-        "gl.refreshSvTitle": "Reloads cycle, smpCnt and offset from the linked SV streams. gocbRefs stay in place. Available only when analysis is stopped.",
-        "gl.refreshSvRunningTitle": "SV timing is frozen while analysis is running. Stop it to reload cycle, smpCnt and offset.",
         "gl.reset": "Reset",
         "gl.resetTitle": "Clears problems, histogram and events. Analysis keeps running.",
         "gl.clearProblems": "Clear",
@@ -3974,17 +3962,8 @@
       return t('gl.svidUnlinked');
     }
 
-    function glSyncRefreshSvBtn() {
-      const btn = document.getElementById('gl-refresh-sv-btn');
-      if (!btn) return;
-      const running = !!glAnalysisRunning;
-      btn.disabled = !glTargets.length || running;
-      btn.title = running ? t('gl.refreshSvRunningTitle') : t('gl.refreshSvTitle');
-    }
-
     function glRenderTargets() {
       const tbody = document.getElementById('gl-targets-tbody');
-      glSyncRefreshSvBtn();
       if (!tbody) return;
       if (!glTargets.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="status">' + t('gl.selectFromScan') + '</td></tr>';
@@ -4427,28 +4406,6 @@
       });
     }
 
-    async function glRefreshSvTiming() {
-      if (!glTargets.length || glAnalysisRunning) return;
-      const btn = document.getElementById('gl-refresh-sv-btn');
-      if (btn) btn.disabled = true;
-      try {
-        if (glTargetsTimer) {
-          clearTimeout(glTargetsTimer);
-          glTargetsTimer = null;
-        }
-        await glPersistTargets();
-        const analysis = await glFetchJson('/analysis/refresh-sv', { method: 'POST' });
-        glTargets = (analysis.targets || []).map(glTargetFromServer);
-        glSvFlows = analysis.sv_flows || glSvFlows;
-        glRenderTargets();
-        await glPoll();
-      } catch (e) {
-        alert(e.message);
-      } finally {
-        glSyncRefreshSvBtn();
-      }
-    }
-
     function glSchedulePersistTargets() {
       if (glTargetsTimer) clearTimeout(glTargetsTimer);
       glTargetsTimer = setTimeout(async () => {
@@ -4560,7 +4517,6 @@
         demoBtn.disabled = !analysis.running;
         demoBtn.title = t('gl.simulateDelayTitle');
       }
-      glSyncRefreshSvBtn();
       glSyncElapsed(analysis);
       const status = document.getElementById('gl-analysis-status');
       if (status) {
@@ -4998,10 +4954,6 @@
       } catch (e) {
         alert(e.message);
       }
-    });
-
-    document.getElementById('gl-refresh-sv-btn')?.addEventListener('click', () => {
-      void glRefreshSvTiming();
     });
 
 
