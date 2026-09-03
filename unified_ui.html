@@ -1873,6 +1873,7 @@
     let glScanRunning = false;
     let glScanFilterTimer = null;
     let glProblemConfigTimer = null;
+    let glTargetsTimer = null;
     let glDiscoveryHidden = false;
     let glHistLogY = false;
     let glLastHistogram = null;
@@ -3554,12 +3555,14 @@
         btn.addEventListener('click', () => {
           glTargets.splice(Number(btn.dataset.idx), 1);
           glRenderTargets();
+          void glPersistTargets().catch(e => console.warn(e));
         });
       });
       tbody.querySelectorAll('.gl-delay-input').forEach(inp => {
         inp.addEventListener('change', () => {
           const idx = Number(inp.dataset.idx);
           if (glTargets[idx]) glTargets[idx].delay_ms = Math.max(0, Number(inp.value) || 0);
+          glSchedulePersistTargets();
         });
       });
       tbody.querySelectorAll('.gl-svid-select').forEach(sel => {
@@ -3577,6 +3580,7 @@
             glTargets[idx].svid_manual = true;
           }
           glRenderTargets();
+          void glPersistTargets().catch(e => console.warn(e));
         });
       });
     }
@@ -3916,6 +3920,25 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ threshold_ms }),
       });
+    }
+
+    async function glPersistTargets() {
+      await glFetchJson('/analysis/targets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: glTargets }),
+      });
+    }
+
+    function glSchedulePersistTargets() {
+      if (glTargetsTimer) clearTimeout(glTargetsTimer);
+      glTargetsTimer = setTimeout(async () => {
+        try {
+          await glPersistTargets();
+        } catch (e) {
+          console.warn(e);
+        }
+      }, 300);
     }
 
     function glIsDeclenchementsOnlyFilter(analysis) {
@@ -4351,6 +4374,7 @@
         if (!glTargets.some(x => glTargetKey(x) === k)) glTargets.push(t);
       });
       glRenderTargets();
+      void glPersistTargets().catch(e => console.warn(e));
     });
 
     function glScheduleProblemConfig() {

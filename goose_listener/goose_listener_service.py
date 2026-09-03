@@ -88,6 +88,20 @@ def _targets_from_payload(raw_targets: Any) -> List[AnalysisTarget]:
             svid_manual = bool(item.get("svid_manual"))
         else:
             svid_manual = bool(svid)
+
+        def _opt_float(key: str) -> Optional[float]:
+            raw = item.get(key)
+            if raw is None or raw == "":
+                return None
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                return None
+
+        def _opt_int(key: str) -> Optional[int]:
+            val = _opt_float(key)
+            return int(val) if val is not None else None
+
         targets.append(
             AnalysisTarget(
                 gocb_ref=gocb_ref,
@@ -95,6 +109,11 @@ def _targets_from_payload(raw_targets: Any) -> List[AnalysisTarget]:
                 delay_ms=delay_ms,
                 svid=svid,
                 svid_manual=svid_manual,
+                cycle_s=_opt_float("cycle_s"),
+                fault_smpcnt=_opt_int("fault_smpcnt"),
+                fault_offset_s=_opt_int("fault_offset_s"),
+                sv_linked=bool(item.get("sv_linked")),
+                timing_frozen=bool(item.get("timing_frozen")),
             )
         )
     return targets
@@ -1117,7 +1136,7 @@ class GooseListenerManager:
             print(f"[GOOSE Listener] Erreur sauvegarde état: {exc}")
 
     def restore_analysis_if_needed(self) -> None:
-        """Relance l'analyse si elle tournait au stop du service (sans l'historique)."""
+        """Restaure les mappings ; relance l'analyse si elle tournait (sans l'historique)."""
         if not ANALYSIS_STATE_PATH.exists():
             return
         try:
@@ -1127,11 +1146,9 @@ class GooseListenerManager:
                 f"[GOOSE Listener] Impossible de charger {ANALYSIS_STATE_PATH}: {exc}"
             )
             return
-        if not isinstance(raw, dict) or not raw.get("running"):
+        if not isinstance(raw, dict):
             return
         targets = _targets_from_payload(raw.get("targets"))
-        if not targets:
-            return
         try:
             threshold_ms = (
                 float(raw["threshold_ms"])
@@ -1140,20 +1157,77 @@ class GooseListenerManager:
             )
         except (TypeError, ValueError):
             threshold_ms = None
-        with self._lock:
-            if threshold_ms is not None and threshold_ms >= 0:
-                self._problem_threshold_ms = threshold_ms
         event_filter = _normalize_event_filter(
             str(raw.get("event_filter") or EVENT_FILTER_DECLENCHEMENTS_ONLY).strip()
         )
-        err = self.start_analysis(targets, event_filter=event_filter)
-        if err:
+        with self._lock:
+            if threshold_ms is not None and threshold_ms >= 0:
+                self._problem_threshold_ms = threshold_ms
+            self._event_filter = event_filter
+        was_running = bool(raw.get("running"))
+        if was_running and targets:
+            err: Optional[str] = None
+            try:
+                err = self.start_analysis(targets, event_filter=event_filter)
+            except Exception as exc:
+                err = str(exc)
+            if not err:
+                print(
+                    f"[GOOSE Listener] Analyse relancée ({len(targets)} flux) "
+                    f"après restart du service"
+                )
+                return
             print(f"[GOOSE Listener] Relance analyse ignorée: {err}")
-            return
-        print(
-            f"[GOOSE Listener] Analyse relancée ({len(targets)} flux) "
-            f"après restart du service"
-        )
+        self._install_idle_targets(targets)
+        if targets:
+            print(
+                f"[GOOSE Listener] {len(targets)} mapping(s) restauré(s) "
+                f"après restart du service"
+            )
+
+    def _install_idle_targets(self, targets: List[AnalysisTarget]) -> None:
+        """Recharge le tableau d'analyse sans démarrer la capture."""
+        sv_flows = list_sv_flow_infos()
+        with self._lock:
+            self._targets.clear()
+            for t in targets:
+                apply_auto_svid(t, sv_flows)
+                t.timing_frozen = False
+                key = _stream_key(t.gocb_ref, t.go_id)
+                self._targets[key] = t
+            self._targets_frozen = frozenset()
+            self._analysis_poll_cache.key = None
+
+    def set_targets(self, targets: List[AnalysisTarget]) -> Optional[str]:
+        """Met à jour les mappings persistés (tableau Analyse), analyse en cours ou non."""
+        sv_flows = list_sv_flow_infos()
+        with self._lock:
+            analyzing = self._mode == "analyze"
+            existing = dict(self._targets)
+            self._targets.clear()
+            for t in targets:
+                key = _stream_key(t.gocb_ref, t.go_id)
+                prev = existing.get(key)
+                if analyzing and prev is not None and prev.timing_frozen:
+                    t.svid = prev.svid
+                    t.svid_manual = prev.svid_manual
+                    t.cycle_s = prev.cycle_s
+                    t.fault_smpcnt = prev.fault_smpcnt
+                    t.fault_offset_s = prev.fault_offset_s
+                    t.sv_linked = prev.sv_linked
+                    t.timing_frozen = True
+                else:
+                    apply_auto_svid(t, sv_flows)
+                    if analyzing:
+                        snapshot_target_timing(t, sv_flows)
+                    else:
+                        t.timing_frozen = False
+                self._targets[key] = t
+            if analyzing:
+                self._targets_frozen = frozenset(self._targets.keys())
+            self._analysis_poll_cache.key = None
+        self._persist_analysis_state()
+        return None
 
     def start_scan(self, duration_s: float = 5.0) -> Optional[str]:
         duration_s = max(0.5, min(float(duration_s), 120.0))
@@ -1191,14 +1265,11 @@ class GooseListenerManager:
                 f"Filtre invalide (attendu: {EVENT_FILTER_DECLENCHEMENTS_ONLY} "
                 f"ou {EVENT_FILTER_ALL})."
             )
-        persist = False
         with self._lock:
             self._event_filter = event_filter
             self._purge_events_unlocked()
             self._analysis_poll_cache.key = None
-            persist = self._mode == "analyze"
-        if persist:
-            self._persist_analysis_state()
+        self._persist_analysis_state()
         return None
 
     def set_problem_config(
@@ -1206,16 +1277,13 @@ class GooseListenerManager:
         cycle_s: Optional[float] = None,
         threshold_ms: Optional[float] = None,
     ) -> Optional[str]:
-        persist = False
         with self._lock:
             if threshold_ms is not None:
                 if threshold_ms < 0:
                     return "Le seuil doit être ≥ 0 ms."
                 self._problem_threshold_ms = float(threshold_ms)
             self._analysis_poll_cache.key = None
-            persist = self._mode == "analyze"
-        if persist:
-            self._persist_analysis_state()
+        self._persist_analysis_state()
         return None
 
 

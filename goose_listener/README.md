@@ -89,7 +89,7 @@ goose_listener/
 ├── goose_ring_pcap.py          # Tampon glissant GOOSE + export PCAP
 ├── trigger_classify.py         # Classification défaut / fin défaut
 ├── dumps/                      # PCAP auto (4 s avant chaque problème, gitignored)
-├── analysis_state.json         # (généré) config d'analyse si elle tournait
+├── analysis_state.json         # (généré) mappings + relance analyse au restart
 └── README.md                   # Ce fichier
 
 goose/goose61850/transport.py   # GooseSubscriber (pcapy, BPF, file bytes bruts)
@@ -209,11 +209,11 @@ Chaque événement expose aussi `processing_lag_ms` (écart traitement − réce
 | Panneau UI | 50 derniers affichés | - |
 | Export `.txt` événements | Tout le contenu de `_events` | Téléchargement navigateur |
 | Export `.txt` problèmes | Tout `_problems_ram` | Téléchargement navigateur |
-| `analysis_state.json` | Config d'analyse (cibles dont svID, filtre, seuil) | Disque ; relance auto si l'analyse tournait |
+| `analysis_state.json` | Config d'analyse (cibles dont svID, filtre, seuil) | Disque ; mappings restaurés au restart ; analyse relancée si elle tournait |
 
 - **Nouvelle analyse** : événements, histogramme et problèmes effacés
-- **Arrêt explicite** (bouton Arrêter) : l'analyse ne redémarre pas au prochain `po_service`
-- **Redémarrage `po_service`** : historique (trips, problèmes, histogramme) perdu ; si l'analyse était en cours, elle est relancée avec les mêmes gocbRef / goID / svID / temporisations / filtre / seuil
+- **Arrêt explicite** (bouton Arrêter) : l'analyse ne redémarre pas au prochain `po_service`, mais les mappings (gocbRef / goID / svID / temporisations) sont conservés
+- **Redémarrage `po_service`** : historique (trips, problèmes, histogramme) perdu ; les mappings du panneau Analyse sont restaurés ; si l'analyse était en cours, elle est relancée
 
 ---
 
@@ -227,6 +227,7 @@ Base : **`/api/gooselistener`**
 | POST | `/scan` | Démarre un scan `{ "duration_s": 5 }` |
 | GET | `/scan` | État du scan |
 | POST | `/analysis/start` | Démarre l’analyse (voir corps ci-dessous) |
+| POST | `/analysis/targets` | Persiste le tableau de mappings (sans lancer l’analyse) |
 | POST | `/analysis/stop` | Arrête l’analyse |
 | POST | `/analysis/reset` | Efface événements, histogramme et problèmes (l’analyse continue) |
 | POST | `/analysis/problems/clear` | Efface uniquement la liste des problèmes et les PCAP associés (l’analyse continue) |
@@ -407,6 +408,6 @@ Souvent :
 |---------|------|
 | [po_service.py](../po_service.py) | Monte l’API `/api/gooselistener/*` |
 | [unified_ui.html](../unified_ui.html) | Onglet GOOSE Listener |
-| `analysis_state.json` | (généré) relance de l'analyse après restart de `po_service` |
+| `analysis_state.json` | (généré) mappings Analyse + relance après restart de `po_service` |
 | [goose/examples/listen_goose.py](../goose/examples/listen_goose.py) | CLI |
 | [goose/goose61850/transport.py](../goose/goose61850/transport.py) | Capture (BPF, file, `run_until`) |
