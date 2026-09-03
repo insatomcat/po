@@ -589,7 +589,7 @@
               <h2 data-i18n="gl.analysis">Analyse</h2>
               <div class="gl-analysis-head-actions">
                 <span id="gl-analysis-elapsed" class="gl-elapsed" hidden aria-live="polite"></span>
-                <button type="button" class="btn btn--small" id="gl-refresh-sv-btn" disabled data-i18n="gl.refreshSv" data-i18n-title="gl.refreshSvTitle" title="Relit cycle, smpCnt et offset depuis les flux SV. Les gocbRef restent en place.">Actualiser SV</button>
+                <button type="button" class="btn btn--small" id="gl-refresh-sv-btn" disabled data-i18n="gl.refreshSv" data-i18n-title="gl.refreshSvTitle" title="Relit cycle, smpCnt et offset depuis les flux SV. Disponible lorsque l'analyse est arrêtée.">Actualiser SV</button>
               </div>
             </div>
             <p class="status" id="gl-analysis-status" data-i18n="gl.analysisStopped">Analyse arrêtée.</p>
@@ -1466,7 +1466,8 @@
         "gl.filter.all": "Tous (déclenchements + retombées…)",
         "gl.startAnalysis": "Lancer l'analyse",
         "gl.refreshSv": "Actualiser SV",
-        "gl.refreshSvTitle": "Relit cycle, smpCnt et offset depuis les flux SV liés, y compris pendant l'analyse. Les gocbRef restent en place. Les événements déjà enregistrés ne sont pas recalculés.",
+        "gl.refreshSvTitle": "Relit cycle, smpCnt et offset depuis les flux SV liés. Les gocbRef restent en place. Disponible uniquement lorsque l'analyse est arrêtée.",
+        "gl.refreshSvRunningTitle": "Le timing SV est figé pendant l'analyse. Arrêtez-la pour relire cycle, smpCnt et offset.",
         "gl.reset": "Réinitialiser",
         "gl.resetTitle": "Efface problèmes, histogramme et événements. L'analyse continue.",
         "gl.clearProblems": "Vider",
@@ -1833,7 +1834,8 @@
         "gl.filter.all": "All (trips + resets…)",
         "gl.startAnalysis": "Start analysis",
         "gl.refreshSv": "Refresh SV",
-        "gl.refreshSvTitle": "Reloads cycle, smpCnt and offset from the linked SV streams, including while analysis is running. gocbRefs stay in place. Already recorded events are not recomputed.",
+        "gl.refreshSvTitle": "Reloads cycle, smpCnt and offset from the linked SV streams. gocbRefs stay in place. Available only when analysis is stopped.",
+        "gl.refreshSvRunningTitle": "SV timing is frozen while analysis is running. Stop it to reload cycle, smpCnt and offset.",
         "gl.reset": "Reset",
         "gl.resetTitle": "Clears problems, histogram and events. Analysis keeps running.",
         "gl.clearProblems": "Clear",
@@ -3961,7 +3963,10 @@
 
     function glSyncRefreshSvBtn() {
       const btn = document.getElementById('gl-refresh-sv-btn');
-      if (btn) btn.disabled = !glTargets.length;
+      if (!btn) return;
+      const running = !!glAnalysisRunning;
+      btn.disabled = !glTargets.length || running;
+      btn.title = running ? t('gl.refreshSvRunningTitle') : t('gl.refreshSvTitle');
     }
 
     function glRenderTargets() {
@@ -4379,7 +4384,7 @@
     }
 
     async function glRefreshSvTiming() {
-      if (!glTargets.length) return;
+      if (!glTargets.length || glAnalysisRunning) return;
       const btn = document.getElementById('gl-refresh-sv-btn');
       if (btn) btn.disabled = true;
       try {
