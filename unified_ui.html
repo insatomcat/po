@@ -157,11 +157,33 @@
     .modal-content h2 { margin-top: 0; }
     .modal-details { color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
     .modal-content label { display: block; margin-top: 0.75rem; font-weight: 600; }
-    .modal-content input, .modal-content textarea {
+    .modal-content input, .modal-content textarea, .modal-content select {
       width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--muted);
       border-radius: 4px; color: var(--text); font-family: inherit;
     }
     .modal-content textarea { min-height: 12rem; }
+    .modal-content--wide { max-width: 720px; }
+    .sv-edit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 0.75rem;
+    }
+    .sv-edit-section {
+      grid-column: 1 / -1;
+      margin: 0.85rem 0 0.1rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .sv-edit-check {
+      display: flex; align-items: center; gap: 0.5rem;
+      margin-top: 0.75rem; font-weight: 600;
+    }
+    .sv-edit-check input[type="checkbox"] { width: auto; margin: 0; }
+    .sv-edit-fault-fields.is-disabled { opacity: 0.45; pointer-events: none; }
+    @media (max-width: 640px) {
+      .sv-edit-grid { grid-template-columns: 1fr; }
+    }
     .modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
     .iframe-settings-list {
       margin-top: 1rem;
@@ -436,6 +458,91 @@
         <table><thead><tr><th></th><th data-i18n="common.name">Nom</th><th data-i18n="common.interface">Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table>
       </div>
     </section>
+
+    <div id="sv-edit-modal" class="modal" style="display:none">
+      <div class="modal-content modal-content--wide">
+        <h2 data-i18n="sv.editTitle">Modifier le flux SV</h2>
+        <p class="modal-details" id="sv-edit-details"></p>
+        <form id="sv-edit-form">
+          <input type="hidden" id="sv-edit-name" name="name">
+          <div class="sv-edit-grid">
+            <p class="sv-edit-section" data-i18n="sv.edit.network">Réseau</p>
+            <label><span data-i18n="common.interface">Interface</span>
+              <input type="text" id="sv-edit-interface" required autocomplete="off"></label>
+            <label>src_mac
+              <input type="text" id="sv-edit-src-mac" required autocomplete="off"></label>
+            <label>dst_mac
+              <input type="text" id="sv-edit-dst-mac" required autocomplete="off"></label>
+            <label>VLAN ID
+              <input type="number" id="sv-edit-vlan-id" min="0" max="4095" placeholder="-"></label>
+            <label>VLAN prio
+              <input type="number" id="sv-edit-vlan-prio" min="0" max="7" value="0"></label>
+            <p class="sv-edit-section" data-i18n="sv.edit.identity">Identité SV</p>
+            <label>svID
+              <input type="text" id="sv-edit-svid" required autocomplete="off"></label>
+            <label>appID
+              <input type="text" id="sv-edit-appid" required autocomplete="off" placeholder="16384 ou 0x4000"></label>
+            <label>confRev
+              <input type="number" id="sv-edit-conf-rev" min="0" required></label>
+            <label>smpSynch
+              <select id="sv-edit-smp-synch">
+                <option value="0">0 (None)</option>
+                <option value="1">1 (Local)</option>
+                <option value="2">2 (Global)</option>
+              </select></label>
+            <p class="sv-edit-section" data-i18n="sv.edit.signal">Signal</p>
+            <label>freq_hz
+              <input type="number" id="sv-edit-freq" min="0" step="0.1"></label>
+            <label>i_peak (A)
+              <input type="number" id="sv-edit-i-peak" step="0.1"></label>
+            <label>v_peak (V)
+              <input type="number" id="sv-edit-v-peak" step="0.1"></label>
+            <label>phase_deg
+              <input type="number" id="sv-edit-phase" step="0.1"></label>
+            <p class="sv-edit-section" data-i18n="sv.edit.fault">Défaut</p>
+            <label class="sv-edit-check" style="grid-column:1 / -1">
+              <input type="checkbox" id="sv-edit-fault">
+              <span data-i18n="sv.edit.faultOn">Activer le mode défaut</span>
+            </label>
+            <div id="sv-edit-fault-fields" class="sv-edit-grid sv-edit-fault-fields" style="grid-column:1 / -1;gap:0 0.75rem">
+              <label>fault_i_peak (A)
+                <input type="number" id="sv-edit-fault-i-peak" step="0.1"></label>
+              <label>fault_v_peak (V)
+                <input type="number" id="sv-edit-fault-v-peak" step="0.1"></label>
+              <label>fault_phase_deg
+                <input type="number" id="sv-edit-fault-phase" step="0.1"></label>
+              <label>fault_cycle_s
+                <input type="number" id="sv-edit-fault-cycle" min="1" step="1"></label>
+              <label>fault_smpcnt
+                <input type="number" id="sv-edit-fault-smpcnt" min="0" max="4799" step="1"></label>
+              <label>fault_offset_s
+                <input type="number" id="sv-edit-fault-offset" min="0" step="1"></label>
+            </div>
+            <p class="sv-edit-section" data-i18n="sv.edit.rt">Temps réel</p>
+            <label>isolation
+              <select id="sv-edit-isolation">
+                <option value="exclusive_logical">exclusive_logical</option>
+                <option value="exclusive_physical">exclusive_physical</option>
+                <option value="shared">shared</option>
+              </select></label>
+            <label>scheduler
+              <select id="sv-edit-scheduler">
+                <option value="FIFO">FIFO</option>
+                <option value="RR">RR</option>
+                <option value="OTHER">OTHER</option>
+              </select></label>
+            <label>priority
+              <input type="number" id="sv-edit-priority" min="0" max="99"></label>
+            <label>cpu_cores
+              <input type="text" id="sv-edit-cpu-cores" placeholder="7 ou 6,7" autocomplete="off"></label>
+          </div>
+          <div class="modal-actions">
+            <button type="submit" class="btn btn--accent" id="sv-edit-save" data-i18n="common.save">Enregistrer</button>
+            <button type="button" class="btn sv-edit-cancel" data-i18n="common.cancel">Annuler</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 
   <div id="panel-gooselistener" class="panel">
@@ -923,13 +1030,30 @@
       background: var(--bg); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);
     }
     .gl-legend li { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.82rem; line-height: 1.35; min-width: 0; }
+    .gl-legend .gl-legend-btns {
+      display: inline-flex; align-items: center; gap: 0.15rem; flex-shrink: 0; margin-top: 0.05rem;
+    }
     .gl-legend .gl-hist-swatch-btn {
       display: inline-flex; padding: 0; margin: 0; border: none; background: none; cursor: pointer;
-      border-radius: 4px; flex-shrink: 0; margin-top: 0.05rem;
+      border-radius: 4px; flex-shrink: 0;
     }
     .gl-legend .gl-hist-swatch-btn:hover .swatch { box-shadow: 0 0 0 2px var(--accent); }
     .gl-legend .gl-hist-swatch-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .gl-legend .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; display: block; border: 1px solid rgba(255,255,255,0.15); }
+    .gl-legend .gl-hist-vis-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 1.35rem; height: 1.35rem; padding: 0; margin: 0;
+      border: none; background: none; color: var(--muted); cursor: pointer;
+      border-radius: 4px; flex-shrink: 0;
+    }
+    .gl-legend .gl-hist-vis-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+    .gl-legend .gl-hist-vis-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .gl-legend .gl-hist-vis-btn svg { display: block; }
+    .gl-legend .gl-hist-vis-btn[aria-pressed="false"] { color: var(--danger); }
+    .gl-legend li.is-hidden .gl-legend-label,
+    .gl-legend li.is-hidden .gl-legend-count { opacity: 0.45; }
+    .gl-legend li.is-hidden .gl-legend-label { text-decoration: line-through; }
+    .gl-legend li.is-hidden .swatch { opacity: 0.35; }
     .gl-legend .gl-legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
     .gl-legend .gl-legend-count { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
     .gl-hist-color-picker {
@@ -1256,6 +1380,16 @@
         "sv.restarted": "Flux relancé.",
         "sv.allDeleted": "Tous les flux supprimés.",
         "sv.vlan": "{id} / priorité {prio}",
+        "sv.editTitle": "Modifier le flux SV",
+        "sv.edit.network": "Réseau",
+        "sv.edit.identity": "Identité SV",
+        "sv.edit.signal": "Signal",
+        "sv.edit.fault": "Défaut",
+        "sv.edit.faultOn": "Activer le mode défaut",
+        "sv.edit.rt": "Temps réel",
+        "sv.editRestartNote": "L'enregistrement relance l'émetteur SV.",
+        "sv.saved": "Flux mis à jour.",
+        "sv.invalidAppid": "appID invalide (entier ou 0x…).",
         "svview.title": "SV Listener – Phasors U & I",
         "svview.unconfigured": "SV Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> pour capturer les flux SV (0x88ba).",
         "svview.chooseSvid": "Choisir un svID",
@@ -1350,6 +1484,10 @@
         "gl.histMeta": "{n} événement(s) cumulé(s) · pas {step} ms · {bins} intervalle(s) [{lo} … {hi}]",
         "gl.chooseColor": "Choisir la couleur",
         "gl.chooseColorFor": "Choisir la couleur - {label}",
+        "gl.hideSeries": "Masquer la série",
+        "gl.showSeries": "Afficher la série",
+        "gl.hideSeriesFor": "Masquer {label}",
+        "gl.showSeriesFor": "Afficher {label}",
         "gl.problemsStart": "Lancez une analyse pour détecter les problèmes.",
         "gl.problemsNoneCfg": "Aucun problème (seuil {th} ms).",
         "gl.problemsTrunc": " · {shown} affiché(s) sur {total}",
@@ -1601,6 +1739,16 @@
         "sv.restarted": "Stream restarted.",
         "sv.allDeleted": "All streams deleted.",
         "sv.vlan": "{id} / priority {prio}",
+        "sv.editTitle": "Edit SV stream",
+        "sv.edit.network": "Network",
+        "sv.edit.identity": "SV identity",
+        "sv.edit.signal": "Signal",
+        "sv.edit.fault": "Fault",
+        "sv.edit.faultOn": "Enable fault mode",
+        "sv.edit.rt": "Realtime",
+        "sv.editRestartNote": "Saving restarts the SV sender.",
+        "sv.saved": "Stream updated.",
+        "sv.invalidAppid": "Invalid appID (integer or 0x…).",
         "svview.title": "SV Listener – Phasors U & I",
         "svview.unconfigured": "SV Listener is not configured. Start the service with <code>--svview-interface &lt;interface&gt;</code> to capture SV streams (0x88ba).",
         "svview.chooseSvid": "Choose an svID",
@@ -1695,6 +1843,10 @@
         "gl.histMeta": "{n} accumulated event(s) · step {step} ms · {bins} bin(s) [{lo} … {hi}]",
         "gl.chooseColor": "Choose color",
         "gl.chooseColorFor": "Choose color - {label}",
+        "gl.hideSeries": "Hide series",
+        "gl.showSeries": "Show series",
+        "gl.hideSeriesFor": "Hide {label}",
+        "gl.showSeriesFor": "Show {label}",
         "gl.problemsStart": "Start an analysis to detect problems.",
         "gl.problemsNoneCfg": "No problem (threshold {th} ms).",
         "gl.problemsTrunc": " · {shown} shown of {total}",
@@ -1858,6 +2010,7 @@
     ];
     let mmsRecentsCache = [];
     let svLastRecents = [];
+    let svLastFlows = [];
     let svviewRefreshTimer = null;
     let glRefreshTimer = null;
     let glElapsedTimer = null;
@@ -1889,7 +2042,9 @@
       { prefix: 'SSC600', color: GL_HIST_PALETTE[23] },
     ];
     const GL_HIST_COLORS_STORAGE_KEY = 'gl-hist-series-colors-v1';
+    const GL_HIST_HIDDEN_STORAGE_KEY = 'gl-hist-series-hidden-v1';
     let glHistSeriesColors = {};
+    let glHistSeriesHidden = {};
     let glHistColorPickerKey = null;
     const ST_FORM_KEY = 'po-stress-form-v1';
     let stRefreshTimer = null;
@@ -1910,6 +2065,38 @@
 
     function glSaveHistSeriesColors() {
       localStorage.setItem(GL_HIST_COLORS_STORAGE_KEY, JSON.stringify(glHistSeriesColors));
+    }
+
+    function glLoadHistSeriesHidden() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(GL_HIST_HIDDEN_STORAGE_KEY) || '{}');
+        glHistSeriesHidden = (raw && typeof raw === 'object') ? raw : {};
+      } catch {
+        glHistSeriesHidden = {};
+      }
+    }
+
+    function glSaveHistSeriesHidden() {
+      localStorage.setItem(GL_HIST_HIDDEN_STORAGE_KEY, JSON.stringify(glHistSeriesHidden));
+    }
+
+    function glSeriesHidden(s) {
+      return !!glHistSeriesHidden[glSeriesKey(s)];
+    }
+
+    function glToggleHistSeriesHidden(seriesKey) {
+      if (!seriesKey) return;
+      if (glHistSeriesHidden[seriesKey]) delete glHistSeriesHidden[seriesKey];
+      else glHistSeriesHidden[seriesKey] = true;
+      glSaveHistSeriesHidden();
+      glDrawHistogram();
+    }
+
+    function glHistVisIcon(hidden) {
+      if (hidden) {
+        return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3.3 2.1 2 3.4l3.2 3.2C3.3 8 1.7 9.8.9 12c1.7 3.9 6 7 11.1 7 2 0 3.8-.5 5.4-1.3l3.3 3.3 1.3-1.3L3.3 2.1zM12 17c-3.7 0-7-2.1-8.8-5 .9-1.5 2.3-2.8 4.1-3.7l1.6 1.6A5 5 0 0 0 12 17zm8.8-5c-.5-.9-1.2-1.8-2-2.5l-1.5 1.5c.2.3.4.7.5 1.1A5 5 0 0 1 12 17a5 5 0 0 1-1.1-.1L9.4 18.4c.8.4 1.7.6 2.6.6 3.7 0 7-2.1 8.8-5zM12 7a5 5 0 0 1 5 5c0 .3 0 .5-.1.8l1.6 1.6c.6-.7 1.1-1.5 1.5-2.4C18.3 8.1 15.5 7 12 7z"/></svg>';
+      }
+      return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 5C7 5 2.7 8.1 1 12c1.7 3.9 6 7 11 7s9.3-3.1 11-7c-1.7-3.9-6-7-11-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>';
     }
 
     function glSeriesKey(s) {
@@ -2821,6 +3008,7 @@
       try {
         const flows = await (await fetch(API.sv + '/flows')).json();
         const recents = await (await fetch(API.sv + '/flows/recents')).json();
+        svLastFlows = flows;
         svLastRecents = recents;
         const runningNames = new Set(flows.filter(f => f.running).map(f => f.name));
         const svTbody = document.getElementById('sv-list');
@@ -2830,7 +3018,7 @@
           ? flows.map((f, idx) => {
               const rowId = 'sv-row-' + idx;
               const isExp = svExpanded.has(f.name);
-              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><button type="button" class="btn btn--small btn--danger sv-delete" data-name="${escapeHtml(f.name)}">${t('common.delete')}</button></td></tr>
+              return `<tr data-name="${escapeHtml(f.name)}"><td><button type="button" class="btn btn--small expand-btn" data-action="sv-expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(f.name)}</td><td>${escapeHtml(f.interface)}</td><td>${escapeHtml(f.src_mac)} → ${escapeHtml(f.dst_mac)}</td><td>${escapeHtml(f.svid)}</td><td><button type="button" class="btn btn--small btn--accent sv-edit" data-name="${escapeHtml(f.name)}">${t('common.edit')}</button> <button type="button" class="btn btn--small btn--danger sv-delete" data-name="${escapeHtml(f.name)}">${t('common.delete')}</button></td></tr>
               <tr class="details-row" id="${rowId}" data-name="${escapeHtml(f.name)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${svDetailsHtml(f)}</td></tr>`;
             }).join('')
           : '<tr><td colspan="6" class="empty">' + t('common.noStreams') + '</td></tr>';
@@ -2840,6 +3028,9 @@
             if (r.style.display === 'none') { r.style.display = 'table-row'; btn.textContent = '▼'; }
             else { r.style.display = 'none'; btn.textContent = '▶'; }
           });
+        });
+        document.getElementById('sv-list').querySelectorAll('.sv-edit').forEach(btn => {
+          btn.addEventListener('click', () => svEdit(btn.dataset.name));
         });
         document.getElementById('sv-list').querySelectorAll('.sv-delete').forEach(btn => {
           btn.addEventListener('click', () => svDelete(btn.dataset.name));
@@ -2890,6 +3081,144 @@
       document.getElementById('sv-msg').className = 'ok';
       svLoad();
     }
+
+    function svOptNumber(id, integer) {
+      const raw = (document.getElementById(id)?.value || '').trim();
+      if (raw === '') return null;
+      const n = integer ? parseInt(raw, 10) : parseFloat(raw);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function svParseAppid(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return null;
+      const n = parseInt(s, /^0x/i.test(s) ? 16 : 10);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function svSyncFaultFields() {
+      const on = !!document.getElementById('sv-edit-fault')?.checked;
+      document.getElementById('sv-edit-fault-fields')?.classList.toggle('is-disabled', !on);
+    }
+
+    function svFillEditForm(f) {
+      document.getElementById('sv-edit-name').value = f.name || '';
+      document.getElementById('sv-edit-interface').value = f.interface || '';
+      document.getElementById('sv-edit-src-mac').value = f.src_mac || '';
+      document.getElementById('sv-edit-dst-mac').value = f.dst_mac || '';
+      document.getElementById('sv-edit-vlan-id').value = f.vlan_id != null ? f.vlan_id : '';
+      document.getElementById('sv-edit-vlan-prio').value = f.vlan_priority ?? 0;
+      document.getElementById('sv-edit-svid').value = f.svid || '';
+      document.getElementById('sv-edit-appid').value = f.appid != null ? String(f.appid) : '';
+      document.getElementById('sv-edit-conf-rev').value = f.conf_rev ?? 0;
+      document.getElementById('sv-edit-smp-synch').value = String(f.smp_synch ?? 0);
+      document.getElementById('sv-edit-freq').value = f.freq_hz ?? 50;
+      document.getElementById('sv-edit-i-peak').value = f.i_peak ?? 10;
+      document.getElementById('sv-edit-v-peak').value = f.v_peak ?? 100;
+      document.getElementById('sv-edit-phase').value = f.phase_deg ?? 0;
+      document.getElementById('sv-edit-fault').checked = !!f.fault;
+      document.getElementById('sv-edit-fault-i-peak').value = f.fault_i_peak != null ? f.fault_i_peak : '';
+      document.getElementById('sv-edit-fault-v-peak').value = f.fault_v_peak != null ? f.fault_v_peak : '';
+      document.getElementById('sv-edit-fault-phase').value = f.fault_phase_deg != null ? f.fault_phase_deg : '';
+      document.getElementById('sv-edit-fault-cycle').value = f.fault_cycle_s ?? 2;
+      document.getElementById('sv-edit-fault-smpcnt').value = f.fault_smpcnt ?? 0;
+      document.getElementById('sv-edit-fault-offset').value = f.fault_offset_s ?? 0;
+      document.getElementById('sv-edit-isolation').value = f.seapath_isolation || 'exclusive_logical';
+      document.getElementById('sv-edit-scheduler').value = f.seapath_scheduler || 'FIFO';
+      document.getElementById('sv-edit-priority').value = f.seapath_priority ?? 80;
+      document.getElementById('sv-edit-cpu-cores').value = f.seapath_cpu_cores || '';
+      document.getElementById('sv-edit-details').textContent =
+        f.name + ' · ' + t('sv.editRestartNote');
+      svSyncFaultFields();
+    }
+
+    function svBuildConfigFromForm() {
+      const appid = svParseAppid(document.getElementById('sv-edit-appid').value);
+      if (appid == null) throw new Error(t('sv.invalidAppid'));
+      const cores = (document.getElementById('sv-edit-cpu-cores').value || '').trim();
+      return {
+        name: document.getElementById('sv-edit-name').value,
+        interface: document.getElementById('sv-edit-interface').value.trim(),
+        src_mac: document.getElementById('sv-edit-src-mac').value.trim(),
+        dst_mac: document.getElementById('sv-edit-dst-mac').value.trim(),
+        svid: document.getElementById('sv-edit-svid').value.trim(),
+        appid,
+        conf_rev: svOptNumber('sv-edit-conf-rev', true) ?? 0,
+        smp_synch: svOptNumber('sv-edit-smp-synch', true) ?? 0,
+        vlan_id: svOptNumber('sv-edit-vlan-id', true),
+        vlan_priority: svOptNumber('sv-edit-vlan-prio', true) ?? 0,
+        freq_hz: svOptNumber('sv-edit-freq') ?? 50,
+        i_peak: svOptNumber('sv-edit-i-peak') ?? 10,
+        v_peak: svOptNumber('sv-edit-v-peak') ?? 100,
+        phase_deg: svOptNumber('sv-edit-phase') ?? 0,
+        fault: !!document.getElementById('sv-edit-fault').checked,
+        fault_i_peak: svOptNumber('sv-edit-fault-i-peak'),
+        fault_v_peak: svOptNumber('sv-edit-fault-v-peak'),
+        fault_phase_deg: svOptNumber('sv-edit-fault-phase'),
+        fault_cycle_s: svOptNumber('sv-edit-fault-cycle', true) ?? 2,
+        fault_smpcnt: svOptNumber('sv-edit-fault-smpcnt', true) ?? 0,
+        fault_offset_s: svOptNumber('sv-edit-fault-offset', true) ?? 0,
+        seapath_isolation: document.getElementById('sv-edit-isolation').value,
+        seapath_scheduler: document.getElementById('sv-edit-scheduler').value,
+        seapath_priority: svOptNumber('sv-edit-priority', true) ?? 80,
+        seapath_cpu_cores: cores || null,
+      };
+    }
+
+    function svCloseEdit() {
+      const modal = document.getElementById('sv-edit-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function svEdit(name) {
+      const f = (svLastFlows || []).find(x => x.name === name);
+      if (!f) {
+        document.getElementById('sv-msg').textContent = t('common.error', { msg: name });
+        document.getElementById('sv-msg').className = 'err';
+        return;
+      }
+      svFillEditForm(f);
+      document.getElementById('sv-edit-modal').style.display = 'flex';
+    }
+
+    document.getElementById('sv-edit-fault')?.addEventListener('change', svSyncFaultFields);
+    document.getElementById('sv-edit-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const saveBtn = document.getElementById('sv-edit-save');
+      let cfg;
+      try {
+        cfg = svBuildConfigFromForm();
+      } catch (err) {
+        alert(err.message);
+        return;
+      }
+      if (saveBtn) saveBtn.disabled = true;
+      try {
+        const r = await fetch(API.sv + '/flows/' + encodeURIComponent(cfg.name), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cfg),
+        });
+        if (!r.ok) {
+          const text = await r.text();
+          let detail = text;
+          try { detail = JSON.parse(text).detail || text; } catch (_) { /* raw */ }
+          throw new Error(detail);
+        }
+        svCloseEdit();
+        document.getElementById('sv-msg').textContent = t('sv.saved');
+        document.getElementById('sv-msg').className = 'ok';
+        svLoad();
+      } catch (err) {
+        alert(t('common.error', { msg: err.message }));
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    });
+    document.querySelector('.sv-edit-cancel')?.addEventListener('click', svCloseEdit);
+    document.getElementById('sv-edit-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'sv-edit-modal') svCloseEdit();
+    });
     document.getElementById('sv-refresh').addEventListener('click', () => { document.getElementById('sv-msg').textContent = ''; svLoad(); });
     document.getElementById('sv-purge').addEventListener('click', async () => {
       if (!confirm(t('common.confirmDeleteAll'))) return;
@@ -3699,10 +4028,11 @@
       }
       const edges = hist.bin_edges;
       const series = hist.series || [];
+      const drawn = series.filter(s => !glSeriesHidden(s));
       const numBins = edges.length - 1;
-      const numSeries = Math.max(series.length, 1);
+      const numSeries = Math.max(drawn.length, 1);
       let maxCount = 1;
-      series.forEach(s => (s.counts || []).forEach(c => { if (c > maxCount) maxCount = c; }));
+      drawn.forEach(s => (s.counts || []).forEach(c => { if (c > maxCount) maxCount = c; }));
 
       const w = 640;
       const xLabelRows = numBins > 14 ? 2 : 1;
@@ -3748,7 +4078,7 @@
         const groupW = Math.max(2, barW - barGap);
         const innerGap = numSeries > 1 ? 1.5 : 0;
         const subBarW = Math.max(2, (groupW - innerGap * (numSeries - 1)) / numSeries);
-        series.forEach((s, si) => {
+        drawn.forEach((s, si) => {
           const c = (s.counts || [])[i] || 0;
           if (!c) return;
           const x = groupX + si * (subBarW + innerGap);
@@ -3783,17 +4113,28 @@
       root.innerHTML = svg;
 
       if (meta) {
-        const totalEvents = hist.total ?? series.reduce((n, s) => n + (s.total || 0), 0);
+        const totalEvents = drawn.reduce((n, s) => n + (s.total || 0), 0);
         meta.textContent = t('gl.histMeta', { n: totalEvents, step: glFormatMs(hist.bin_width_ms || 1), bins: numBins, lo: glFormatMs(edges[0]), hi: glFormatMs(edges[edges.length - 1]) });
       }
       if (legend) {
         legend.innerHTML = series.map(s => {
           const col = glSeriesColor(s);
-          const skey = encodeURIComponent(glSeriesKey(s));
-          return `<li title="${escapeHtml(s.label)}">
-            <button type="button" class="gl-hist-swatch-btn" data-series-key="${skey}" aria-label="${t('gl.chooseColorFor', { label: escapeHtml(s.label) })}" title="${t('gl.chooseColor')}">
-              <span class="swatch" style="background:${col}"></span>
-            </button>
+          const key = glSeriesKey(s);
+          const skey = encodeURIComponent(key);
+          const hidden = !!glHistSeriesHidden[key];
+          const visLabel = hidden
+            ? t('gl.showSeriesFor', { label: s.label })
+            : t('gl.hideSeriesFor', { label: s.label });
+          const visTitle = hidden ? t('gl.showSeries') : t('gl.hideSeries');
+          return `<li class="${hidden ? 'is-hidden' : ''}" title="${escapeHtml(s.label)}">
+            <span class="gl-legend-btns">
+              <button type="button" class="gl-hist-swatch-btn" data-series-key="${skey}" aria-label="${t('gl.chooseColorFor', { label: escapeHtml(s.label) })}" title="${t('gl.chooseColor')}">
+                <span class="swatch" style="background:${col}"></span>
+              </button>
+              <button type="button" class="gl-hist-vis-btn" data-series-key="${skey}" aria-pressed="${hidden ? 'false' : 'true'}" aria-label="${escapeHtml(visLabel)}" title="${escapeHtml(visTitle)}">
+                ${glHistVisIcon(hidden)}
+              </button>
+            </span>
             <span class="gl-legend-label">${escapeHtml(s.label)}</span>
             <span class="gl-legend-count">${s.total}</span>
           </li>`;
@@ -4264,6 +4605,12 @@
     });
 
     document.getElementById('gl-legend')?.addEventListener('click', (e) => {
+      const vis = e.target.closest('.gl-hist-vis-btn');
+      if (vis?.dataset.seriesKey) {
+        e.stopPropagation();
+        glToggleHistSeriesHidden(decodeURIComponent(vis.dataset.seriesKey));
+        return;
+      }
       const btn = e.target.closest('.gl-hist-swatch-btn');
       if (!btn?.dataset.seriesKey) return;
       e.stopPropagation();
@@ -4292,6 +4639,7 @@
     });
 
     glLoadHistSeriesColors();
+    glLoadHistSeriesHidden();
 
     document.getElementById('gl-events-download')?.addEventListener('click', async () => {
       try {
