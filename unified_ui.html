@@ -652,6 +652,7 @@
             </div>
             <p class="status" id="gl-hist-meta">-</p>
             <div id="gl-histogram" class="gl-histogram"></div>
+            <div id="gl-hist-tip" class="gl-hist-tip" hidden></div>
             <ul id="gl-legend" class="gl-legend"></ul>
             <div id="gl-hist-color-picker" class="gl-hist-color-picker" hidden role="dialog" aria-label="Couleur de la série" data-i18n-aria="gl.seriesColor">
               <p class="gl-hist-color-picker-title" data-i18n="gl.seriesColor">Couleur de la série</p>
@@ -1028,6 +1029,16 @@
     }
     .gl-histogram { width: 100%; min-height: 280px; }
     .gl-histogram svg { display: block; width: 100%; height: auto; }
+    .gl-histogram svg .gl-hist-bar { cursor: help; }
+    .gl-histogram svg text { pointer-events: none; }
+    .gl-hist-tip {
+      position: fixed; z-index: 1300; pointer-events: none;
+      max-width: 18rem; padding: 0.35rem 0.55rem;
+      font-size: 0.78rem; line-height: 1.35; white-space: pre-line;
+      color: var(--text); background: var(--surface);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
     .gl-legend {
       list-style: none; padding: 0.65rem 0.75rem; margin: 0.75rem 0 0;
       display: flex; flex-direction: column; gap: 0.45rem;
@@ -1510,6 +1521,7 @@
         "gl.histY": "Événements",
         "gl.histYLog": "Événements (log)",
         "gl.histMeta": "{n} événement(s) cumulé(s) · pas {step} ms · {bins} intervalle(s) [{lo} … {hi}]",
+        "gl.histBarTip": "{label}\nΔ {ms} ms · {n} événement(s)",
         "gl.chooseColor": "Choisir la couleur",
         "gl.chooseColorFor": "Choisir la couleur - {label}",
         "gl.hideSeries": "Masquer la série",
@@ -1878,6 +1890,7 @@
         "gl.histY": "Events",
         "gl.histYLog": "Events (log)",
         "gl.histMeta": "{n} accumulated event(s) · step {step} ms · {bins} bin(s) [{lo} … {hi}]",
+        "gl.histBarTip": "{label}\nΔ {ms} ms · {n} event(s)",
         "gl.chooseColor": "Choose color",
         "gl.chooseColorFor": "Choose color - {label}",
         "gl.hideSeries": "Hide series",
@@ -4073,6 +4086,34 @@
       return v.toFixed(2);
     }
 
+    function glHistBinMsText(lo, hi, binWidth) {
+      if (Math.abs((binWidth || 1) - 1) < 1e-6) return String(Math.round(lo));
+      return glFormatMs(lo) + '–' + glFormatMs(hi);
+    }
+
+    function glHideHistTip() {
+      const tip = document.getElementById('gl-hist-tip');
+      if (!tip) return;
+      tip.hidden = true;
+      tip.textContent = '';
+    }
+
+    function glShowHistTip(text, clientX, clientY) {
+      const tip = document.getElementById('gl-hist-tip');
+      if (!tip || !text) return;
+      tip.textContent = text;
+      tip.hidden = false;
+      const pad = 8;
+      const tw = tip.offsetWidth;
+      const th = tip.offsetHeight;
+      let x = clientX + 12;
+      let y = clientY + 12;
+      if (x + tw > window.innerWidth - pad) x = Math.max(pad, clientX - tw - 12);
+      if (y + th > window.innerHeight - pad) y = Math.max(pad, clientY - th - 12);
+      tip.style.left = x + 'px';
+      tip.style.top = y + 'px';
+    }
+
     const GL_HIST_BIN_MS = 1;
 
     /** Agrège les Δ bruts (API) en histogramme 1 ms - rendu côté navigateur. */
@@ -4131,6 +4172,7 @@
         plotBg: '#13131a',
       };
       if (!root || !hist || !hist.bin_edges || hist.bin_edges.length < 2) {
+        glHideHistTip();
         if (root) root.innerHTML = '<p class="status">' + t('gl.noData') + '</p>';
         if (meta) meta.textContent = '-';
         if (legend) legend.innerHTML = '';
@@ -4188,6 +4230,9 @@
         const groupW = Math.max(2, barW - barGap);
         const innerGap = numSeries > 1 ? 1.5 : 0;
         const subBarW = Math.max(2, (groupW - innerGap * (numSeries - 1)) / numSeries);
+        const lo = edges[i];
+        const hi = edges[i + 1];
+        const msText = glHistBinMsText(lo, hi, hist.bin_width_ms || 1);
         drawn.forEach((s, si) => {
           const c = (s.counts || [])[i] || 0;
           if (!c) return;
@@ -4195,14 +4240,13 @@
           const y = yAt(c);
           const bh = Math.max(0.5, yBase - y);
           const col = glSeriesColor(s);
-          svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${subBarW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${col}" rx="2" opacity="0.92"/>`;
+          const tip = t('gl.histBarTip', { label: s.label, ms: msText, n: c });
+          svg += `<rect class="gl-hist-bar" data-tip="${encodeURIComponent(tip)}" aria-label="${escapeHtml(tip)}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${subBarW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${col}" rx="2" opacity="0.92"/>`;
           if (c > 0 && subBarW >= 7) {
             svg += `<text x="${(x + subBarW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" fill="${C.text}" font-size="9" text-anchor="middle" font-family="system-ui,sans-serif">${c}</text>`;
           }
         });
         const cx = groupX + groupW / 2;
-        const lo = edges[i];
-        const hi = edges[i + 1];
         const label = numBins <= 20
           ? (hi - lo >= 1 ? `${glFormatMs(lo)}` : `${glFormatMs(lo)}–${glFormatMs(hi)}`)
           : (i % Math.ceil(numBins / 12) === 0 ? glFormatMs(lo) : '');
@@ -4737,6 +4781,18 @@
 
     document.getElementById('gl-hist-log-y')?.addEventListener('click', () => {
       glSetHistLogY(!glHistLogY);
+    });
+
+    document.getElementById('gl-histogram')?.addEventListener('pointermove', (e) => {
+      const bar = e.target.closest?.('.gl-hist-bar');
+      if (!bar?.dataset.tip) {
+        glHideHistTip();
+        return;
+      }
+      glShowHistTip(decodeURIComponent(bar.dataset.tip), e.clientX, e.clientY);
+    });
+    document.getElementById('gl-histogram')?.addEventListener('pointerleave', () => {
+      glHideHistTip();
     });
 
     document.getElementById('gl-legend')?.addEventListener('click', (e) => {
