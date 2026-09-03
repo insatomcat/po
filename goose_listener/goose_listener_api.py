@@ -66,6 +66,12 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
             return HTTPStatus.BAD_REQUEST, {"error": err}
         return HTTPStatus.OK, mgr.analysis_status()
 
+    if path == "/analysis/refresh-sv" and method == "POST":
+        err = mgr.refresh_sv_timing()
+        if err:
+            return HTTPStatus.BAD_REQUEST, {"error": err}
+        return HTTPStatus.OK, mgr.analysis_status()
+
     if path == "/analysis/filter" and method == "POST":
         event_filter = _normalize_event_filter(str(data.get("event_filter") or "").strip())
         err = mgr.set_event_filter(event_filter)

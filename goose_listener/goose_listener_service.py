@@ -1230,6 +1230,27 @@ class GooseListenerManager:
         self._persist_analysis_state()
         return None
 
+    def refresh_sv_timing(self) -> Optional[str]:
+        """Relit cycle / smpCnt / offset depuis les flux SV, sans retirer les gocbRef."""
+        sv_flows = list_sv_flow_infos()
+        with self._lock:
+            analyzing = self._mode == "analyze"
+            for t in self._targets.values():
+                apply_auto_svid(t, sv_flows)
+                if analyzing:
+                    snapshot_target_timing(t, sv_flows)
+                else:
+                    timing = _resolve_target_timing_live(t, sv_flows)
+                    t.svid = timing.svid
+                    t.cycle_s = timing.cycle_s
+                    t.fault_smpcnt = timing.smpcnt if timing.linked else None
+                    t.fault_offset_s = timing.offset_s if timing.linked else None
+                    t.sv_linked = timing.linked
+                    t.timing_frozen = False
+            self._analysis_poll_cache.key = None
+        self._persist_analysis_state()
+        return None
+
     def start_scan(self, duration_s: float = 5.0) -> Optional[str]:
         duration_s = max(0.5, min(float(duration_s), 120.0))
         with self._lock:
