@@ -44,6 +44,24 @@ SPDX-License-Identifier: Apache-2.0
       padding: 1rem 1.5rem;
       line-height: 1.5;
     }
+    input[type="number"] {
+      font: inherit;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--muted);
+      border-radius: 4px;
+      padding: 0.12rem 0.3rem;
+      height: 2rem;
+      line-height: 1.2;
+    }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      height: 1.15rem;
+      margin: 0;
+      transform: scale(0.68);
+      transform-origin: center right;
+      cursor: pointer;
+    }
     .tabs {
       display: flex;
       gap: 0.25rem;
@@ -165,6 +183,10 @@ SPDX-License-Identifier: Apache-2.0
     .modal-content input, .modal-content textarea, .modal-content select {
       width: 100%; padding: 0.5rem; background: var(--bg); border: 1px solid var(--muted);
       border-radius: 4px; color: var(--text); font-family: inherit;
+    }
+    .modal-content input[type="number"] {
+      height: auto;
+      padding: 0.5rem;
     }
     .modal-content textarea { min-height: 12rem; }
     .modal-content--wide { max-width: 720px; }
@@ -346,7 +368,7 @@ SPDX-License-Identifier: Apache-2.0
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
             <span data-i18n="mms.field.iedPort">IED Port</span>
-            <input type="number" id="mms-cmd-ied-port" name="ied_port" min="1" placeholder="102" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+            <input type="number" id="mms-cmd-ied-port" name="ied_port" min="1" placeholder="102" style="background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
             <span data-i18n="mms.field.domainLd">Domaine (LD)</span>
@@ -912,6 +934,11 @@ SPDX-License-Identifier: Apache-2.0
     .st-form input, .st-form--compact input[type="number"] {
       width: 100%; padding: 0.45rem 0.55rem; background: var(--bg);
       border: 1px solid var(--muted); border-radius: 4px; color: var(--text); font: inherit;
+    }
+    .st-form input[type="number"],
+    .st-form--compact input[type="number"] {
+      height: auto;
+      padding: 0.45rem 0.55rem;
     }
     .st-form--compact { margin-top: 0.75rem; }
     .st-check { display: flex; align-items: center; gap: 0.4rem; margin: 0.55rem 0 0; }
@@ -3578,11 +3605,11 @@ SPDX-License-Identifier: Apache-2.0
               <form id="svview-config-form" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;min-width:0">
                 <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
                   <span style="overflow-wrap:break-word">${t('svview.refreshS')}</span>
-                  <input type="number" name="interval" min="0.1" step="0.1" value="${svviewConfigCache.interval}" style="padding:6px;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text)">
+                  <input type="number" name="interval" min="0.1" step="0.1" value="${svviewConfigCache.interval}" style="background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text)">
                 </label>
                 <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
                   <span style="overflow-wrap:break-word">${t('svview.windowS')}</span>
-                  <input type="number" name="window" min="1" step="1" value="${svviewConfigCache.window}" style="padding:6px;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text)">
+                  <input type="number" name="window" min="1" step="1" value="${svviewConfigCache.window}" style="background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text)">
                 </label>
                 <button type="submit" class="btn btn--accent" style="grid-column:1/-1">${t('common.apply')}</button>
               </form>
