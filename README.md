@@ -1,87 +1,87 @@
-# PO – Plateforme IEC 61850
+# PO - IEC 61850 Platform
 
-Plateforme logicielle pour **MMS** (reports), **GOOSE** et **Sampled Values (SV)** selon les normes IEC 61850. Implémentations en Python, sans dépendance GPL pour le cœur MMS (TPKT/COTP/MMS en BER).
+Software platform for **MMS** (reports), **GOOSE** and **Sampled Values (SV)** following the IEC 61850 standards. Python implementations, with no GPL dependency for the MMS core (TPKT/COTP/MMS in BER).
 
-## Vue d’ensemble
+## Overview
 
-| Composant | Rôle | Dossier |
-|-----------|------|---------|
-| **Service unifié** | HTTP sur un seul port (7050) : Web UI, API MMS/GOOSE/SV, proxy SV Listener, GOOSE Listener | Racine (`po_service.py`, `unified_ui.html`) |
-| **MMS** | Client reports IEC 61850, service HTTP, API, CLI | [mms/](mms/README.md) |
-| **GOOSE** | Envoi/réception GOOSE, service HTTP, API, CLI, bibliothèque | [goose/](goose/README.md) |
-| **GOOSE Listener** | Capture bus, mesure Δ déclenchement → seconde pile, alertes (délais, manquants) | [goose_listener/](goose_listener/README.md) |
-| **Stress** | Stress-test SSH/`stress-ng` des nœuds (housekeeping, cœurs hors VM) | [stress/](stress/README.md) |
-| **SV Generator** | Générateur de flux SV (IEC 61869-9), service FastAPI, API, CLI | [svgenerator/](svgenerator/README.md) |
-| **SV Listener View** | Capture et visualisation SV (phasors U/I), interface web | [svlistener_view/](svlistener_view/README.md) |
+| Component | Role | Directory |
+|-----------|------|-----------|
+| **Unified service** | HTTP on a single port (7050): Web UI, MMS/GOOSE/SV API, SV Listener proxy, GOOSE Listener | Root (`po_service.py`, `unified_ui.html`) |
+| **MMS** | IEC 61850 report client, HTTP service, API, CLI | [mms/](mms/README.md) |
+| **GOOSE** | GOOSE send/receive, HTTP service, API, CLI, library | [goose/](goose/README.md) |
+| **GOOSE Listener** | Bus capture, trip Δ measurement to the second stage, alerts (delays, missing frames) | [goose_listener/](goose_listener/README.md) |
+| **Stress** | SSH/`stress-ng` stress test of the nodes (housekeeping, cores outside the VM) | [stress/](stress/README.md) |
+| **SV Generator** | SV stream generator (IEC 61869-9), FastAPI service, API, CLI | [svgenerator/](svgenerator/README.md) |
+| **SV Listener View** | SV capture and visualisation (U/I phasors), web interface | [svlistener_view/](svlistener_view/README.md) |
 
-## Prérequis
+## Requirements
 
 - **Python 3.10+**
-- Pour MMS : stdlib uniquement (pas de `pip install`)
-- Pour GOOSE : **pcapy** (capture) + **scapy** (publication) via `goose61850.transport`
-- Pour SV Generator : voir [svgenerator/requirements.txt](svgenerator/requirements.txt) (FastAPI, Pydantic, etc.)
-- Pour SV Listener View : `pcapy`, Flask (voir [svlistener_view/](svlistener_view/README.md))
+- For MMS: stdlib only (no `pip install`)
+- For GOOSE: **pcapy** (capture) + **scapy** (publication) through `goose61850.transport`
+- For SV Generator: see [svgenerator/requirements.txt](svgenerator/requirements.txt) (FastAPI, Pydantic, etc.)
+- For SV Listener View: `pcapy`, Flask (see [svlistener_view/](svlistener_view/README.md))
 
-## Démarrage rapide – Service unifié
+## Quick start - unified service
 
-Tout démarrer sur le port **7050** (Web UI + APIs) :
+Start everything on port **7050** (Web UI + APIs):
 
 ```bash
 python3 po_service.py --port 7050
 ```
 
-Puis ouvrir **http://localhost:7050** : interface avec onglets MMS | GOOSE | SV | SV Listener | GOOSE Listener | Stress.
+Then open **http://localhost:7050**: an interface with the MMS | GOOSE | SV | SV Listener | GOOSE Listener | Stress tabs.
 
-Options utiles :
+Useful options:
 
-- `--victoriametrics-url http://localhost:8428` : push des reports MMS vers VictoriaMetrics (Grafana)
-- `--svview-interface eth0` : active le proxy vers le SV Listener (capture SV sur `eth0`), l’onglet **SV Listener**, et le **GOOSE Listener** (capture GOOSE sur la même interface)
+- `--victoriametrics-url http://localhost:8428`: push MMS reports to VictoriaMetrics (Grafana)
+- `--svview-interface eth0`: enables the proxy to the SV Listener (SV capture on `eth0`), the **SV Listener** tab, and the **GOOSE Listener** (GOOSE capture on the same interface)
 
-Exemple sur bus process :
+Example on a process bus:
 
 ```bash
 python3 po_service.py --svview-interface processbus --port 7050
 ```
 
-Sans `--svview-interface` : les onglets SV Listener et GOOSE Listener affichent « non configuré » (API **503**).
+Without `--svview-interface`, the SV Listener and GOOSE Listener tabs show "not configured" (API **503**).
 
-### Endpoints principaux
+### Main endpoints
 
-| Chemin | Description |
-|--------|-------------|
-| `/` | Web UI unifiée |
+| Path | Description |
+|------|-------------|
+| `/` | Unified Web UI |
 | `/healthz` | Health check |
-| `/api/mms/*` | API MMS (abonnements, recents, logs SSE) |
-| `/api/goose/*` | API GOOSE (streams, recent, restart) |
-| `/api/sv/*` | API SV (flux, recents) |
-| `/api/svview/*` | Proxy vers SV Listener (si `--svview-interface` configuré) |
-| `/api/gooselistener/*` | GOOSE Listener : scan, analyse, événements, problèmes (si `--svview-interface` configuré) |
-| `/api/stress/*` | Stress-test nœuds : SSH, carte CPU, `stress-ng` |
+| `/api/mms/*` | MMS API (subscriptions, recents, SSE logs) |
+| `/api/goose/*` | GOOSE API (streams, recent, restart) |
+| `/api/sv/*` | SV API (streams, recents) |
+| `/api/svview/*` | Proxy to the SV Listener (if `--svview-interface` is configured) |
+| `/api/gooselistener/*` | GOOSE Listener: scan, analysis, events, problems (if `--svview-interface` is configured) |
+| `/api/stress/*` | Node stress test: SSH, CPU map, `stress-ng` |
 
-Le poll WebUI du GOOSE Listener appelle `GET /api/gooselistener/status` toutes les **2 s** pendant un scan ou une analyse. La capture réseau (BPF GOOSE, file dédiée) reste indépendante du rafraîchissement UI — voir [goose_listener/README.md](goose_listener/README.md) pour la mesure Δ, les alertes et le diagnostic `capture.drops`.
+The GOOSE Listener Web UI poll calls `GET /api/gooselistener/status` every **2 s** during a scan or an analysis. Network capture (GOOSE BPF, dedicated queue) stays independent from the UI refresh. See [goose_listener/README.md](goose_listener/README.md) for the Δ measurement, the alerts and the `capture.drops` diagnostic.
 
-## Structure du dépôt
+## Repository layout
 
 ```
 po/
-├── README.md              # Ce fichier
-├── po_service.py          # Service HTTP unifié (port 7050)
-├── unified_ui.html        # Interface web (onglets MMS/GOOSE/SV/SV Listener/GOOSE Listener/Stress)
-├── iec_data.py            # Types IEC 61850 partagés (IECData, BoolData, IntData, TimestampData, …)
-├── mms/                   # Client MMS, service, API, CLI → mms/README.md
-├── goose/                 # GOOSE service, lib, CLI → goose/README.md
-├── goose_listener/        # Listener GOOSE (mesure Δ, problèmes) → goose_listener/README.md
-├── stress/                # Stress-test nœuds (SSH + stress-ng) → stress/README.md
-├── svgenerator/           # Générateur SV, API, CLI → svgenerator/README.md
-└── svlistener_view/       # Listener + vue SV → svlistener_view/README.md
+├── README.md              # This file
+├── po_service.py          # Unified HTTP service (port 7050)
+├── unified_ui.html        # Web interface (MMS/GOOSE/SV/SV Listener/GOOSE Listener/Stress tabs)
+├── iec_data.py            # Shared IEC 61850 types (IECData, BoolData, IntData, TimestampData, …)
+├── mms/                   # MMS client, service, API, CLI -> mms/README.md
+├── goose/                 # GOOSE service, lib, CLI -> goose/README.md
+├── goose_listener/        # GOOSE listener (Δ measurement, problems) -> goose_listener/README.md
+├── stress/                # Node stress test (SSH + stress-ng) -> stress/README.md
+├── svgenerator/           # SV generator, API, CLI -> svgenerator/README.md
+└── svlistener_view/       # SV listener + view -> svlistener_view/README.md
 ```
 
-Chaque sous-dossier contient son propre **README** (applications, services, clients CLI, API).
+Each subdirectory has its own **README** (applications, services, CLI clients, API).
 
-## Licence et contraintes
+## Licence and constraints
 
-- Cœur MMS : implémentation maison TPKT/COTP/MMS en BER, **sans bibliothèque GPL**.
-- Autres composants : voir les fichiers sources et README des sous-dossiers.
+- MMS core: in-house TPKT/COTP/MMS implementation in BER, **without any GPL library**.
+- Other components: see the source files and the READMEs of the subdirectories.
 
 ## License
 
