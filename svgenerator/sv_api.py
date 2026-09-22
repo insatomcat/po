@@ -87,6 +87,7 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
             try:
                 proc = start_flow_process(cfg)
             except Exception as exc:
+                print(f"[sv] start failed: {exc}", flush=True)
                 return 500, {"detail": str(exc)}
             flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
         _add_to_recents(cfg)
@@ -108,6 +109,7 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
             try:
                 proc = start_flow_process(cfg)
             except Exception as exc:
+                print(f"[sv] start failed: {exc}", flush=True)
                 return 500, {"detail": str(exc)}
             flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
         _add_to_recents(cfg)

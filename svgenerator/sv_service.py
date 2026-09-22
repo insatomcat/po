@@ -457,6 +457,7 @@ def start_flow_process(cfg: FlowConfig) -> Popen:
                 cores = str(cpu)
         if cores is not None:
             cmd = ["taskset", "-c", cores, "chrt", "-f", str(cfg.seapath_priority)] + cmd
+    PIDS_DIR.mkdir(parents=True, exist_ok=True)
     log_path = PIDS_DIR / f"{cfg.name}.log"
     print(f"[sv] start: {' '.join(cmd)}", flush=True)
     # start_new_session=True: le processus survit au redémarrage du service po.
@@ -863,6 +864,7 @@ def create_flow(cfg: FlowConfig) -> FlowState:
         try:
             proc = start_flow_process(cfg)
         except Exception as exc:
+            print(f"[sv] start failed: {exc}", flush=True)
             raise HTTPException(status_code=500, detail=str(exc))
         flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
     _add_to_recents(cfg)
@@ -881,6 +883,7 @@ def update_flow(name: str, cfg: FlowConfig) -> FlowState:
         try:
             proc = start_flow_process(cfg)
         except Exception as exc:
+            print(f"[sv] start failed: {exc}", flush=True)
             raise HTTPException(status_code=500, detail=str(exc))
         flows[name] = FlowRuntime(config=cfg, proc=proc)
     _add_to_recents(cfg)
