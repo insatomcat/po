@@ -42,10 +42,17 @@ connection per send, `control.operate`, ctlNum incremented per command,
 HTTP 409 with the AddCause on refusal) run on `iec61850.mms` (see below).
 The SV listener (`svlistener_view`) decodes with `iec61850.sv`; decoding
 runs on the SV worker of `processbus_capture` (frames are timestamped by the
-capture thread before the queue). `ber.decode_tlv` and `sv._asdu_fields` have
-fast paths for short tags and lengths: 9 us per 2-ASDU frame on the dev Mac
-against 4.7 us for the old ad hoc parser (`tools/bench_sv_decode.py`
-measures it on the target). Malformed frames count as `parse_errors`.
+capture thread before the queue). A process bus with 7 SV streams carries
+~16,800 frames/s, and only the selected svID needs samples: a stream
+(addresses + APPID, read from the raw header) is decoded in full when new,
+when it carries the selected svID, and once per second to refresh the svID
+list; its other frames are only counted. On a Xeon Gold server (Python
+3.13), one second of that traffic costs 11 % of a core, against 23 % for
+the old parser that decoded every frame. Library decode alone: 22 us per
+2-ASDU frame there, 9 us on a recent Mac (`tools/bench_sv_decode.py`);
+`ber.decode_tlv` and `sv._asdu_fields` have fast paths for short tags and
+lengths. Malformed frames count as `parse_errors`. Streams with fewer than 8
+channels per ASDU are listed but not displayed (as before).
 Still on their own code: the legacy CLIs `mms/test_client_reports.py` and
 `mms/discover_reports.py`, and the diagnostic SV scripts in `svgenerator/`.
 

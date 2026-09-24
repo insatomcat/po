@@ -83,6 +83,21 @@ def _channels(pdu: sv_codec.SvPDU) -> list[tuple[str, int, list[int]]]:
     return out
 
 
+# Streams already decoded: key -> (svIDs, usable ASDUs per frame, next full decode, monotonic).
+_KNOWN_STREAMS: dict[bytes, tuple[frozenset, int, float]] = {}
+STREAM_REFRESH_S = 1.0
+
+
+def _stream_key(raw: bytes) -> bytes | None:
+    """Addresses + APPID of an SV frame, read without decoding it; None if not SV."""
+    offset = 12
+    if raw[12:14] == b"\x81\x00":
+        offset = 16
+    if raw[offset : offset + 2] != b"\x88\xba" or len(raw) < offset + 4:
+        return None
+    return raw[:12] + raw[offset + 2 : offset + 4]
+
+
 def parse_sv_asdus_with_seqdata(payload: bytes) -> list[tuple[str, int, list[int]]]:
     """Channels of an SV payload (8-byte APPID header + savPdu); raises SvDecodeError."""
     return _channels(sv_codec.decode_sv_pdu(payload[8:]))
@@ -385,6 +400,7 @@ class CaptureManager:
             self.stats["capture_running"] = False
         with self.seen_svids_lock:
             self.seen_svids.clear()
+        _KNOWN_STREAMS.clear()
         return {"running": False, "stopped": True}
 
     def _run(self) -> None:
@@ -496,7 +512,25 @@ def process_sv_frame(
     seen_svids: set,
     seen_svids_lock: threading.Lock,
 ) -> None:
-    """Handle one timestamped SV Ethernet frame (0x88ba)."""
+    """Handle one timestamped SV Ethernet frame (0x88ba).
+
+    Only the selected svID needs its samples, but every stream must show in
+    the svID list. A stream (addresses + APPID) is decoded in full when it is
+    new, when it carries the selected svID, and once per STREAM_REFRESH_S;
+    in between its frames are only counted.
+    """
+    svid_filter = config.get("svid")
+    key = _stream_key(raw)
+    if key is None:
+        return
+    known = _KNOWN_STREAMS.get(key)
+    now = time.monotonic()
+    if known is not None and now < known[2] and svid_filter not in known[0]:
+        with stats_lock:
+            stats["sv_packets"] += 1
+            stats["asdu_seen"] += known[1]
+        return
+
     try:
         decoded = sv_codec.decode_sv_frame(raw)
     except sv_codec.SvDecodeError as e:
@@ -508,14 +542,14 @@ def process_sv_frame(
     if decoded is None:
         return
     asdus = _channels(decoded[1])
+    svids = frozenset(a.sv_id for a in decoded[1].asdus)
+    _KNOWN_STREAMS[key] = (svids, len(asdus), now + STREAM_REFRESH_S)
     with stats_lock:
         stats["sv_packets"] += 1
         stats["asdu_seen"] += len(asdus)
     with seen_svids_lock:
-        for svid, _, _ in asdus:
-            seen_svids.add(svid)
+        seen_svids.update(svids)
 
-    svid_filter = config.get("svid")
     if svid_filter:
         asdus = [a for a in asdus if a[0] == svid_filter]
         if not asdus:

@@ -85,17 +85,55 @@ def test_parse_sv_frame_handles_vlan() -> None:
     assert svl.parse_sv_frame(bytes(12) + bytes.fromhex("88b8") + payload) == []
 
 
-def test_malformed_frame_counts_a_parse_error() -> None:
-    import threading
+def _stats() -> dict:
     from collections import deque
 
+    return {
+        "parse_errors": 0, "sv_packets": 0, "asdu_seen": 0, "last_pkt_time": None, "packet_timestamps": deque(),
+        "misses_all": 0, "misses_events": deque(), "last_smpcnt": None, "min_delay_all": 1e9, "max_delay_all": 0,
+        "min_delay_sync_all": 1e9, "max_delay_sync_all": 0, "smpcnt0_timestamps": deque(),
+    }
+
+
+def _frame(svid: str, dst_last: int, smp_cnt: int = 1) -> bytes:
+    payload = _sv_payload(0x4000 + dst_last, [_asdu(svid, smp_cnt, 1, 2, _seq_data_6i3u(list(range(9))))])
+    return bytes([1, 0x0C, 0xCD, 4, 0, dst_last]) + bytes(6) + bytes.fromhex("8100a069") + bytes.fromhex("88ba") + payload
+
+
+def _feed(frames: list[bytes], config: dict, stats: dict, samples: list, seen: set) -> None:
+    import threading
+
+    for raw in frames:
+        svl.process_sv_frame(raw, 0.0, samples, threading.Lock(), stats, threading.Lock(), config, seen, threading.Lock())
+
+
+def test_malformed_frame_counts_a_parse_error() -> None:
+    svl._KNOWN_STREAMS.clear()
     payload = _sv_payload(0x4000, [_asdu("SV_1", 3, 1, 2, _seq_data_6i3u(list(range(9))))])
     broken = bytes(12) + bytes.fromhex("88ba") + payload[:8] + payload[8:].replace(b"\x80\x01\x01", b"\x80\x01\x02", 1)
-    stats = {"parse_errors": 0, "sv_packets": 0, "asdu_seen": 0, "last_pkt_time": None, "packet_timestamps": deque()}
-    lock = threading.Lock()
-    svl.process_sv_frame(broken, 0.0, [], lock, stats, lock, {"svid": "SV_1"}, set(), threading.Lock())
+    stats = _stats()
+    _feed([broken], {"svid": "SV_1"}, stats, [], set())
     assert stats["parse_errors"] == 1 and stats["sv_packets"] == 0
     assert "noASDU=2" in stats["last_error"]
+
+
+def test_only_the_selected_stream_is_decoded(monkeypatch: pytest.MonkeyPatch) -> None:
+    svl._KNOWN_STREAMS.clear()
+    decoded: list[int] = []
+    real = svl.sv_codec.decode_sv_frame
+    monkeypatch.setattr(svl.sv_codec, "decode_sv_frame", lambda raw: decoded.append(raw[5]) or real(raw))
+    stats, samples, seen = _stats(), [], set()
+    frames = [_frame("OTHER", 0x10, n) for n in range(3)] + [_frame("MINE", 0x20, n) for n in range(3)]
+    _feed(frames, {"svid": "MINE"}, stats, samples, seen)
+    assert decoded == [0x10, 0x20, 0x20, 0x20]  # OTHER once, to learn its svID
+    assert seen == {"OTHER", "MINE"}
+    assert (stats["sv_packets"], stats["asdu_seen"]) == (6, 6)
+    assert [smp for smp, _ in samples] == [0, 1, 2]
+
+    for key, (svids, count, _) in list(svl._KNOWN_STREAMS.items()):  # past the refresh time
+        svl._KNOWN_STREAMS[key] = (svids, count, 0.0)
+    _feed([_frame("OTHER", 0x10)], {"svid": "MINE"}, stats, samples, seen)
+    assert decoded[-1] == 0x10
 
 
 def test_phasor_of_a_50hz_sine() -> None:
