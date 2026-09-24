@@ -31,7 +31,7 @@ first, kept simple; the package lives in this repo for now.
 | `quality.py` | `Quality` (7-3, 13-bit bit string) and `TimeQuality` (UtcTime octet) in readable form. |
 | `capture.py` | Linux capture without libpcap: `PacketCapture` reads an AF_PACKET TPACKET_V3 ring (mmap, one poll per block), classic BPF on ethertypes that works with or without a stripped tag, 802.1Q tag put back from the ring header, kernel timestamps, promiscuous membership, `PACKET_STATISTICS` drops. |
 | `mms/control.py` | `operate()`: ctlModel read from `CF`, then Oper (direct), SBO read + Oper, or SBOw + Oper; enhanced security waits for the CommandTermination. Refusals raise `ControlError` with the `LastApplError` (AddCause names per 7-2 Ed2). `Origin` defaults to station-control (orCat 2), what po wants: it does substation control, not telecontrol. Report listeners (`MmsClient.add_report_listener`) carry the LastApplError / termination to the waiting call. |
-| `mms/rcb.py` | RCB status (RptEna, Resv/ResvTms, Owner, RptID, DatSet), `find_free` among instances (`group_instances` strips the trailing number), `enable` reserves a BRCB with ResvTms first (the VMC7 refuses configuration writes otherwise), then typed, checked writes in po's order; `disable`. |
+| `mms/rcb.py` | RCB status (RptEna, Resv/ResvTms, Owner, RptID, DatSet), `usable` / `find_free` among instances (`group_instances` strips the trailing number): free ones first, then the ones our own address reserved without enabling; `enable` reserves a BRCB with ResvTms first (the VMC7 refuses configuration writes otherwise), then typed, checked writes in po's order; `disable` also releases (ResvTms = 0 or Resv = FALSE). |
 
 Adapters kept for the applications: `iec_data.py` re-exports `iec61850.data`
 under the historical names and holds the JSON mapping (with its goose_cli
@@ -136,6 +136,15 @@ What the VMC7 capture taught (IEDscout, 2026-09-24):
   requests and responses use `02 ..`.
 - IEDscout's own Initiate is 204 bytes (po replays a 180-byte one); both
   are accepted.
+
+VMC7 reservations: a BRCB reserved with ResvTms = 5 stays reserved, with
+Owner = the client IP, as long as any association from that IP is alive; it
+is released only once none is left. A restarted po reconnects within a
+second, so without an explicit release every restart leaked its instances
+until po got 1 block of 17 per VMC7. The
+service now releases on stop (SIGTERM is handled like Ctrl-C and calls
+`SubscriptionManager.stop_all`), and `rcb.usable` retries instances the IED
+refuses.
 
 What the second capture taught (IEDscout on the VMC7, 2026-09-24, fixtures
 in `tests/data/iedscout_reports_control.json`):
