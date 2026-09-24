@@ -29,6 +29,7 @@ first, kept simple; the package lives in this repo for now.
 | `mms/report.py` | IEC 61850 report decoding driven by the report's own OptFlds and inclusion bitstring (data references, ConfRev, segmentation, reason codes); `OptFlds` / `TrgOps` / `ReasonCode` flag classes. |
 | `mms/types.py` | GetVariableAccessAttributes type descriptions (`StructureType`, `ArrayType`, `PrimitiveType`) and `label()`, which names every leaf of a value after its type (`cVal.mag.f`). |
 | `quality.py` | `Quality` (7-3, 13-bit bit string) and `TimeQuality` (UtcTime octet) in readable form. |
+| `mms/control.py` | `operate()`: ctlModel read from `CF`, then Oper (direct), SBO read + Oper, or SBOw + Oper; enhanced security waits for the CommandTermination. Refusals raise `ControlError` with the `LastApplError` (AddCause names per 7-2 Ed2). `Origin` defaults to station-control (orCat 2), what po wants: it does substation control, not telecontrol. Report listeners (`MmsClient.add_report_listener`) carry the LastApplError / termination to the waiting call. |
 | `mms/rcb.py` | RCB status (RptEna, Resv/ResvTms, Owner, RptID, DatSet), `find_free` among instances (`group_instances` strips the trailing number), `enable` reserves a BRCB with ResvTms first (the VMC7 refuses configuration writes otherwise), then typed, checked writes in po's order; `disable`. |
 
 Adapters kept for the applications: `iec_data.py` re-exports `iec61850.data`
@@ -36,8 +37,10 @@ under the historical names and holds the JSON mapping (with its goose_cli
 quirks); `goose61850.codec` / `.types` re-export the GOOSE codec, and
 `goose61850.transport` builds and parses frames with `iec61850.ethernet`
 (scapy is imported only inside `GoosePublisher.send` / `GooseService._send_one`).
-po's MMS subscription service runs on `iec61850.mms` (see below). Still on
-their own code: MMS controls (`send_command`, old client), the legacy CLIs
+po's MMS subscription service and its commands (`send_command`: one
+connection per send, `control.operate`, ctlNum incremented per command,
+HTTP 409 with the AddCause on refusal) run on `iec61850.mms` (see below).
+Still on their own code: the legacy CLIs
 `mms/test_client_reports.py` and `mms/discover_reports.py`, and the SV
 listeners. The SV listener runs per packet at 2400+ frames/s, so switch it to
 `iec61850.sv` only after measuring the cost.
@@ -139,16 +142,11 @@ RCB activation (`enable_reporting`): one GetRCBValues, then eight separate
 writes (ResvTms, IntgPd, TrgOps=`020c`, OptFlds=`067b00`, PurgeBuf,
 EntryID=0, RptEna, GI). Write responses are not checked.
 
-Controls (`mms_commands_codec.py`, `SubscriptionManager.send_command`): an
-`Oper` write built from a captured IEDscout value template. Decoded, the
-template is `{ctlVal BOOLEAN, origin{orCat=3, orIdent=13d5c007}, ctlNum=0, T,
-Test=false, Check=bitstring c0/6}`. The code names are wrong:
-`_set_first_ctl_num_inplace` patches the first `83 01` which is **ctlVal**
-(false = open, true = close), and what the code calls "ctlVal 0x06C0" is the
-**Check** field. The real ctlNum is never incremented. "Close" sends a second
-Oper from a full hardcoded PDU (`encode_pos_oper_execute_step3`) that only
-works for the one breaker it was captured on. No SBO. Command results are
-found by searching bytes (`b"LastApplError"`, `85 01 xx`).
+Controls used to replay an IEDscout Oper template (`mms_commands_codec.py`,
+removed): the code took ctlVal for ctlNum and Check for ctlVal, sent orCat 3,
+and added a hardcoded second "step3" Oper for closing. `iec61850.mms.control`
+replaces it; BOOLEAN TRUE now goes out as `ff` (DER) where IEDscout sends
+`01`, and the VMC7 accepts both (RCB writes already use `ff`).
 
 ## GOOSE as implemented
 
@@ -217,7 +215,7 @@ against a capture before updating them.
 
 ## Captures
 
-`tools/mms_client.py HOST[:PORT] domains|rcbs [--status]|read|dataset|subscribe`
+`tools/mms_client.py HOST[:PORT] domains|rcbs [--status]|read|dataset|subscribe|operate`
 exercises `iec61850.mms` against a live IED (works through an SSH tunnel on
 any local port). `subscribe` picks a free instance, enables it, prints decoded
 reports and disables it on Ctrl-C.

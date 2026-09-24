@@ -133,3 +133,50 @@ def test_http_api_fields(service: tuple[mms_service.SubscriptionManager, FakeIed
     assert status == 200 and result["integrity_ms"] == 500
     status, result = handle_mms(manager, "/subscriptions/s3", "PUT", json.dumps({"triggers": "nope"}).encode())
     assert status == 400
+
+
+def test_command_operates_the_breaker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from test_lib_mms_control import ControlIed, _last_appl_error, _report, _terminate
+
+    from iec61850.mms import control
+    from mms.mms_api import handle_mms
+
+    monkeypatch.setattr(mms_service, "COMMANDS_PATH", tmp_path / "commands.json")
+    monkeypatch.setattr(mms_service, "SUBSCRIPTIONS_PATH", tmp_path / "subscriptions.json")
+    monkeypatch.setattr(mms_service, "RECENTS_PATH", tmp_path / "recents.json")
+    refuse = {"on": False}
+
+    def react(server: FakeServer, value: object) -> object:
+        if refuse["on"]:
+            server.send_mms(_report([control.LAST_APPL_ERROR], [_last_appl_error(5, "IED01_BayLD/CBCSWI1$CO$Pos$Oper")]))
+            return bytes.fromhex("800103")
+        return _terminate(server, value)  # type: ignore[arg-type]
+
+    ied = ControlIed(control.CTL_MODEL_DIRECT_ENHANCED, react)
+    servers: list[FakeServer] = []
+
+    def connect(*_a: object, **_k: object) -> object:
+        servers.append(FakeServer(ied))
+        return servers[-1].client_sock
+
+    monkeypatch.setattr(transport.socket, "create_connection", connect)
+    manager = mms_service.SubscriptionManager(vm_url=None, vm_batch_ms=0)
+    body = {"id": "c1", "ied_host": "ied", "domain": "IED01_BayLD", "item": "CBCSWI1$CO$Pos$Oper", "position": "open"}
+    assert handle_mms(manager, "/commands", "POST", json.dumps({**body, "position": "intermediate"}).encode())[0] == 400
+    assert handle_mms(manager, "/commands", "POST", json.dumps(body).encode())[0] == 201
+    try:
+        for expected_ctl_num in (0, 1):
+            status, result = handle_mms(manager, "/commands/c1/send", "POST", b"")
+            assert status == 200 and result["terminated"] and result["ctl_num"] == expected_ctl_num
+        oper = ied.writes[-1][1]
+        assert oper.members[0] == BoolData(False)  # type: ignore[attr-defined]
+        assert oper.members[1].members[0] == IntData(2)  # type: ignore[attr-defined]  # station-control
+
+        refuse["on"] = True
+        status, result = handle_mms(manager, "/commands/c1/send", "POST", b"")
+        assert status == 409 and result["add_cause"] == "position-reached"
+    finally:
+        for server in servers:
+            server.close()

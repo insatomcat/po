@@ -32,7 +32,9 @@ def handle_mms(
     body: corps brut (JSON pour POST/PUT)
     Retourne (status_code, body) où body est dict/list (sérialisable JSON) ou None pour 204.
     """
-    from .mms_service import SubscriptionConfig, MMSCommandConfig
+    from iec61850.mms.control import ControlError
+
+    from .mms_service import COMMAND_POSITIONS, SubscriptionConfig, MMSCommandConfig
 
     path = (path or "/").rstrip("/") or "/"
 
@@ -183,8 +185,8 @@ def handle_mms(
         except (TypeError, ValueError):
             return HTTPStatus.BAD_REQUEST, {"error": "invalid fields"}
 
-        if position not in {"open", "closed", "intermediate", "testbascule"}:
-            return HTTPStatus.BAD_REQUEST, {"error": "position must be one of: open|closed|intermediate|testbascule"}
+        if position not in COMMAND_POSITIONS:
+            return HTTPStatus.BAD_REQUEST, {"error": f"position must be one of: {'|'.join(COMMAND_POSITIONS)}"}
 
         cfg = MMSCommandConfig(
             id=str(cmd_id),
@@ -227,12 +229,21 @@ def handle_mms(
     if path.startswith("/commands/") and path.endswith("/send") and method == "POST":
         cmd_id = path.split("/", 2)[2].removesuffix("/send")
         try:
-            response_hex = manager.send_command(cmd_id)
+            result = manager.send_command(cmd_id)
         except KeyError:
             return HTTPStatus.NOT_FOUND, {"error": f"command {cmd_id!r} not found"}
+        except ValueError as e:
+            return HTTPStatus.BAD_REQUEST, {"error": str(e)}
+        except ControlError as e:
+            error = e.last_appl_error
+            return HTTPStatus.CONFLICT, {
+                "error": str(e),
+                "stage": e.stage,
+                "add_cause": error.add_cause_name if error else None,
+            }
         except Exception as e:
             return HTTPStatus.BAD_GATEWAY, {"error": str(e)}
-        return HTTPStatus.OK, {"id": cmd_id, "ok": True, "response_hex": response_hex}
+        return HTTPStatus.OK, {"id": cmd_id, "ok": True, **result}
 
     return HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"}
 
