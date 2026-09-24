@@ -23,14 +23,20 @@ first, kept simple; the package lives in this repo for now.
 | `ethernet.py` | Ethernet II / 802.1Q + APPID header: `parse_frame`, `build_frame`, `EthernetFrame`. |
 | `goose.py` | `GoosePDU` (with `time_quality`), PDU and frame encode/decode, `GooseDecodeError` on missing mandatory fields. |
 | `sv.py` | `SvPDU` / `SvAsdu` with every 9-2 / 61869-9 field (datSet, refrTm, smpRate, smpMod, gmIdentity), PDU and frame codec, INT32+quality sample helpers. |
+| `mms/transport.py` | TPKT + COTP class 0: `IsoConnection` (CR/CC with the same CR bytes po always sent, segmentation on send, EOT reassembly on receive, DR = closed). |
+| `mms/pdu.py` | Session/presentation envelope (`wrap`/`unwrap`), `ObjectName`, Read / Write / GetNameList / GetNamedVariableListAttributes requests and responses, confirmed-Error, Reject, informationReport. Requests match IEDscout captures. The association is still the replayed `INITIATE_REQUEST`. |
+| `mms/client.py` | `MmsClient`: one receive thread, responses matched by invokeID (several requests in flight, from any thread), informationReports to a callback on the receive thread, typed errors (`DataAccessError`, `ServiceError`, `MmsReject`, `MmsTimeout`, `MmsConnectionError`). |
+| `mms/report.py` | IEC 61850 report decoding driven by the report's own OptFlds and inclusion bitstring (data references, ConfRev, segmentation, reason codes); `OptFlds` / `TrgOps` / `ReasonCode` flag classes. |
+| `mms/rcb.py` | RCB status (RptEna, Resv/ResvTms, Owner, RptID, DatSet), `find_free` among instances (`group_instances` strips the trailing number), `enable` with typed, checked writes in po's proven order, `disable`. |
 
 Adapters kept for the applications: `iec_data.py` re-exports `iec61850.data`
 under the historical names and holds the JSON mapping (with its goose_cli
 quirks); `goose61850.codec` / `.types` re-export the GOOSE codec, and
 `goose61850.transport` builds and parses frames with `iec61850.ethernet`
 (scapy is imported only inside `GoosePublisher.send` / `GooseService._send_one`).
-Still on their own parsers: the MMS stack (`mms/asn1_codec.py`) and the SV
-listeners. The SV listener runs per packet at 2400+ frames/s, so switch it to
+Still on their own parsers: po's MMS service (`mms/`, not yet migrated to
+`iec61850.mms`; do it once the new client is validated on the VMC7) and the
+SV listeners. The SV listener runs per packet at 2400+ frames/s, so switch it to
 `iec61850.sv` only after measuring the cost.
 
 ## Layout
@@ -131,6 +137,9 @@ refreshed to "now" on every send.
 - GOOSE service: `t` is set to "now" on every retransmission (it must be the
   time of the last stNum change), and `modify_stream` bumps stNum without
   resetting sqNum to 0.
+- po's RCB settings: `DEFAULT_TRG_OPS = 020c` is integrity + GI only (the
+  comment claims data-change and quality-change), so po only gets periodic
+  integrity reports and GI, never reports on change.
 - RCB writes: `_encode_mms_value_unsigned` uses tag `0x85` (integer) below 256
   and `0x86` (unsigned) above, so `IntgPd` < 256 ms would go out as an integer.
 - `iec_data_from_json` turns strings with control chars into `RawData(0x83)`
@@ -175,6 +184,11 @@ change. Golden bytes changing means the wire format changed: check it
 against a capture before updating them.
 
 ## Captures
+
+`tools/mms_client.py HOST[:PORT] domains|rcbs [--status]|read|dataset|subscribe`
+exercises `iec61850.mms` against a live IED (works through an SSH tunnel on
+any local port). `subscribe` picks a free instance, enables it, prints decoded
+reports and disables it on Ctrl-C.
 
 `tools/pcap_mms.py capture.pcapng [--hex] [--service getNameList]` lists the
 MMS PDUs of a pcap/pcapng (TCP, TPKT and COTP reassembled). Captures stay out
