@@ -30,6 +30,10 @@ import time
 import traceback
 from collections import deque
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from iec61850 import sv as sv_codec  # noqa: E402
+
 try:
     # Facultatif: permet de faire tourner Flask sous uvicorn via ASGI.
     from uvicorn.middleware.wsgi import WSGIMiddleware
@@ -50,131 +54,44 @@ try:
 except ImportError:
     HAS_FLASK = False
 
-ETH_HEADER_LEN = 14
-ETH_VLAN_LEN = 4
-ETH_P_61850_SV = 0x88BA
 PCAP_SNAPLEN = 65535
 PCAP_READ_TIMEOUT_MS = 50
 PCAP_BUFFER_BYTES = 4 * 1024 * 1024
 SV_BPF = "ether proto 0x88ba or (vlan and ether proto 0x88ba)"
 I_SCALE = 1000
 V_SCALE = 100
-SEQDATA_6I3U = 72   # 6 I + 3 U
-SEQDATA_4I4U = 64   # 4 I + 4 U
 SMP_PER_CYCLE = 96  # 4800/50 Hz
 SMP_MOD = 4800  # smpCnt wrap (4800 samples/sec)
 CIRCLE_RADIUS = 8
 
 
-def _read_ber_tag_len(data: bytes, off: int) -> tuple[int | None, int, int]:
-    if off >= len(data):
-        return None, 0, off
-    tag = data[off]
-    off += 1
-    L = data[off]
-    off += 1
-    if L & 0x80:
-        n = L & 0x7F
-        L = 0
-        for _ in range(n):
-            if off >= len(data):
-                return tag, 0, off
-            L = (L << 8) | data[off]
-            off += 1
-    return tag, L, off
+def _channels(pdu: sv_codec.SvPDU) -> list[tuple[str, int, list[int]]]:
+    """[(svID, smpCnt, [Ia,Ib,Ic,Ires,In,Ih,Va,Vb,Vc]), ...] for the ASDUs with a known layout.
 
-
-def parse_sv_asdus_with_seqdata(data: bytes) -> list[tuple[str, int, list[int]]]:
-    """
-    Parse SV payload, retourne [(svID, smpCnt, [Ia,Ib,Ic,Ires,In,Ih,Va,Vb,Vc]), ...].
-    Gère 6I3U (72 octets) et 4I4U (64 octets). Format canonique: 9 valeurs (6I+3U).
+    6I3U (9 INT32+quality channels) is taken as is; 4I4U (8 channels) maps
+    Ia Ib Ic In to Ia Ib Ic Ires, leaves In and Ih at zero and drops Vn.
     """
     out: list[tuple[str, int, list[int]]] = []
-    if len(data) < 8:
-        return out
-    off = 8
-    tag, sav_len, off = _read_ber_tag_len(data, off)
-    if tag != 0x60:
-        return out
-    sav_end = off + sav_len
-    if sav_end > len(data):
-        return out
-    tag, no_len, off = _read_ber_tag_len(data, off)
-    if tag != 0x80 or no_len != 1 or off >= len(data):
-        return out
-    no_asdu = data[off]
-    off += 1
-    tag, seq_len, off = _read_ber_tag_len(data, off)
-    if tag != 0xA2:
-        return out
-    seq_end = off + seq_len
-    if seq_end > len(data):
-        return out
-
-    for _ in range(no_asdu):
-        if off >= seq_end:
-            break
-        tag, asdu_len, off = _read_ber_tag_len(data, off)
-        if tag != 0x30:
-            off += asdu_len
+    for asdu in pdu.asdus:
+        count = len(asdu.sample) // 8
+        if count < 8 or len(asdu.sample) % 8:
             continue
-        asdu_end = off + asdu_len
-        svid: str | None = None
-        smp_cnt: int | None = None
-        seq_data: bytes | None = None
-        while off < asdu_end:
-            t, L, off = _read_ber_tag_len(data, off)
-            if off + L > len(data):
-                break
-            val = data[off : off + L]
-            off += L
-            if t == 0x80:
-                svid = val.decode("utf-8", errors="replace")
-            elif t == 0x82 and L == 2:
-                smp_cnt = struct.unpack("!H", val)[0]
-            elif t == 0x87 and L >= SEQDATA_4I4U:
-                seq_data = val[:L]
-        if svid is not None and smp_cnt is not None and seq_data is not None:
-            vals = _parse_seqdata(seq_data)
-            if vals:
-                out.append((svid, smp_cnt, vals))
+        vals = [v for v, _q in struct.iter_unpack("!iI", asdu.sample[: 8 * min(count, 9)])]
+        if count == 8:
+            vals = [vals[0], vals[1], vals[2], vals[3], 0, 0, vals[4], vals[5], vals[6]]
+        out.append((asdu.sv_id, asdu.smp_cnt, vals))
     return out
 
 
-def _parse_seqdata(seq_data: bytes) -> list[int]:
-    """Parse seqData 6I3U (72 octets) ou 4I4U (64 octets) → [Ia,Ib,Ic,Ires,In,Ih,Va,Vb,Vc]."""
-    n = len(seq_data)
-    if n >= SEQDATA_6I3U:
-        vals = []
-        for i in range(9):
-            idx = i * 8
-            v = struct.unpack("!i", seq_data[idx : idx + 4])[0]
-            vals.append(v)
-        return vals
-    if n >= SEQDATA_4I4U:
-        vals = []
-        for i in range(8):
-            idx = i * 8
-            v = struct.unpack("!i", seq_data[idx : idx + 4])[0]
-            vals.append(v)
-        return [vals[0], vals[1], vals[2], vals[3], 0, 0, vals[4], vals[5], vals[6]]
-    return []
+def parse_sv_asdus_with_seqdata(payload: bytes) -> list[tuple[str, int, list[int]]]:
+    """Channels of an SV payload (8-byte APPID header + savPdu); raises SvDecodeError."""
+    return _channels(sv_codec.decode_sv_pdu(payload[8:]))
 
 
-def payload_from_frame(frame: bytes) -> bytes | None:
-    """Extrait le payload SV (ethertype 0x88ba, avec ou sans VLAN)."""
-    if len(frame) < ETH_HEADER_LEN:
-        return None
-    eth_type = (frame[12] << 8) | frame[13]
-    payload_offset = ETH_HEADER_LEN
-    if eth_type == 0x8100:
-        if len(frame) < ETH_HEADER_LEN + ETH_VLAN_LEN + 2:
-            return None
-        eth_type = (frame[16] << 8) | frame[17]
-        payload_offset = ETH_HEADER_LEN + ETH_VLAN_LEN
-    if eth_type != ETH_P_61850_SV:
-        return None
-    return bytes(frame[payload_offset:])
+def parse_sv_frame(raw: bytes) -> list[tuple[str, int, list[int]]]:
+    """Channels of an Ethernet frame ([] when it is not SV); raises SvDecodeError."""
+    decoded = sv_codec.decode_sv_frame(raw)
+    return _channels(decoded[1]) if decoded is not None else []
 
 
 def compute_phasor_from_samples(
@@ -579,12 +496,18 @@ def process_sv_frame(
     seen_svids: set,
     seen_svids_lock: threading.Lock,
 ) -> None:
-    """Traite une trame Ethernet SV (0x88ba) déjà horodatée."""
-    payload = payload_from_frame(raw)
-    if not payload:
+    """Handle one timestamped SV Ethernet frame (0x88ba)."""
+    try:
+        decoded = sv_codec.decode_sv_frame(raw)
+    except sv_codec.SvDecodeError as e:
+        with stats_lock:
+            stats["parse_errors"] += 1
+            stats["last_error"] = f"SV decode: {e}"
+            stats["last_error_at"] = time.time()
         return
-
-    asdus = parse_sv_asdus_with_seqdata(payload)
+    if decoded is None:
+        return
+    asdus = _channels(decoded[1])
     with stats_lock:
         stats["sv_packets"] += 1
         stats["asdu_seen"] += len(asdus)

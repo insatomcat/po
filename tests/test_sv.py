@@ -77,13 +77,25 @@ def test_4i4u_is_mapped_to_nine_channels() -> None:
     assert svl.parse_sv_asdus_with_seqdata(payload) == [("X", 7, [1, 2, 3, 4, 0, 0, 5, 6, 7])]
 
 
-def test_payload_from_frame_handles_vlan() -> None:
-    payload = b"\x40\x00\x00\x08\x00\x00\x00\x00"
+def test_parse_sv_frame_handles_vlan() -> None:
+    payload = _sv_payload(0x4000, [_asdu("SV_1", 3, 1, 2, _seq_data_6i3u(list(range(9))))])
     plain = bytes(12) + bytes.fromhex("88ba") + payload
     tagged = bytes(12) + bytes.fromhex("81008064") + bytes.fromhex("88ba") + payload
-    assert svl.payload_from_frame(plain) == payload
-    assert svl.payload_from_frame(tagged) == payload
-    assert svl.payload_from_frame(bytes(12) + bytes.fromhex("88b8") + payload) is None
+    assert svl.parse_sv_frame(plain) == svl.parse_sv_frame(tagged) == [("SV_1", 3, list(range(9)))]
+    assert svl.parse_sv_frame(bytes(12) + bytes.fromhex("88b8") + payload) == []
+
+
+def test_malformed_frame_counts_a_parse_error() -> None:
+    import threading
+    from collections import deque
+
+    payload = _sv_payload(0x4000, [_asdu("SV_1", 3, 1, 2, _seq_data_6i3u(list(range(9))))])
+    broken = bytes(12) + bytes.fromhex("88ba") + payload[:8] + payload[8:].replace(b"\x80\x01\x01", b"\x80\x01\x02", 1)
+    stats = {"parse_errors": 0, "sv_packets": 0, "asdu_seen": 0, "last_pkt_time": None, "packet_timestamps": deque()}
+    lock = threading.Lock()
+    svl.process_sv_frame(broken, 0.0, [], lock, stats, lock, {"svid": "SV_1"}, set(), threading.Lock())
+    assert stats["parse_errors"] == 1 and stats["sv_packets"] == 0
+    assert "noASDU=2" in stats["last_error"]
 
 
 def test_phasor_of_a_50hz_sine() -> None:

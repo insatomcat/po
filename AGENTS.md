@@ -40,10 +40,14 @@ quirks); `goose61850.codec` / `.types` re-export the GOOSE codec, and
 po's MMS subscription service and its commands (`send_command`: one
 connection per send, `control.operate`, ctlNum incremented per command,
 HTTP 409 with the AddCause on refusal) run on `iec61850.mms` (see below).
-Still on their own code: the legacy CLIs
-`mms/test_client_reports.py` and `mms/discover_reports.py`, and the SV
-listeners. The SV listener runs per packet at 2400+ frames/s, so switch it to
-`iec61850.sv` only after measuring the cost.
+The SV listener (`svlistener_view`) decodes with `iec61850.sv`; decoding
+runs on the SV worker of `processbus_capture` (frames are timestamped by the
+capture thread before the queue). `ber.decode_tlv` and `sv._asdu_fields` have
+fast paths for short tags and lengths: 9 us per 2-ASDU frame on the dev Mac
+against 4.7 us for the old ad hoc parser (`tools/bench_sv_decode.py`
+measures it on the target). Malformed frames count as `parse_errors`.
+Still on their own code: the legacy CLIs `mms/test_client_reports.py` and
+`mms/discover_reports.py`, and the diagnostic SV scripts in `svgenerator/`.
 
 ## Layout
 
@@ -57,7 +61,7 @@ listeners. The SV listener runs per packet at 2400+ frames/s, so switch it to
 | `goose/goose61850/` | GOOSE transport (scapy send, pcapy receive) and streaming service over `iec61850.goose`. Has its own `pyproject.toml`. |
 | `goose_listener/` | Trip-delay measurement: GOOSE trigger (stNum++, sqNum 0) vs the SV fault start of a linked flow, problem detection, PCAP ring dumps. Documented in its README. |
 | `svgenerator/` | SV generation. `rt_sender.c` (Linux, AF_PACKET, CLOCK_REALTIME, 4800 smp/s, 2 ASDU per frame, fixed 6I3U dataset) launched as a subprocess by `sv_service.py` (FastAPI models + process management, pidfiles in `svgenerator/pids/`, flows survive service restarts). `sv_api.py` adapts it to the unified server. `receiver.py`, `sv_counter3.py`, `sv_receiver_delay.py`, `parse_ref_pkt.py` are standalone diagnostic scripts, each with its own BER parser. |
-| `svlistener_view/` | SV capture + phasor display (Flask). Parses svID/smpCnt/seqData only, 6I3U or 4I4U, 96-sample DFT at 50 Hz. |
+| `svlistener_view/` | SV capture + phasor display (Flask). Uses svID/smpCnt/seqData (quality ignored), 6I3U or 4I4U, 96-sample DFT at 50 Hz. |
 | `stress/` | SSH + `stress-ng` load on host cores, CPU topology from `seapath-alloc`. Not 61850. |
 
 Imports rely on `sys.path.insert` hacks: `iec_data` and `processbus_capture`
@@ -185,7 +189,7 @@ only by sqNum.
   naming) but never as the standard `<ied><ld>/LLN0$DS`; reports still get
   labels through the suffix fallback in `mms_report_processing`. SDOs
   (`A.phsA`) are not resolved to components.
-- The MMS stack and the SV listeners/scripts still carry their own BER readers.
+- The legacy MMS stack and the `svgenerator/` diagnostic scripts still carry their own BER readers.
 - IED-specific defaults are hardcoded in the legacy CLIs, READMEs and UI
   placeholders (an IED IP and domain, RCB lists, `_DQPO`/`_CYPO` suffix
   normalisation).
