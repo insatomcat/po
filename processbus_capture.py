@@ -23,7 +23,11 @@ GOOSE_QUEUE_MAX = 20_000
 
 GOOSE_BPF = "(ether proto 0x88b8) or (vlan and ether proto 0x88b8)"
 SV_BPF = "(ether proto 0x88ba) or (vlan and ether proto 0x88ba)"
-PROCESSBUS_BPF = f"({GOOSE_BPF}) or ({SV_BPF})"
+# libpcap's "vlan" shifts the offsets of every test after it, across "or" too:
+# it must come last, once. "(A) or (vlan and A) or (B) or (vlan and B)" reads
+# B at the wrong offset: with a NIC that strips tags, only the SV streams sent
+# by the host itself (tag still inline) went through.
+PROCESSBUS_BPF = "ether proto 0x88b8 or ether proto 0x88ba or (vlan and (ether proto 0x88b8 or ether proto 0x88ba))"
 
 GooseHandler = Callable[[float, bytes], None]
 SvHandler = Callable[[object, bytes, float], None]

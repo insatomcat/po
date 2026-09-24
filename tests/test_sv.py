@@ -146,6 +146,16 @@ def test_phasor_of_a_50hz_sine() -> None:
     assert phase == pytest.approx(0.5 - math.pi / 2, abs=1e-9)
 
 
+def test_vlan_comes_last_in_bpf_filters() -> None:
+    # libpcap's "vlan" shifts every later offset, even across "or": it must open
+    # the last group of the expression, and appear once.
+    for bpf in (GOOSE_BPF, SV_BPF, PROCESSBUS_BPF):
+        assert bpf.count("vlan") == 1
+        group = bpf[bpf.rindex("(", 0, bpf.index("vlan")):]
+        depth = [group[: i + 1].count("(") - group[: i + 1].count(")") for i in range(len(group))]
+        assert 0 not in depth[:-1] and depth[-1] == 0  # the group closes at the very end
+
+
 def test_frame_ethertype_and_bpf_modes() -> None:
     assert frame_ethertype(bytes(12) + bytes.fromhex("88ba")) == 0x88BA
     assert frame_ethertype(bytes(12) + bytes.fromhex("8100806488b8")) == 0x88B8
