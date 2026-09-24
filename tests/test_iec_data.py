@@ -43,7 +43,9 @@ from iec_data import (
         (IntData(-1), "8501ff"),
         (IntData(-129), "8502ff7f"),
         (UIntData(0), "860100"),
-        (UIntData(255), "8601ff"),
+        (UIntData(127), "86017f"),
+        (UIntData(255), "860200ff"),  # X.690: a leading zero keeps the INTEGER positive
+        (IntData(-128), "850180"),
         (UIntData(2000), "860207d0"),
         (FloatData(1.5), "8705083fc00000"),
         (BitStringData(b"\xc0", 6), "840206c0"),
@@ -88,7 +90,7 @@ def test_decode_utc_time() -> None:
     # 2026-01-01T00:00:00.5Z, quality byte 0x0a
     raw = (1767225600).to_bytes(4, "big") + (1 << 23).to_bytes(3, "big") + b"\x0a"
     decoded = decode_iec_data(0x91, raw)
-    assert decoded == TimestampData(datetime(2026, 1, 1, 0, 0, 0, 500000, tzinfo=timezone.utc))
+    assert decoded == TimestampData(datetime(2026, 1, 1, 0, 0, 0, 500000, tzinfo=timezone.utc), quality=0x0A)
 
 
 def test_decode_binary_time() -> None:
@@ -100,7 +102,7 @@ def test_decode_binary_time() -> None:
 
 def test_decode_float64() -> None:
     raw = b"\x0b" + struct.pack("!d", 1.25)
-    assert decode_iec_data(0x87, raw) == FloatData(1.25)
+    assert decode_iec_data(0x87, raw) == FloatData(1.25, double=True)
 
 
 def test_unknown_tag_is_kept_raw() -> None:
@@ -153,6 +155,17 @@ def test_json_legacy_raw_forms() -> None:
     assert iec_data_from_json("\x00") == RawData(0x83, b"\x00")
 
 
-@pytest.mark.xfail(strict=True, reason="known bug: negative ints are not minimally encoded (X.690 8.3.2)")
-def test_encode_negative_int_minimal() -> None:
-    assert encode_iec_data(IntData(-128)).hex() == "850180"
+
+def test_unsigned_without_leading_zero_is_accepted() -> None:
+    # Field devices often omit the leading zero; decoding stays lenient.
+    assert decode_iec_data(0x86, b"\xff") == UIntData(255)
+
+
+def test_float32_decodes_to_shortest_decimal() -> None:
+    assert decode_iec_data(0x87, b"\x08" + struct.pack("!f", 1.1)) == FloatData(1.1)
+    assert decode_iec_data(0x87, b"\x08" + struct.pack("!f", 1e-9)) == FloatData(1e-9)
+
+
+def test_utc_time_quality_round_trip() -> None:
+    value = TimestampData(datetime(2026, 1, 1, 0, 0, 0, 123456, tzinfo=timezone.utc), quality=0x2A)
+    assert decode_iec_data_at(encode_iec_data(value), 0)[0] == value

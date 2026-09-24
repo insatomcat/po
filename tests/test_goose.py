@@ -13,7 +13,7 @@ import pytest
 
 from goose61850 import service as goose_service
 from goose61850.codec import decode_goose_pdu, encode_goose_pdu
-from goose61850.transport import goose_bpf_filter, parse_ethernet_goose
+from goose61850.transport import _build_frame, goose_bpf_filter, parse_ethernet_goose
 from goose61850.types import GoosePDU
 from iec_data import BitStringData, BoolData, FloatData, IntData, RawData, TimestampData, UIntData
 
@@ -69,7 +69,6 @@ def test_encode_without_go_id() -> None:
     assert decoded.go_id is None
 
 
-@pytest.mark.xfail(strict=True, reason="known bug: fraction of second of t is dropped")
 def test_timestamp_fraction_round_trip() -> None:
     t = datetime(2026, 1, 1, 0, 0, 0, 500000, tzinfo=timezone.utc)
     assert decode_goose_pdu(encode_goose_pdu(_pdu(timestamp=t))).timestamp == t
@@ -95,6 +94,21 @@ def test_parse_ethernet_goose(vlan: bool) -> None:
         0x88B8,
         apdu,
     )
+
+
+def test_build_frame_with_vlan_matches_former_scapy_output() -> None:
+    # Bytes produced by scapy Ether()/Dot1Q(prio=4, vlan=100, type=0x88b8)/Raw(...).
+    frame = _build_frame("01:0C:CD:01:00:01", "00:02:a3:00:00:01", 0x100, _pdu(), vlan_id=100, vlan_priority=4)
+    assert frame[:18].hex() == "010ccd0100010002a30000018100806488b8"
+    assert frame[18:26].hex() == "0100" + f"{8 + len(bytes.fromhex(GOLDEN_APDU)):04x}" + "00000000"
+    assert frame[26:].hex() == GOLDEN_APDU
+
+
+def test_build_frame_without_vlan_uses_goose_ethertype() -> None:
+    # scapy used to leave the EtherType at its 0x9000 default here.
+    frame = _build_frame("01:0c:cd:01:00:01", "00:02:a3:00:00:01", 0x100, _pdu())
+    assert frame[12:14].hex() == "88b8"
+    assert parse_ethernet_goose(frame) is not None
 
 
 def test_parse_ethernet_rejects_other_ethertypes() -> None:

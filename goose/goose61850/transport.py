@@ -12,12 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple, Union
 
-from scapy.all import (  # type: ignore[import-untyped]
-    Dot1Q,
-    Ether,
-    Raw,
-    sendp,
-)
+from iec61850 import ethernet
 
 from .codec import decode_goose_pdu, encode_goose_pdu
 from .types import GooseFrame, GoosePDU
@@ -59,41 +54,12 @@ def nic_rx_stats(iface: str) -> Dict[str, int]:
     return out
 
 
-def _format_mac(mac: bytes) -> str:
-    return ":".join(f"{b:02x}" for b in mac)
-
-
 def parse_ethernet_goose(raw: bytes) -> Optional[Tuple[str, str, int, Optional[int], int, bytes]]:
-    """Décode une trame Ethernet brute → (dst, src, app_id, vlan_id, ethertype, apdu)."""
-    if len(raw) < 14:
+    """Parse a raw Ethernet frame into (dst, src, app_id, vlan_id, ethertype, apdu)."""
+    frame = ethernet.parse_frame(raw, (GOOSE_ETHERTYPE,))
+    if frame is None:
         return None
-    dst_mac = _format_mac(raw[0:6])
-    src_mac = _format_mac(raw[6:12])
-    offset = 12
-    ethertype = int.from_bytes(raw[offset: offset + 2], "big")
-    offset += 2
-    vlan_id: Optional[int] = None
-    if ethertype == 0x8100:
-        if len(raw) < offset + 4:
-            return None
-        vlan_id = int.from_bytes(raw[offset: offset + 2], "big") & 0x0FFF
-        ethertype = int.from_bytes(raw[offset + 2: offset + 4], "big")
-        offset += 4
-    if ethertype != GOOSE_ETHERTYPE:
-        return None
-    payload = raw[offset:]
-    if len(payload) < 8:
-        return None
-    app_id = int.from_bytes(payload[0:2], "big")
-    length = int.from_bytes(payload[2:4], "big")
-    if length < 8 or length > len(payload):
-        return None
-    goose_payload = payload[8:length]
-    return dst_mac, src_mac, app_id, vlan_id, ethertype, goose_payload
-
-
-def _mac_str(mac: str) -> str:
-    return mac.lower()
+    return frame.dst_mac, frame.src_mac, frame.app_id, frame.vlan_id, frame.ethertype, frame.apdu
 
 
 def _build_frame(
@@ -104,20 +70,15 @@ def _build_frame(
     vlan_id: Optional[int] = None,
     vlan_priority: Optional[int] = None,
 ) -> bytes:
-    payload = encode_goose_pdu(pdu)
-
-    app_id_bytes = app_id.to_bytes(2, "big")
-    length_bytes = (8 + len(payload)).to_bytes(2, "big")
-    reserved = b"\x00\x00\x00\x00"
-    goose_header = app_id_bytes + length_bytes + reserved
-
-    eth = Ether(dst=_mac_str(dst_mac), src=_mac_str(src_mac))
-    if vlan_id is not None:
-        prio = 0 if vlan_priority is None else int(vlan_priority)
-        pkt = eth / Dot1Q(prio=prio, vlan=vlan_id, type=GOOSE_ETHERTYPE) / Raw(goose_header + payload)
-    else:
-        pkt = eth / Raw(goose_header + payload)
-    return bytes(pkt)
+    return ethernet.build_frame(
+        dst_mac=dst_mac.lower(),
+        src_mac=src_mac.lower(),
+        ethertype=GOOSE_ETHERTYPE,
+        app_id=app_id,
+        apdu=encode_goose_pdu(pdu),
+        vlan_id=vlan_id,
+        vlan_priority=vlan_priority,
+    )
 
 
 @dataclass
@@ -146,6 +107,8 @@ class GoosePublisher:
             vlan_id=self.vlan_id,
             vlan_priority=self.vlan_priority,
         )
+        from scapy.all import sendp  # type: ignore[import-untyped]
+
         sendp(raw, iface=self.iface, count=count, inter=inter, verbose=False)
 
 
