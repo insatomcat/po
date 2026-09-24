@@ -331,6 +331,7 @@ class GooseService:
                 next_send_time=now,
                 current_interval_ms=float(max(self.IEC_MIN_MS, 1)),
             )
+            s.new_state(float(max(self.IEC_MIN_MS, 1)))  # t is now: publish it as a new state
             self._streams[s.id] = s
 
         self._save_state()
@@ -408,6 +409,8 @@ class GooseService:
                         next_send_time=now,
                         current_interval_ms=float(max(self.IEC_MIN_MS, 1)),
                     )
+                    # Restarted publisher: new t, so a new state (stNum + 1, sqNum 0).
+                    s.new_state(float(max(self.IEC_MIN_MS, 1)))
                     self._streams[s.id] = s
                 except (KeyError, TypeError, ValueError) as e:
                     print(f"[GOOSE] Entrée de flux ignorée (données invalides): {e}")

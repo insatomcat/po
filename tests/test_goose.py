@@ -151,10 +151,14 @@ STREAM_CONFIG = {
 def test_stream_persistence_round_trip(service: goose_service.GooseService, tmp_path: Path) -> None:
     stream = service.add_stream(dict(STREAM_CONFIG))
     assert (tmp_path / "streams.json").exists()
+    stream.sq_num = 42
+    service._save_state()
     reloaded = goose_service.GooseService().get_stream(stream.id)
     assert reloaded is not None
     assert reloaded.all_data == stream.all_data
-    assert reloaded.st_num == 1
+    # A restarted publisher sends a new state: stNum + 1, sqNum 0, a new t.
+    assert (reloaded.st_num, reloaded.sq_num) == (2, 0)
+    assert reloaded.changed_at > stream.changed_at
 
 
 def test_to_pdu_refreshes_embedded_times(service: goose_service.GooseService) -> None:
@@ -215,3 +219,13 @@ def test_retransmissions_differ_only_by_sq_num(service: goose_service.GooseServi
     assert changed.timestamp > first.timestamp
     assert changed.all_data[2].value[:4] == encode_utc_time(changed.timestamp)[:4]  # type: ignore[union-attr]
     assert stream.current_interval_ms == 20.0
+
+
+def test_restart_from_recent_is_a_new_state(service: goose_service.GooseService) -> None:
+    stream = service.add_stream(dict(STREAM_CONFIG))
+    stream.st_num, stream.sq_num = 5, 99
+    service.delete_stream(stream.id)
+    assert service.restart_from_recent(stream.id)
+    (restarted,) = service.list_streams()
+    assert (restarted.st_num, restarted.sq_num) == (6, 0)
+    assert restarted.changed_at > stream.changed_at
