@@ -1,9 +1,15 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Capture unique processbus : GOOSE (0x88b8) + SV (0x88ba) sur une socket libpcap."""
+"""One process bus capture per interface, shared by GOOSE and SV consumers.
+
+Two backends read the frames: ``afpacket`` (iec61850.capture, an AF_PACKET
+TPACKET_V3 ring, stdlib only) and ``pcapy`` (libpcap). ``PO_CAPTURE_BACKEND``
+chooses; pcapy is the default until afpacket has run in the service.
+"""
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import traceback
@@ -45,6 +51,84 @@ def frame_ethertype(frame: bytes) -> Optional[int]:
     return eth_type
 
 
+def ethertypes_for_modes(*, goose: bool, sv: bool) -> Tuple[int, ...]:
+    """The afpacket equivalent of :func:`bpf_for_modes`."""
+    if goose:
+        return (GOOSE_ETHERTYPE, SV_ETHERTYPE)
+    if sv:
+        return (SV_ETHERTYPE,)
+    return (GOOSE_ETHERTYPE,)
+
+
+class _PcapyBackend:
+    name = "pcapy"
+
+    def __init__(self, iface: str) -> None:
+        import pcapy
+
+        self._cap = pcapy.open_live(iface, PCAP_SNAPLEN, 1, PCAP_READ_TIMEOUT_MS)
+        try:
+            self._cap.setbuff(PCAP_BUFFER_BYTES)
+        except Exception:
+            pass
+
+    def set_modes(self, goose: bool, sv: bool) -> str:
+        bpf, mode = bpf_for_modes(goose=goose, sv=sv)
+        self._cap.setfilter(bpf)
+        return f"{mode} ({bpf})"
+
+    def next(self) -> Optional[Tuple[float, bytes]]:
+        header, pkt = self._cap.next()
+        if header is None or not pkt:
+            return None
+        sec, usec = header.getts()
+        return float(sec) + float(usec) / 1e6, bytes(pkt)
+
+    def stats(self) -> Tuple[int, int, int]:
+        recv, drop, ifdrop = self._cap.stats()
+        return int(recv), int(drop), int(ifdrop)
+
+    def close(self) -> None:
+        self._cap = None
+
+
+class _AfPacketBackend:
+    name = "afpacket"
+
+    def __init__(self, iface: str) -> None:
+        from iec61850.capture import PacketCapture
+
+        # On lo every frame also shows up as outgoing; libpcap drops those too.
+        self._cap = PacketCapture(
+            iface, buffer_bytes=PCAP_BUFFER_BYTES, timeout=PCAP_READ_TIMEOUT_MS / 1000, outgoing=iface != "lo"
+        )
+
+    def set_modes(self, goose: bool, sv: bool) -> str:
+        ethertypes = ethertypes_for_modes(goose=goose, sv=sv)
+        self._cap.set_ethertypes(ethertypes)
+        mode = bpf_for_modes(goose=goose, sv=sv)[1]
+        return f"{mode} (ethertypes {', '.join(f'0x{e:04x}' for e in ethertypes)})"
+
+    def next(self) -> Optional[Tuple[float, bytes]]:
+        frame = self._cap.recv()
+        return None if frame is None else (frame.timestamp, frame.data)
+
+    def stats(self) -> Tuple[int, int, int]:
+        received, dropped = self._cap.stats()
+        return received, dropped, 0
+
+    def close(self) -> None:
+        self._cap.close()
+
+
+BACKENDS = {"pcapy": _PcapyBackend, "afpacket": _AfPacketBackend}
+
+
+def capture_backend() -> str:
+    name = os.environ.get("PO_CAPTURE_BACKEND", "pcapy").strip().lower()
+    return name if name in BACKENDS else "pcapy"
+
+
 def bpf_for_modes(*, goose: bool, sv: bool) -> Tuple[str, str]:
     """Retourne (filtre BPF kernel, libellé abonnés actifs).
 
@@ -72,6 +156,7 @@ class ProcessbusCaptureStats:
     loop_errors: int = 0
     last_error: Optional[str] = None
     bpf_mode: str = "idle"
+    backend: str = ""
     pcap_recv: int = 0
     pcap_drop: int = 0
     pcap_ifdrop: int = 0
@@ -83,7 +168,7 @@ class _SvSubscription:
 
 
 class ProcessbusCapture:
-    """Une socket pcapy par interface ; BPF adaptatif selon les abonnés actifs."""
+    """One capture per interface; the kernel filter follows the active subscribers."""
 
     _instances: Dict[str, ProcessbusCapture] = {}
     _instances_lock = threading.Lock()
@@ -161,6 +246,7 @@ class ProcessbusCapture:
                 "goose_subscribers": goose_n,
                 "sv_active": sv_on,
                 "bpf_mode": s.bpf_mode,
+                "backend": s.backend or capture_backend(),
                 "packets": s.packets,
                 "goose_packets": s.goose_packets,
                 "sv_packets": s.sv_packets,
@@ -279,20 +365,19 @@ class ProcessbusCapture:
             if gen == self._applied_bpf_gen:
                 return
             goose, sv = self._modes_locked()
-            bpf, mode = bpf_for_modes(goose=goose, sv=sv)
         try:
-            cap.setfilter(bpf)  # type: ignore[attr-defined]
+            label = cap.set_modes(goose, sv)  # type: ignore[attr-defined]
         except Exception as exc:
             with self._stats_lock:
                 self._stats.loop_errors += 1
                 self._stats.last_error = f"setfilter: {exc}"
-            print(f"[processbus] BPF {self.iface} ERREUR: {exc}", flush=True)
+            print(f"[processbus] filter {self.iface} ERROR: {exc}", flush=True)
             return
         with self._lock:
             self._applied_bpf_gen = gen
         with self._stats_lock:
-            self._stats.bpf_mode = mode
-        print(f"[processbus] BPF {self.iface} → {mode} ({bpf})", flush=True)
+            self._stats.bpf_mode = bpf_for_modes(goose=goose, sv=sv)[1]
+        print(f"[processbus] filter {self.iface} -> {label}", flush=True)
 
     def _goose_worker_loop(self) -> None:
         """Ring buffer + handlers GOOSE hors du thread pcap (ne pas bloquer les SV)."""
@@ -345,13 +430,9 @@ class ProcessbusCapture:
                 self._stats.sv_queue_drops += 1
 
     def _capture_loop(self) -> None:
-        try:
-            import pcapy
-        except ImportError:
-            with self._stats_lock:
-                self._stats.last_error = "pcapy non installé"
-            return
-
+        backend = BACKENDS[capture_backend()]
+        with self._stats_lock:
+            self._stats.backend = backend.name
         cap = None
         while not self._stop.is_set():
             with self._lock:
@@ -360,26 +441,18 @@ class ProcessbusCapture:
 
             if cap is None:
                 try:
-                    cap = pcapy.open_live(
-                        self.iface,
-                        PCAP_SNAPLEN,
-                        1,
-                        PCAP_READ_TIMEOUT_MS,
-                    )
+                    cap = backend(self.iface)
                     with self._lock:
                         self._cap = cap
                         self._applied_bpf_gen = -1
-                    try:
-                        cap.setbuff(PCAP_BUFFER_BYTES)
-                    except Exception:
-                        pass
                     self._apply_bpf_if_needed(cap)
                     with self._stats_lock:
                         self._stats.last_error = None
+                    print(f"[processbus] capture {self.iface} with {backend.name}", flush=True)
                 except Exception as exc:
                     with self._stats_lock:
                         self._stats.loop_errors += 1
-                        self._stats.last_error = str(exc)
+                        self._stats.last_error = f"{backend.name}: {exc}"
                     if self._stop.wait(1.0):
                         break
                     continue
@@ -387,26 +460,25 @@ class ProcessbusCapture:
             self._apply_bpf_if_needed(cap)
 
             try:
-                header, pkt = cap.next()
+                got = cap.next()
             except Exception as exc:
                 with self._stats_lock:
                     self._stats.loop_errors += 1
                     self._stats.last_error = str(exc)
                 with self._lock:
                     self._cap = None
+                cap.close()
                 cap = None
                 if self._stop.wait(0.2):
                     break
                 continue
 
-            if not pkt:
+            if got is None:
                 continue
             if self._stop.is_set():
                 break
 
-            raw = bytes(pkt)
-            ts = header.getts()
-            ts_rx = float(ts[0]) + float(ts[1]) / 1e6
+            ts_rx, raw = got
             etype = frame_ethertype(raw)
 
             with self._stats_lock:
@@ -425,8 +497,9 @@ class ProcessbusCapture:
             elif etype == SV_ETHERTYPE and sv_active:
                 with self._stats_lock:
                     self._stats.sv_packets += 1
-                self._enqueue_sv(header, raw, ts_rx)
+                self._enqueue_sv(None, raw, ts_rx)
 
         with self._lock:
             self._cap = None
-        cap = None
+        if cap is not None:
+            cap.close()

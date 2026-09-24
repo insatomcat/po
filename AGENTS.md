@@ -29,6 +29,7 @@ first, kept simple; the package lives in this repo for now.
 | `mms/report.py` | IEC 61850 report decoding driven by the report's own OptFlds and inclusion bitstring (data references, ConfRev, segmentation, reason codes); `OptFlds` / `TrgOps` / `ReasonCode` flag classes. |
 | `mms/types.py` | GetVariableAccessAttributes type descriptions (`StructureType`, `ArrayType`, `PrimitiveType`) and `label()`, which names every leaf of a value after its type (`cVal.mag.f`). |
 | `quality.py` | `Quality` (7-3, 13-bit bit string) and `TimeQuality` (UtcTime octet) in readable form. |
+| `capture.py` | Linux capture without libpcap: `PacketCapture` reads an AF_PACKET TPACKET_V3 ring (mmap, one poll per block), classic BPF on ethertypes that works with or without a stripped tag, 802.1Q tag put back from the ring header, kernel timestamps, promiscuous membership, `PACKET_STATISTICS` drops. |
 | `mms/control.py` | `operate()`: ctlModel read from `CF`, then Oper (direct), SBO read + Oper, or SBOw + Oper; enhanced security waits for the CommandTermination. Refusals raise `ControlError` with the `LastApplError` (AddCause names per 7-2 Ed2). `Origin` defaults to station-control (orCat 2), what po wants: it does substation control, not telecontrol. Report listeners (`MmsClient.add_report_listener`) carry the LastApplError / termination to the waiting call. |
 | `mms/rcb.py` | RCB status (RptEna, Resv/ResvTms, Owner, RptID, DatSet), `find_free` among instances (`group_instances` strips the trailing number), `enable` reserves a BRCB with ResvTms first (the VMC7 refuses configuration writes otherwise), then typed, checked writes in po's order; `disable`. |
 
@@ -63,7 +64,7 @@ Still on their own code: the legacy CLIs `mms/test_client_reports.py` and
 | `po_service.py` | Unified `http.server` on port 7050. Routes `/api/{mms,goose,sv,svview,gooselistener,stress}/*`, serves `unified_ui.html`. Starts the SV Listener Flask app on a side port and proxies `/api/svview` to it. |
 | `unified_ui.html` | Single-file UI (~5.7k lines, vanilla JS), one tab per module. |
 | `iec_data.py` | Adapter over `iec61850.data` (historical names) plus the JSON mapping of the HTTP APIs. |
-| `processbus_capture.py` | One pcapy socket per interface, shared by GOOSE and SV consumers (`ProcessbusCapture.get(iface)`), adaptive BPF, per-protocol queues and workers. |
+| `processbus_capture.py` | One capture per interface, shared by GOOSE and SV consumers (`ProcessbusCapture.get(iface)`), adaptive filter, per-protocol queues and workers. Backend `pcapy` (default) or `afpacket` (`PO_CAPTURE_BACKEND=afpacket`). |
 | `mms/` | MMS client stack and service (see below). Stdlib only. |
 | `goose/goose61850/` | GOOSE transport (scapy send, pcapy receive) and streaming service over `iec61850.goose`. Has its own `pyproject.toml`. |
 | `goose_listener/` | Trip-delay measurement: GOOSE trigger (stNum++, sqNum 0) vs the SV fault start of a linked flow, problem detection, PCAP ring dumps. Documented in its README. |
@@ -185,10 +186,18 @@ only by sqNum.
   and `0x86` (unsigned) above, so `IntgPd` < 256 ms would go out as an integer.
 - `iec_data_from_json` turns strings with control chars into `RawData(0x83)`
   (legacy goose_cli compatibility).
-- pcapy is unmaintained upstream. A plain `AF_PACKET` socket would do, but the
-  kernel strips 802.1Q tags before the socket sees them (verified: a frame sent
-  with VLAN 100 is read back untagged); they must be recovered from
-  `PACKET_AUXDATA`, which libpcap does silently today.
+- pcapy is unmaintained upstream. `iec61850.capture` replaces it in
+  `processbus_capture` (opt-in for now). Checked side by side on a real
+  process bus, each backend in its own process, 10 s: the same 152,633 frames
+  byte for byte (tags included), timestamps within 1.2 us, no drops; CPU
+  2.1 us/frame against 1.4 us for pcapy (`tools/capture_compare.py`). A first
+  version with one `recvmsg` per frame cost 30 us/frame: keep the ring.
+  Still on pcapy: `goose61850.transport.GooseSubscriber`, the SV listener's
+  dedicated mode, the `svgenerator/` scripts.
+- libpcap's `vlan` keyword shifts the offsets of every later test, across
+  `or` too. `PROCESSBUS_BPF` used to be `(A) or (vlan and A) or (B) or (vlan
+  and B)` and, with a NIC that strips tags, let through only the SV streams
+  sent by the host itself (their tag stays inline); `vlan` now appears once, last. A test guards it.
 - SV: rate, ASDU count and dataset are compile-time constants in
   `rt_sender.c`; quality is always 0; no smpMod/refrTm/gmIdentity. Listeners
   assume 4800 smp/s and 50 Hz.

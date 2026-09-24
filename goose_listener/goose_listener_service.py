@@ -1820,9 +1820,9 @@ class GooseListenerManager:
 
     def _subscriber_stats(self) -> Dict[str, Any]:
         sub = self._subscriber
+        mux = self._mux_stats()
         if sub is None:
             base = {
-                "backend": "pcapy",
                 "queue_size": 0,
                 "drops": 0,
                 "packets": 0,
@@ -1830,9 +1830,8 @@ class GooseListenerManager:
             }
         else:
             base = sub.stats()
-            base["backend"] = "pcapy"
             base["nic"] = nic_rx_stats(self.iface)
-        mux = self._mux_stats()
+        base["backend"] = mux.get("backend", "pcapy")
         base["processbus"] = mux
         base["processbus_active"] = bool(mux.get("running"))
         return base
