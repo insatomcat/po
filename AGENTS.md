@@ -10,16 +10,39 @@ only open-source alternative, libiec61850, is GPL). The code works on the
 target IEDs but was grown from Wireshark captures, so a lot of it is replay
 and byte heuristics. Read "Known weak points" before touching protocol code.
 
+## The library: `iec61850/`
+
+Pure stdlib, no I/O, all English. New protocol code goes here; the po
+applications consume it. Scope decided with Florent: client side only at
+first, kept simple; the package lives in this repo for now.
+
+| Module | Content |
+|--------|---------|
+| `ber.py` | X.690 primitives: tags as the int of their identifier octets (`0x83`, `0xBF48`), definite lengths, minimal INTEGER, lenient unsigned decode, `iter_tlvs`, `expect_tlv`, `BerError`. |
+| `data.py` | MMS `Data` CHOICE (`BoolData` ... `RawData`), `encode_data` / `decode_data*`, UtcTime and binary-time helpers. `TimestampData.quality` keeps the TimeQuality octet, `FloatData.double` the width; float32 decodes to its shortest decimal. Unsigned values get a leading `00` when the high bit is set. |
+| `ethernet.py` | Ethernet II / 802.1Q + APPID header: `parse_frame`, `build_frame`, `EthernetFrame`. |
+| `goose.py` | `GoosePDU` (with `time_quality`), PDU and frame encode/decode, `GooseDecodeError` on missing mandatory fields. |
+| `sv.py` | `SvPDU` / `SvAsdu` with every 9-2 / 61869-9 field (datSet, refrTm, smpRate, smpMod, gmIdentity), PDU and frame codec, INT32+quality sample helpers. |
+
+Adapters kept for the applications: `iec_data.py` re-exports `iec61850.data`
+under the historical names and holds the JSON mapping (with its goose_cli
+quirks); `goose61850.codec` / `.types` re-export the GOOSE codec, and
+`goose61850.transport` builds and parses frames with `iec61850.ethernet`
+(scapy is imported only inside `GoosePublisher.send` / `GooseService._send_one`).
+Still on their own parsers: the MMS stack (`mms/asn1_codec.py`) and the SV
+listeners. The SV listener runs per packet at 2400+ frames/s, so switch it to
+`iec61850.sv` only after measuring the cost.
+
 ## Layout
 
 | Path | What it is |
 |------|------------|
 | `po_service.py` | Unified `http.server` on port 7050. Routes `/api/{mms,goose,sv,svview,gooselistener,stress}/*`, serves `unified_ui.html`. Starts the SV Listener Flask app on a side port and proxies `/api/svview` to it. |
 | `unified_ui.html` | Single-file UI (~5.7k lines, vanilla JS), one tab per module. |
-| `iec_data.py` | Shared MMS `Data` CHOICE model (`BoolData`, `IntData`, ..., `StructureData`, `RawData`) with BER encode/decode and a JSON mapping. Used by MMS reports, GOOSE and the GOOSE listener. |
+| `iec_data.py` | Adapter over `iec61850.data` (historical names) plus the JSON mapping of the HTTP APIs. |
 | `processbus_capture.py` | One pcapy socket per interface, shared by GOOSE and SV consumers (`ProcessbusCapture.get(iface)`), adaptive BPF, per-protocol queues and workers. |
 | `mms/` | MMS client stack and service (see below). Stdlib only. |
-| `goose/goose61850/` | GOOSE codec, transport (scapy send, pcapy receive), streaming service. Has its own `pyproject.toml`. |
+| `goose/goose61850/` | GOOSE transport (scapy send, pcapy receive) and streaming service over `iec61850.goose`. Has its own `pyproject.toml`. |
 | `goose_listener/` | Trip-delay measurement: GOOSE trigger (stNum++, sqNum 0) vs the SV fault start of a linked flow, problem detection, PCAP ring dumps. Documented in its README. |
 | `svgenerator/` | SV generation. `rt_sender.c` (Linux, AF_PACKET, CLOCK_REALTIME, 4800 smp/s, 2 ASDU per frame, fixed 6I3U dataset) launched as a subprocess by `sv_service.py` (FastAPI models + process management, pidfiles in `svgenerator/pids/`, flows survive service restarts). `sv_api.py` adapts it to the unified server. `receiver.py`, `sv_counter3.py`, `sv_receiver_delay.py`, `parse_ref_pkt.py` are standalone diagnostic scripts, each with its own BER parser. |
 | `svlistener_view/` | SV capture + phasor display (Flask). Parses svID/smpCnt/seqData only, 6I3U or 4I4U, 96-sample DFT at 50 Hz. |
@@ -77,30 +100,29 @@ found by searching bytes (`b"LastApplError"`, `85 01 xx`).
 
 ## GOOSE as implemented
 
-`codec.py` decodes the `61` APDU fields [0]..[11] by tag number and `allData`
-via `iec_data`. `transport.py` parses Ethernet/VLAN/APPID and builds frames
-with scapy. `service.py` keeps streams in memory, one sender thread polling
+The codec is `iec61850.goose`. `service.py` keeps streams in memory, one sender thread polling
 every 10 ms, retransmission interval 10 ms doubling to 2000 ms, `sendp` per
 frame. Any PATCH of a stream bumps stNum. Timestamps inside `allData` are
 refreshed to "now" on every send.
 
 ## Known weak points (verified 2026-09-24)
 
-- `asn1_codec._tlv` (local helpers in each encoder) writes the length on one
-  byte: any content over 127 bytes produces invalid BER (a 120-char item name
-  already breaks GetRCBValues). `iec_data._tlv` handles long lengths correctly.
 - InvokeID is a module global shared by every client thread; responses are
   never matched by invokeID, `_recv_until_response` takes the next non-report
   PDU. `is_read_response_success` searches for byte `a4` anywhere.
 - Report header decoding ignores OptFlds and the inclusion bitstring; it only
   works with the OptFlds the code itself writes and without segmentation.
-- GOOSE `t` is set to "now" on every retransmission (should be the time of the
-  last stNum change); its fraction of second is dropped on encode and decode.
-  `modify_stream` bumps stNum without resetting sqNum to 0.
-- `goose61850/__init__.py` imports `transport`, so importing the codec needs
-  scapy. pcapy is unmaintained upstream.
+- GOOSE service: `t` is set to "now" on every retransmission (it must be the
+  time of the last stNum change), and `modify_stream` bumps stNum without
+  resetting sqNum to 0.
+- RCB writes: `_encode_mms_value_unsigned` uses tag `0x85` (integer) below 256
+  and `0x86` (unsigned) above, so `IntgPd` < 256 ms would go out as an integer.
 - `iec_data_from_json` turns strings with control chars into `RawData(0x83)`
-  (legacy goose_cli compatibility). Floats are always encoded as 32-bit.
+  (legacy goose_cli compatibility).
+- pcapy is unmaintained upstream. A plain `AF_PACKET` socket would do, but the
+  kernel strips 802.1Q tags before the socket sees them (verified: a frame sent
+  with VLAN 100 is read back untagged); they must be recovered from
+  `PACKET_AUXDATA`, which libpcap does silently today.
 - SV: rate, ASDU count and dataset are compile-time constants in
   `rt_sender.c`; quality is always 0; no smpMod/refrTm/gmIdentity. Listeners
   assume 4800 smp/s and 50 Hz.
@@ -108,12 +130,11 @@ refreshed to "now" on every send.
   conformant response (it stops on the confirmed-ResponsePDU `a1`), so
   `discover_reports` always falls back to probing. The request encoding
   (`80 01 09 81 00`) is also suspect: objectClass and objectScope are CHOICEs.
-- `iec_data` encodes negative ints non-minimally (`-128` -> `ff80`).
 - `scl_parser` keys data sets as `<ied>/LLN0$DS`, `<ied>_1<ld>/...` (VMC7
   naming) but never as the standard `<ied><ld>/LLN0$DS`; reports still get
   labels through the suffix fallback in `mms_report_processing`. SDOs
   (`A.phsA`) are not resolved to components.
-- At least five independent BER TLV readers exist in the repo.
+- The MMS stack and the SV listeners/scripts still carry their own BER readers.
 - IED-specific defaults are hardcoded in the legacy CLIs, READMEs and UI
   placeholders (an IED IP and domain, RCB lists, `_DQPO`/`_CYPO` suffix
   normalisation).
@@ -133,6 +154,9 @@ plus `apt-get install gcc libc6-dev` and `pip install pytest`).
 `tests/conftest.py` sets up the `sys.path` of `po_service.py` and stubs scapy
 and pcapy when absent.
 
+`tests/test_lib_*.py` are unit tests of `iec61850/`, including a check that
+the library imports without scapy, pcapy, FastAPI or Flask.
+
 Every known bug above has a `xfail(strict=True)` test stating the correct
 behaviour. Fixing one makes it XPASS and fail: remove the marker in the same
 change. Golden bytes changing means the wire format changed: check it
@@ -140,10 +164,10 @@ against a capture before updating them.
 
 ## Working here
 
-- Python 3.10+ (dev machine has 3.14). macOS dev box has no scapy/pcapy:
-  stub `scapy.all` to exercise the GOOSE codec. Capture and `rt_sender` are
-  Linux only.
+- Python 3.10+ (dev machine has 3.14). macOS dev box has no scapy/pcapy,
+  Docker is available for Linux-only checks (`rt_sender`, raw sockets on `lo`;
+  on `lo` an AF_PACKET socket sees each frame twice, skip `PACKET_OUTGOING`).
 - Quick checks: `python3 -m py_compile <file>`; codec round trips with
   `python3 -c` from the repo root.
-- Docstrings and comments are mostly French; READMEs are being moved to
-  English. Commit messages in English with the DCO `Signed-off-by` trailer.
+- All code in English. Older modules are still French and get translated
+  when they are refactored. Commit messages in English with the DCO `Signed-off-by` trailer.
