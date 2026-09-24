@@ -16,6 +16,7 @@ env/
 
 # Captures réseau
 *.pcap
+*.pcapng
 
 # Fichiers SCL/ICD (config IED, souvent spécifiques à l’installation)
 *.cid
