@@ -53,7 +53,7 @@ def frame_ethertype(frame: bytes) -> Optional[int]:
 
 def ethertypes_for_modes(*, goose: bool, sv: bool) -> Tuple[int, ...]:
     """The afpacket equivalent of :func:`bpf_for_modes`."""
-    if goose:
+    if goose and sv:
         return (GOOSE_ETHERTYPE, SV_ETHERTYPE)
     if sv:
         return (SV_ETHERTYPE,)
@@ -130,17 +130,17 @@ def capture_backend() -> str:
 
 
 def bpf_for_modes(*, goose: bool, sv: bool) -> Tuple[str, str]:
-    """Retourne (filtre BPF kernel, libellé abonnés actifs).
+    """(kernel filter, label) for the active subscribers.
 
-    Dès qu'un abonné GOOSE est actif, le filtre kernel inclut aussi les SV
-    (0x88ba). Sinon un GOOSE listener démarré avant le SV listener laisse le
-    filtre sur GOOSE seul et les trames SV ne passent plus.
-    Le dispatch GOOSE vs SV reste en userspace.
+    The filter is recomputed on every subscribe and unsubscribe and checked on
+    every pass of the capture loop, so it lets SV through exactly while an SV
+    subscriber is active. With GOOSE only, the SV frames (thousands per
+    second on a process bus) stay in the kernel.
     """
     if goose and sv:
         return PROCESSBUS_BPF, "goose+sv"
     if goose:
-        return PROCESSBUS_BPF, "goose"
+        return GOOSE_BPF, "goose"
     if sv:
         return SV_BPF, "sv"
     return GOOSE_BPF, "idle"

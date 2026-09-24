@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
 import sys
 import threading
@@ -444,11 +445,16 @@ def main() -> int:
         f"Service PO démarré sur http://{args.listen_host}:{args.listen_port} "
         f"(MMS, GOOSE, SV, Stress)"
     )
+    def _on_sigterm(_signum: int, _frame: object) -> None:
+        raise KeyboardInterrupt  # systemd stop: same clean shutdown as Ctrl-C
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\n[Interrupt] Arrêt demandé.")
     finally:
+        manager.stop_all()  # disable and release the RCBs so the next start finds them free
         goose.stop()
         get_stress_manager().shutdown()
         httpd.server_close()

@@ -307,6 +307,15 @@ class SubscriptionManager:
             self._add_to_recents(rt)
             self._stop_runtime(rt)
 
+    def stop_all(self) -> None:
+        """Stop every stream (their RCBs are disabled and released) and keep the configuration."""
+        with self._lock:
+            runtimes = list(self._subs.values())
+        for rt in runtimes:
+            rt.stop_event.set()
+        for rt in runtimes:
+            self._stop_runtime(rt)
+
     def get_recents(self) -> list[Dict[str, Any]]:
         with self._lock:
             return list(self._recents)
@@ -643,20 +652,26 @@ class SubscriptionManager:
         for i, candidates in enumerate(plan, 1):
             if runtime.stop_event.is_set():
                 break
-            status = rcb.find_free(client, [ObjectName(c, cfg.domain) for c in candidates])
+            options = rcb.usable(client, [ObjectName(c, cfg.domain) for c in candidates])
+            status = None
+            refused: list[str] = []
+            for option in options:
+                ds_ref = option.dat_set or ""
+                if ds_ref and ds_ref not in data_sets:  # before enabling: the GI report follows at once
+                    data_sets[ds_ref] = reporting.load_data_set(client, ds_ref, scl_labels.get(ds_ref))
+                try:
+                    rcb.enable(client, option.rcb, settings)
+                except MmsError as e:
+                    refused.append(str(e))
+                    continue
+                status = option
+                break
             if status is None:
-                errors.append(f"{rcb.instance_base(candidates[0])}: every instance is in use")
+                base = rcb.instance_base(candidates[0])
+                errors.append(f"{base}: every instance is in use" + (f" ({refused[-1]})" if refused else ""))
                 print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {errors[-1]}")
                 continue
             ds_ref = status.dat_set or ""
-            if ds_ref and ds_ref not in data_sets:
-                data_sets[ds_ref] = reporting.load_data_set(client, ds_ref, scl_labels.get(ds_ref))
-            try:
-                rcb.enable(client, status.rcb, settings)
-            except MmsError as e:
-                errors.append(str(e))
-                print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {e}")
-                continue
             enabled.append(status.rcb)
             members = len(data_sets[ds_ref].members) if ds_ref in data_sets else 0
             print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {status.rcb.item} enabled "

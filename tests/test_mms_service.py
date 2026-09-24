@@ -98,7 +98,18 @@ def test_subscription_end_to_end(service: tuple[mms_service.SubscriptionManager,
     assert any(line.startswith("REPORT LDTEST_DEP1 seq=7") for line in logs)
 
     manager.delete_subscription("s1")
-    assert ied.model.writes[-1] == ("LLN0$BR$CB_A02$RptEna", BoolData(False))
+    assert ied.model.writes[-2:] == [("LLN0$BR$CB_A02$RptEna", BoolData(False)), ("LLN0$BR$CB_A02$ResvTms", IntData(0))]
+
+
+def test_stop_all_releases_rcbs_and_keeps_the_configuration(
+    service: tuple[mms_service.SubscriptionManager, FakeIed, list[str]],
+) -> None:
+    manager, ied, pushed = service
+    manager.create_subscription(mms_service.SubscriptionConfig(id="s9", ied_host="ied", ied_port=102, domain="LD0"))
+    _wait(lambda: len(pushed) >= 8)
+    manager.stop_all()
+    assert ied.model.writes[-2:] == [("LLN0$BR$CB_A02$RptEna", BoolData(False)), ("LLN0$BR$CB_A02$ResvTms", IntData(0))]
+    assert "s9" in manager.list_subscriptions()
 
 
 def test_triggers_are_configurable(service: tuple[mms_service.SubscriptionManager, FakeIed, list[str]]) -> None:

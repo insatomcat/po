@@ -160,7 +160,7 @@ def test_frame_ethertype_and_bpf_modes() -> None:
     assert frame_ethertype(bytes(12) + bytes.fromhex("88ba")) == 0x88BA
     assert frame_ethertype(bytes(12) + bytes.fromhex("8100806488b8")) == 0x88B8
     assert frame_ethertype(bytes(10)) is None
-    assert bpf_for_modes(goose=True, sv=False) == (PROCESSBUS_BPF, "goose")
+    assert bpf_for_modes(goose=True, sv=False) == (GOOSE_BPF, "goose")
     assert bpf_for_modes(goose=False, sv=True) == (SV_BPF, "sv")
     assert bpf_for_modes(goose=True, sv=True) == (PROCESSBUS_BPF, "goose+sv")
     assert bpf_for_modes(goose=False, sv=False) == (GOOSE_BPF, "idle")
