@@ -27,7 +27,9 @@ first, kept simple; the package lives in this repo for now.
 | `mms/pdu.py` | Session/presentation envelope (`wrap`/`unwrap`), `ObjectName`, Read / Write / GetNameList / GetNamedVariableListAttributes requests and responses, confirmed-Error, Reject, informationReport. Requests match IEDscout captures. The association is still the replayed `INITIATE_REQUEST`. |
 | `mms/client.py` | `MmsClient`: one receive thread, responses matched by invokeID (several requests in flight, from any thread), informationReports to a callback on the receive thread, typed errors (`DataAccessError`, `ServiceError`, `MmsReject`, `MmsTimeout`, `MmsConnectionError`). |
 | `mms/report.py` | IEC 61850 report decoding driven by the report's own OptFlds and inclusion bitstring (data references, ConfRev, segmentation, reason codes); `OptFlds` / `TrgOps` / `ReasonCode` flag classes. |
-| `mms/rcb.py` | RCB status (RptEna, Resv/ResvTms, Owner, RptID, DatSet), `find_free` among instances (`group_instances` strips the trailing number), `enable` with typed, checked writes in po's proven order, `disable`. |
+| `mms/types.py` | GetVariableAccessAttributes type descriptions (`StructureType`, `ArrayType`, `PrimitiveType`) and `label()`, which names every leaf of a value after its type (`cVal.mag.f`). |
+| `quality.py` | `Quality` (7-3, 13-bit bit string) and `TimeQuality` (UtcTime octet) in readable form. |
+| `mms/rcb.py` | RCB status (RptEna, Resv/ResvTms, Owner, RptID, DatSet), `find_free` among instances (`group_instances` strips the trailing number), `enable` reserves a BRCB with ResvTms first (the VMC7 refuses configuration writes otherwise), then typed, checked writes in po's order; `disable`. |
 
 Adapters kept for the applications: `iec_data.py` re-exports `iec61850.data`
 under the historical names and holds the JSON mapping (with its goose_cli
