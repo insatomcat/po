@@ -152,8 +152,11 @@ replaces it; BOOLEAN TRUE now goes out as `ff` (DER) where IEDscout sends
 
 The codec is `iec61850.goose`. `service.py` keeps streams in memory, one sender thread polling
 every 10 ms, retransmission interval 10 ms doubling to 2000 ms, `sendp` per
-frame. Any PATCH of a stream bumps stNum. Timestamps inside `allData` are
-refreshed to "now" on every send.
+frame. PDUs are built and sqNum advanced under the stream lock, then sent
+outside it. Any PATCH of a stream is a state change (`GooseStream.new_state`):
+stNum + 1, sqNum 0, `changed_at` = now, fast retransmission again. `t` and
+the timestamps inside `allData` are `changed_at`, so retransmissions differ
+only by sqNum.
 
 ## Known weak points (verified 2026-09-24)
 
@@ -162,9 +165,6 @@ refreshed to "now" on every send.
   PDU. `is_read_response_success` searches for byte `a4` anywhere.
 - Report header decoding ignores OptFlds and the inclusion bitstring; it only
   works with the OptFlds the code itself writes and without segmentation.
-- GOOSE service: `t` is set to "now" on every retransmission (it must be the
-  time of the last stNum change), and `modify_stream` bumps stNum without
-  resetting sqNum to 0.
 - Legacy RCB settings: `DEFAULT_TRG_OPS = 020c` is integrity + GI only (the
   comment claims data-change and quality-change). The service keeps it as
   the default `triggers` (`integrity,gi`); set `dchg,qchg,...` to get

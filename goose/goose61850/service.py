@@ -51,10 +51,21 @@ class GooseStream:
     sq_num: int = 0
     next_send_time: float = field(default_factory=time.monotonic)
     current_interval_ms: float = 10.0
+    # Time of the last stNum change: the GOOSE t, and the time written into
+    # the timestamps of allData. Retransmissions differ only by sqNum.
+    changed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def new_state(self, min_interval_ms: float) -> None:
+        """A state change: stNum + 1, sqNum back to 0, fast retransmission restarts now."""
+        self.st_num = (self.st_num + 1) & 0xFFFFFFFF or 1
+        self.sq_num = 0
+        self.changed_at = datetime.now(timezone.utc)
+        self.next_send_time = time.monotonic()
+        self.current_interval_ms = min_interval_ms
 
     @classmethod
     def _refresh_time_value(cls, v: IECData, now: datetime) -> IECData:
-        """Remplace les timestamps dynamiques (typed et raw legacy) par l'heure courante."""
+        """Set the timestamps of allData (typed and legacy raw) to ``now``."""
         if isinstance(v, TimestampData):
             return TimestampData(now)
         if isinstance(v, RawData):
@@ -70,12 +81,10 @@ class GooseStream:
         return v
 
     def to_pdu(self) -> GoosePDU:
-        now = datetime.now(timezone.utc)
-        # Les timestamps contenus dans all_data doivent refléter l'instant d'émission.
-        # Si on conserve des valeurs fixes (chargées depuis un JSON/CLI), certains IED
-        # peuvent considérer le GOOSE comme obsolète/incohérent.
+        # Timestamps loaded from JSON or the CLI would be stale: they take the time
+        # of the state change, which some IEDs check against t.
         live_all_data = [
-            self._refresh_time_value(v, now)
+            self._refresh_time_value(v, self.changed_at)
             for v in self.all_data
         ]
         return GoosePDU(
@@ -83,7 +92,7 @@ class GooseStream:
             time_allowed_to_live=self.ttl,
             dat_set=self.dat_set,
             go_id=self.go_id,
-            timestamp=now,
+            timestamp=self.changed_at,
             st_num=self.st_num,
             sq_num=self.sq_num,
             simulation=self.simulation,
@@ -200,9 +209,7 @@ class GooseService:
                 s.simulation = updates["simulation"]
             if "nds_com" in updates:
                 s.nds_com = updates["nds_com"]
-            s.st_num += 1
-            s.next_send_time = time.monotonic()
-            s.current_interval_ms = float(max(self.IEC_MIN_MS, 1))
+            s.new_state(float(max(self.IEC_MIN_MS, 1)))
 
         # Sauvegarde hors section critique.
         self._save_state()
@@ -422,30 +429,32 @@ class GooseService:
 
     def _sender_loop(self) -> None:
         while not self._stop.wait(0.01):
-            now = time.monotonic()
-            due: List[GooseStream] = []
-            with self._streams_lock:
-                for s in self._streams.values():
-                    if s.next_send_time <= now:
-                        due.append(s)
-            for s in due:
+            for s, pdu in self._due_frames(time.monotonic()):
                 try:
-                    self._send_one(s)
+                    self._send_one(s, pdu)
                 except Exception as e:
                     print(f"[GOOSE] Erreur envoi flux {s.id}: {e}")
-                with self._streams_lock:
-                    ss = self._streams.get(s.id)
-                    if ss is not None:
-                        ss.sq_num += 1
-                        interval_s = ss.current_interval_ms / 1000.0
-                        ss.next_send_time = time.monotonic() + interval_s
-                        ss.current_interval_ms = min(
-                            ss.current_interval_ms * 2.0,
-                            float(self.IEC_MAX_MS),
-                        )
 
-    def _send_one(self, s: GooseStream) -> None:
-        pdu = s.to_pdu()
+    def _due_frames(self, now: float) -> List[tuple[GooseStream, GoosePDU]]:
+        """Build the PDUs due at ``now`` and advance sqNum and the schedule.
+
+        Done under the lock so that a state change (modify_stream) is never
+        mixed with the counters of the frame being sent.
+        """
+        frames: List[tuple[GooseStream, GoosePDU]] = []
+        with self._streams_lock:
+            for s in self._streams.values():
+                if s.next_send_time > now:
+                    continue
+                frames.append((s, s.to_pdu()))
+                s.sq_num = (s.sq_num + 1) & 0xFFFFFFFF or 1  # 0 only right after a state change
+                s.next_send_time = now + s.current_interval_ms / 1000.0
+                s.current_interval_ms = min(s.current_interval_ms * 2.0, float(self.IEC_MAX_MS))
+        return frames
+
+    def _send_one(self, s: GooseStream, pdu: Optional[GoosePDU] = None) -> None:
+        if pdu is None:
+            pdu = s.to_pdu()
         raw = _build_frame(
             dst_mac=s.dst_mac,
             src_mac=s.src_mac,

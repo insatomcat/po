@@ -15,6 +15,7 @@ from goose61850 import service as goose_service
 from goose61850.codec import decode_goose_pdu, encode_goose_pdu
 from goose61850.transport import _build_frame, goose_bpf_filter, parse_ethernet_goose
 from goose61850.types import GoosePDU
+from iec61850.data import encode_utc_time
 from iec_data import BitStringData, BoolData, FloatData, IntData, RawData, TimestampData, UIntData
 
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -181,7 +182,6 @@ def test_modify_stream_bumps_st_num(service: goose_service.GooseService) -> None
     assert stream.all_data == [BoolData(False)]
 
 
-@pytest.mark.xfail(strict=True, reason="known bug: sqNum is not reset when stNum changes")
 def test_modify_stream_resets_sq_num(service: goose_service.GooseService) -> None:
     stream = service.add_stream(dict(STREAM_CONFIG))
     stream.sq_num = 7
@@ -189,10 +189,29 @@ def test_modify_stream_resets_sq_num(service: goose_service.GooseService) -> Non
     assert stream.sq_num == 0
 
 
-@pytest.mark.xfail(strict=True, reason="known bug: t is refreshed on every retransmission")
 def test_t_is_stable_between_retransmissions(service: goose_service.GooseService) -> None:
     # IEC 61850-8-1: t is the time of the last stNum change.
     stream = service.add_stream(dict(STREAM_CONFIG))
     first = stream.to_pdu().timestamp
     time.sleep(0.01)
     assert stream.to_pdu().timestamp == first
+
+
+def test_retransmissions_differ_only_by_sq_num(service: goose_service.GooseService) -> None:
+    stream = service.add_stream(dict(STREAM_CONFIG))
+    now = time.monotonic()
+    (_, first), = service._due_frames(now)
+    assert service._due_frames(now) == []  # next one is 10 ms later
+    (_, second), = service._due_frames(now + 0.011)
+    assert (first.sq_num, second.sq_num) == (0, 1)
+    assert second.st_num == first.st_num and second.timestamp == first.timestamp
+    assert second.all_data == first.all_data
+    assert stream.current_interval_ms == 40.0  # 10, 20, then 40 ms
+
+    time.sleep(0.01)
+    service.modify_stream(stream.id, {"all_data": [False, 3, ["raw", 145, "00" * 8]]})
+    (_, changed), = service._due_frames(time.monotonic())
+    assert (changed.st_num, changed.sq_num) == (2, 0)
+    assert changed.timestamp > first.timestamp
+    assert changed.all_data[2].value[:4] == encode_utc_time(changed.timestamp)[:4]  # type: ignore[union-attr]
+    assert stream.current_interval_ms == 20.0
