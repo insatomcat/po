@@ -83,6 +83,22 @@ Reports: `decode_mms_pdu` walks `unconfirmed-PDU / informationReport`, decodes
 and labels entries using SCL data (`scl_parser.py`) through module-level
 global dicts, and pushes to VictoriaMetrics (`victoriametrics_push.py`).
 
+GetNameList follows ISO 9506 and matches IEDscout byte for byte (checked on
+a capture): `a1 { a0 { 80 01 <class> } a1 { 80 00 | 81 <domain> } [82 <continueAfter>] }`.
+`MMSReportsClient.get_all_names` pages with continueAfter (the VMC7 answers
+100 names per page), and `discover_reports` keeps only `<LN>$BR|RP$<name>`
+(68 RCBs on the VMC7, 1088 names if attributes are counted).
+`cotp_recv_data` joins DT TPDUs until the EOT bit: responses above ~1 KB
+arrive in several segments.
+
+What the VMC7 capture taught (IEDscout, 2026-09-24):
+- IEDscout pipelines requests (several outstanding), so a real client must
+  match responses by invokeID.
+- A confirmed-ErrorPDU carries its invokeID as `80 ..` ([0] IMPLICIT), where
+  requests and responses use `02 ..`.
+- IEDscout's own Initiate is 204 bytes (po replays a 180-byte one); both
+  are accepted.
+
 RCB activation (`enable_reporting`): one GetRCBValues, then eight separate
 writes (ResvTms, IntgPd, TrgOps=`020c`, OptFlds=`067b00`, PurgeBuf,
 EntryID=0, RptEna, GI). Write responses are not checked.
@@ -126,10 +142,6 @@ refreshed to "now" on every send.
 - SV: rate, ASDU count and dataset are compile-time constants in
   `rt_sender.c`; quality is always 0; no smpMod/refrTm/gmIdentity. Listeners
   assume 4800 smp/s and 50 Hz.
-- GetNameList: `decode_mms_get_name_list_response` returns `[]` on a
-  conformant response (it stops on the confirmed-ResponsePDU `a1`), so
-  `discover_reports` always falls back to probing. The request encoding
-  (`80 01 09 81 00`) is also suspect: objectClass and objectScope are CHOICEs.
 - `scl_parser` keys data sets as `<ied>/LLN0$DS`, `<ied>_1<ld>/...` (VMC7
   naming) but never as the standard `<ied><ld>/LLN0$DS`; reports still get
   labels through the suffix fallback in `mms_report_processing`. SDOs
@@ -161,6 +173,13 @@ Every known bug above has a `xfail(strict=True)` test stating the correct
 behaviour. Fixing one makes it XPASS and fail: remove the marker in the same
 change. Golden bytes changing means the wire format changed: check it
 against a capture before updating them.
+
+## Captures
+
+`tools/pcap_mms.py capture.pcapng [--hex] [--service getNameList]` lists the
+MMS PDUs of a pcap/pcapng (TCP, TPKT and COTP reassembled). Captures stay out
+of git (`*.pcap`, `*.pcapng` ignored); only the few bytes a test needs go to
+`tests/data/` (e.g. `iedscout_getnamelist.json`).
 
 ## Working here
 

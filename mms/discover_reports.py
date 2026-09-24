@@ -31,9 +31,6 @@ from mms.mms_reports_client import MMSReportsClient, MMSConnectionError
 from mms.asn1_codec import OBJECT_CLASS_DOMAIN, OBJECT_CLASS_NAMED_VARIABLE
 
 
-# Patterns typiques pour les Report Control Blocks IEC 61850
-RCB_PATTERNS = ("$BR$CB", "$RP$", "BR$CB", "RP$", "$RCB", "RCB$")
-
 # Domaines et RCB connus (fallback quand GetNameList échoue)
 DEFAULT_DOMAINS = ("VMC7_1LD0", "LD0", "IED1_LD0")
 DEFAULT_RCB_ITEMS = (
@@ -56,12 +53,12 @@ DEFAULT_RCB_ITEMS = (
 
 
 def _is_rcb(name: str) -> bool:
-    """True si le nom ressemble à un Report Control Block (LLN0$BR$CB_xxx, etc.)."""
-    u = name.upper()
-    for pat in RCB_PATTERNS:
-        if pat.upper() in u:
-            return True
-    return False
+    """True for a report control block itself, ``<LN>$BR$<name>`` or ``<LN>$RP$<name>``.
+
+    Its attributes (``LLN0$BR$CB01$RptID``, ...) are excluded.
+    """
+    parts = name.split("$")
+    return len(parts) == 3 and parts[1] in ("BR", "RP")
 
 
 def discover_by_probe(
@@ -97,24 +94,14 @@ def discover_reports(
     """
     reports: list[tuple[str, str]] = []
 
-    # 1. Essayer GetNameList vmd-specific (domaines)
-    result = client.get_name_list(OBJECT_CLASS_DOMAIN, scope_vmd=True)
-    if result:
-        domains, _ = result
-        if domains:
-            print(f"  Domaines trouvés (GetNameList) : {', '.join(domains)}", flush=True)
-            for domain_id in domains:
-                result2 = client.get_name_list(
-                    OBJECT_CLASS_NAMED_VARIABLE,
-                    scope_vmd=False,
-                    domain_id=domain_id,
-                )
-                if result2:
-                    names, _ = result2
-                    for n in names:
-                        if _is_rcb(n):
-                            reports.append((domain_id, n))
-            return reports
+    # 1. GetNameList: domains, then the named variables of each domain (paged).
+    domains = client.get_all_names(OBJECT_CLASS_DOMAIN, scope_vmd=True)
+    if domains:
+        print(f"  Domains (GetNameList): {', '.join(domains)}", flush=True)
+        for domain_id in domains:
+            names = client.get_all_names(OBJECT_CLASS_NAMED_VARIABLE, scope_vmd=False, domain_id=domain_id)
+            reports.extend((domain_id, n) for n in names or [] if _is_rcb(n))
+        return reports
 
     # 2. GetNameList échoué ou liste vide → sondage par GetRCBValues
     print("  GetNameList non supporté ou vide. Sondage par GetRCBValues...", flush=True)

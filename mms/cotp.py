@@ -138,30 +138,30 @@ def cotp_send_data(sock: socket.socket, user_data: bytes) -> None:
     send_tpkt(sock, pdu)
 
 
-def cotp_recv_data(sock: socket.socket, timeout: Optional[float] = None) -> Optional[bytes]:
-    """Reçoit un DT TPDU et retourne user_data.
+_DT = 0xF0
+_EOT = 0x80
 
-    Ignore les autres types de TPDU (CR, CC, DR...) côté client.
-    Retourne None si la connexion est fermée proprement.
+
+def cotp_recv_data(sock: socket.socket, timeout: Optional[float] = None) -> Optional[bytes]:
+    """Receive one complete TSDU and return its user data.
+
+    A TSDU larger than the negotiated TPDU size arrives as several DT TPDUs;
+    they are concatenated until the one with the EOT bit set. Other TPDU
+    types (CR, CC, DR, ...) are skipped. Returns None when the peer closes
+    the connection.
     """
+    chunks: list[bytes] = []
     while True:
         payload = recv_tpkt(sock, timeout=timeout)
         if payload is None:
             return None
+        if len(payload) < 2:
+            raise COTPError(f"TPDU too short: {len(payload)} bytes")
+        if payload[1] != _DT:
+            continue
         if len(payload) < 3:
-            raise COTPError(f"TPDU trop court: {len(payload)} octets")
-
-        li = payload[0]
-        pdu_type = payload[1]
-
-        if pdu_type == 0xF0:
-            # DT TPDU : LI peut valoir 2 (type+control uniquement), le user_data
-            # suit sur le reste du TPKT. On renvoie tout après l'en-tête (3 octets).
-            if len(payload) < 3:
-                raise COTPError(f"DT TPDU trop court: {len(payload)} octets")
-            return payload[3:]
-
-        # Autres types: on ignore ou on pourrait ajouter du handling plus fin si besoin
-        # 0xE0: CR, 0xD0: CC, 0x80: DR, 0xC0: DTACK, ...
-        # Ici on boucle simplement pour lire le suivant.
+            raise COTPError(f"DT TPDU too short: {len(payload)} bytes")
+        chunks.append(payload[3:])
+        if payload[2] & _EOT:
+            return b"".join(chunks)
 

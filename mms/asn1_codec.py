@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from iec61850 import ber
 from iec61850.ber import encode_tlv as _tlv
 from iec_data import (
     BoolData, IntData, UIntData, FloatData,
@@ -164,41 +165,43 @@ def encode_mms_get_name_list(
     object_class: int,
     scope_vmd: bool = True,
     domain_id: Optional[str] = None,
+    continue_after: Optional[str] = None,
 ) -> bytes:
-    """Construit un MMS GetNameList (confirmed-RequestPDU [getNameList]).
+    """Build a GetNameList confirmed request (ISO 9506-2).
 
-    object_class : OBJECT_CLASS_DOMAIN (9), OBJECT_CLASS_NAMED_VARIABLE (0), etc.
-    scope_vmd : True = vmd-specific (NULL), False = domain-specific avec domain_id.
-    domain_id : requis si scope_vmd=False (ex: VMC7_1LD0).
+    ::
+
+        GetNameList-Request ::= SEQUENCE {
+            objectClass   [0] ObjectClass,          -- CHOICE: explicit tag
+            objectScope   [1] CHOICE {
+                vmdSpecific    [0] IMPLICIT NULL,
+                domainSpecific [1] IMPLICIT Identifier,
+                aaSpecific     [2] IMPLICIT NULL },
+            continueAfter [2] IMPLICIT Identifier OPTIONAL }
+
+    ``object_class`` is a basicObjectClass: OBJECT_CLASS_DOMAIN (9),
+    OBJECT_CLASS_NAMED_VARIABLE (0), OBJECT_CLASS_NAMED_VARIABLE_LIST (2).
+    Pass the last name of a response as ``continue_after`` to get the next page.
     """
-    # GetNameList-Request ::= SEQUENCE {
-    #   objectClass [0] IMPLICIT ObjectClass,
-    #   objectScope [1] IMPLICIT ObjectScope
-    # }
-    # objectClass ENUMERATED : 80 01 09 pour domain
-    obj_class = b"\x80\x01" + bytes([object_class & 0xFF])
+    obj_class = _tlv(_TAG_CTX0_C, _tlv(0x80, bytes([object_class & 0xFF])))
     if scope_vmd:
-        # vmd-specific [0] IMPLICIT NULL
-        obj_scope = b"\x81\x00"
+        obj_scope = _tlv(_TAG_CTX1_C, _tlv(0x80, b""))
     else:
         if not domain_id:
-            raise ValueError("domain_id requis pour scope domain-specific")
-        # domain-specific [1] IMPLICIT Identifier (VisibleString)
-        obj_scope = _tlv(0x81, _encode_ia5(domain_id))
+            raise ValueError("domain_id is required for a domain-specific scope")
+        obj_scope = _tlv(_TAG_CTX1_C, _tlv(0x81, domain_id.encode("ascii")))
+    request = obj_class + obj_scope
+    if continue_after is not None:
+        request += _tlv(0x82, continue_after.encode("ascii"))
+    return _confirmed_request(_tlv(_TAG_CTX1_C, request))
 
-    gnl_req     = _tlv(_TAG_SEQUENCE, obj_class + obj_scope)
-    gnl_wrapper = _tlv(_TAG_CTX1_C, gnl_req)
 
+def _confirmed_request(service: bytes) -> bytes:
+    """Wrap a ConfirmedServiceRequest in confirmed-RequestPDU, presentation and session."""
     inv = _next_invoke_id()
-    invoke_part = b"\x02\x02" + bytes([inv >> 8, inv & 0xFF])
-
-    inner  = invoke_part + gnl_wrapper
-    a0_3   = _tlv(_TAG_CTX0_C, inner)
-    a0_4   = _tlv(_TAG_CTX0_C, a0_3)
-    seq_2  = _tlv(_TAG_SEQUENCE, b"\x02\x01\x03" + a0_4)
-    app1   = _tlv(_TAG_APP_PDU, seq_2)
-
-    return _PREFIX + app1
+    body = b"\x02\x02" + bytes([inv >> 8, inv & 0xFF]) + service
+    pdv = b"\x02\x01\x03" + _tlv(_TAG_CTX0_C, _tlv(_TAG_CTX0_C, body))
+    return _PREFIX + _tlv(_TAG_APP_PDU, _tlv(_TAG_SEQUENCE, pdv))
 
 
 def _encode_mms_value_boolean(val: bool) -> bytes:
@@ -462,93 +465,45 @@ def is_read_response_success(pdu: bytes) -> bool:
     return any(b in content for b in (b"\x8a", b"\x1a", b"\x86", b"\x85", b"\x83", b"\x84"))
 
 
+def _confirmed_response_service(pdu: bytes) -> Optional[tuple[int, int, bytes]]:
+    """Return ``(invoke_id, service_tag, service_content)`` of a confirmed-ResponsePDU."""
+    data = pdu[len(_PREFIX):] if pdu.startswith(_PREFIX) else pdu
+    try:
+        pres = ber.expect_tlv(data, 0, _TAG_APP_PDU)
+        pdv = list(ber.iter_tlvs(ber.expect_tlv(pres.value, 0, _TAG_SEQUENCE).value))
+        mms = ber.decode_tlv(pdv[-1].value)
+        if mms.tag != _TAG_CTX1_C:
+            return None
+        invoke, service = list(ber.iter_tlvs(mms.value))[:2]
+        return ber.decode_integer(invoke.value), service.tag, service.value
+    except (ber.BerError, ValueError, IndexError):
+        return None
+
+
 def decode_mms_get_name_list_response(pdu: bytes) -> Optional[tuple[List[str], bool]]:
+    """Decode a GetNameList response into ``(names, more_follows)``.
+
+    ::
+
+        GetNameList-Response ::= SEQUENCE {
+            listOfIdentifier [0] IMPLICIT SEQUENCE OF Identifier,
+            moreFollows      [1] IMPLICIT BOOLEAN DEFAULT TRUE }
+
+    Returns None if the PDU is not a GetNameList response.
     """
-    Décode une réponse GetNameList (confirmed-ResponsePDU [getNameList]).
-    Retourne (list_of_identifier, more_follows) ou None si ce n'est pas une réponse GetNameList.
-    """
-    data = pdu
-    if data.startswith(_PREFIX):
-        data = data[len(_PREFIX):]
-    if len(data) < 8 or data[0] != 0x61:
+    parsed = _confirmed_response_service(pdu)
+    if parsed is None or parsed[1] != _TAG_CTX1_C:
         return None
-    offset = 1
-    length, n = _ber_read_length(data, offset)
-    offset += n
-    end_outer = min(offset + length, len(data))
-    payload = data[offset:end_outer]
-
-    # Chercher getNameList [1] = 0xA1 (ISO 9506 ConfirmedServiceResponse)
-    pos = 0
-    # Skip version et invokeID dans confirmed-ResponsePDU
-    if len(payload) < 4 or payload[pos] != 0x30:
-        return None
-    pos += 1
-    seq_len, nn = _ber_read_length(payload, pos)
-    pos += nn
-    seq_end = pos + seq_len
-    if seq_end > len(payload):
-        seq_end = len(payload)
-    def _find_a1_in(inner: bytes, start: int, end: int) -> Optional[int]:
-        """Recherche récursive du TLV a1 (getNameList) dans inner[start:end]."""
-        p = start
-        while p < end - 1:
-            tag = inner[p]
-            p += 1
-            ln, nn = _ber_read_length(inner, p)
-            p += nn
-            if p + ln > end:
-                break
-            if tag == 0xA1:
-                return p - 1  # position du tag a1
-            if tag == 0xA0:
-                found = _find_a1_in(inner, p, p + ln)
-                if found is not None:
-                    return found
-            p += ln
-        return None
-
-    a1_pos = _find_a1_in(payload, pos, seq_end)
-    if a1_pos is None:
-        return None
-
-    pos = a1_pos
-    gnl_len, nn = _ber_read_length(payload, pos)
-    pos += nn
-    gnl_end = pos + gnl_len
-    if gnl_end > len(payload):
-        gnl_end = len(payload)
-    gnl_content = payload[pos:gnl_end]
-
-    # GetNameList-Response : listOfIdentifier [0], moreFollows [1]
     names: List[str] = []
-    more_follows = False
-    p = 0
-    while p < len(gnl_content):
-        if p >= len(gnl_content):
-            break
-        tag = gnl_content[p]
-        p += 1
-        ln, nn = _ber_read_length(gnl_content, p)
-        p += nn
-        if p + ln > len(gnl_content):
-            break
-        chunk = gnl_content[p:p + ln]
-        p += ln
-        if tag == 0xA0:
-            # listOfIdentifier SEQUENCE OF VisibleString
-            q = 0
-            while q < len(chunk):
-                if chunk[q] in (0x1A, 0x8A, 0x80):
-                    s, q = _ber_decode_visible_string(chunk, q)
-                    if s:
-                        names.append(s)
-                else:
-                    q = _ber_skip(chunk, q)
-        elif tag == 0xA1 and len(chunk) >= 2 and chunk[0] == 0x83:
-            # moreFollows BOOLEAN
-            more_follows = len(chunk) > 1 and chunk[1] != 0
-
+    more_follows = True
+    try:
+        for tlv in ber.iter_tlvs(parsed[2]):
+            if tlv.tag == _TAG_CTX0_C:
+                names = [n.value.decode("ascii", errors="replace") for n in ber.iter_tlvs(tlv.value)]
+            elif tlv.tag == 0x81:
+                more_follows = ber.decode_boolean(tlv.value)
+    except ber.BerError:
+        return None
     return names, more_follows
 
 

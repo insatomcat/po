@@ -10,9 +10,11 @@ not implement yet; they flip to XPASS (and fail, being strict) once fixed.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
+from conftest import DATA_DIR
 
 from iec61850 import ber
 from iec_data import (
@@ -41,6 +43,7 @@ from mms.asn1_codec import (
 )
 
 SESSION_PREFIX = bytes.fromhex("01000100")
+CAPTURE = json.loads((DATA_DIR / "iedscout_getnamelist.json").read_text())
 
 
 @pytest.fixture(autouse=True)
@@ -97,15 +100,30 @@ def test_set_rcb_sequence() -> None:
     ]
 
 
-def test_get_name_list_requests() -> None:
-    # Current encoding. Suspected non-conformant (objectClass and objectScope
-    # are CHOICEs, so explicitly tagged in ISO 9506); to check on a capture.
-    assert encode_mms_get_name_list(OBJECT_CLASS_DOMAIN).hex() == (
-        "0100010061163014020103a00fa00d0202012ca10730058001098100"
+def _service(pdu: bytes) -> bytes:
+    """The ConfirmedServiceRequest TLV of a request, whatever the invokeID encoding."""
+    pres = ber.decode_tlv(pdu, 4)
+    pdv = list(ber.iter_tlvs(ber.decode_tlv(pres.value).value))
+    mms = ber.decode_tlv(pdv[-1].value)
+    return ber.encode_tlv(*list(ber.iter_tlvs(mms.value))[1][:2])
+
+
+def test_get_name_list_requests_match_iedscout() -> None:
+    assert _service(encode_mms_get_name_list(OBJECT_CLASS_DOMAIN)) == _service(
+        bytes.fromhex(CAPTURE["gnl_domains_req"])
     )
-    assert encode_mms_get_name_list(
-        OBJECT_CLASS_NAMED_VARIABLE, scope_vmd=False, domain_id="LD0"
-    ).hex() == "01000100611b3019020103a014a0120202012da10c300a80010081051a034c4430"
+    assert _service(
+        encode_mms_get_name_list(OBJECT_CLASS_NAMED_VARIABLE, scope_vmd=False, domain_id="IED01_LD0")
+    ) == _service(bytes.fromhex(CAPTURE["gnl_vars_req"]))
+
+
+def test_get_name_list_request_with_continue_after() -> None:
+    pdu = encode_mms_get_name_list(
+        OBJECT_CLASS_NAMED_VARIABLE, scope_vmd=False, domain_id="LD0", continue_after="LLN0$ST"
+    )
+    assert _service(pdu) == (
+        bytes.fromhex("a115" "a003800100" "a105810" "3") + b"LD0" + bytes.fromhex("8207") + b"LLN0$ST"
+    )
 
 
 def test_initiate_is_a_fixed_replay() -> None:
@@ -140,12 +158,28 @@ def test_read_response_success_and_failure() -> None:
     assert not is_read_response_success(failure)
 
 
-@pytest.mark.xfail(strict=True, reason="known bug: decoder stops on the confirmed-ResponsePDU [1] tag")
 def test_get_name_list_response() -> None:
     names = _tlv(0xA0, _tlv(0x1A, b"LD0") + _tlv(0x1A, b"LD1"))
-    more_follows = bytes.fromhex("8101ff")
-    pdu = _confirmed_response(0xA1, names + more_follows)
-    assert decode_mms_get_name_list_response(pdu) == (["LD0", "LD1"], True)
+    assert decode_mms_get_name_list_response(_confirmed_response(0xA1, names + bytes.fromhex("8101ff"))) == (
+        ["LD0", "LD1"], True,
+    )
+    # moreFollows defaults to TRUE when absent.
+    assert decode_mms_get_name_list_response(_confirmed_response(0xA1, names)) == (["LD0", "LD1"], True)
+
+
+def test_get_name_list_response_from_capture() -> None:
+    assert decode_mms_get_name_list_response(bytes.fromhex(CAPTURE["gnl_domains_resp"])) == (
+        ["IED01_LD0", "IED01_MU01", "IED01_BayLD"], False,
+    )
+    pdu = b"".join(bytes.fromhex(seg) for seg, _ in CAPTURE["gnl_vars_resp_segments"])
+    names, more = decode_mms_get_name_list_response(pdu)  # type: ignore[misc]
+    assert (len(names), more) == (100, True)
+    assert names[:3] == ["LLN0", "LLN0$SP", "LLN0$SP$CustDoA"]
+
+
+def test_get_name_list_decoder_ignores_other_responses() -> None:
+    read = _confirmed_response(0xA4, _tlv(0xA1, _tlv(0xA2, bytes.fromhex("8a03525054"))))
+    assert decode_mms_get_name_list_response(read) is None
 
 
 # --- Reports ----------------------------------------------------------------

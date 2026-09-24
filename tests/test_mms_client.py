@@ -5,15 +5,18 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 from collections.abc import Callable, Iterator
 
 import pytest
+from conftest import DATA_DIR
 
 from iec_data import _tlv
 from mms import mms_reports_client
 from mms.asn1_codec import MMSReport
+from mms.discover_reports import discover_reports
 from mms.cotp import cotp_recv_data, cotp_send_data
 from mms.mms_reports_client import MMSReportsClient
 from mms.tpkt import TPKTError, recv_tpkt, send_tpkt
@@ -64,6 +67,16 @@ def test_tpkt_eof_returns_none() -> None:
     with b:
         a.close()
         assert recv_tpkt(b, timeout=1) is None
+
+
+def test_cotp_reassembles_segmented_tsdu() -> None:
+    # A 2176-byte GetNameList response from a real IED, split over three DT TPDUs.
+    segments = json.loads((DATA_DIR / "iedscout_getnamelist.json").read_text())["gnl_vars_resp_segments"]
+    a, b = socket.socketpair()
+    with a, b:
+        for seg, eot in segments:
+            send_tpkt(a, bytes([0x02, 0xF0, 0x80 if eot else 0x00]) + bytes.fromhex(seg))
+        assert cotp_recv_data(b, timeout=1) == b"".join(bytes.fromhex(seg) for seg, _ in segments)
 
 
 def test_cotp_data_skips_other_tpdus() -> None:
@@ -165,3 +178,37 @@ def test_probe_rcb_ignores_response_to_other_request(fake_ied: Callable[[Script]
         assert client.probe_rcb("LD0", "LLN0$BR$MISSING") is False
     finally:
         client.close()
+
+
+def _gnl_response(invoke_id: int, names: list[str], more_follows: bool) -> bytes:
+    ids = b"".join(_tlv(0x1A, n.encode()) for n in names)
+    service = _tlv(0xA0, ids) + _tlv(0x81, b"\xff" if more_follows else b"\x00")
+    return _presentation(_tlv(0xA1, _tlv(0x02, invoke_id.to_bytes(2, "big")) + _tlv(0xA1, service)))
+
+
+def test_discover_reports_follows_pages(fake_ied: Callable[[Script], None]) -> None:
+    continue_after: list[bytes] = []
+
+    def script(ied: socket.socket) -> None:
+        req = cotp_recv_data(ied, timeout=2)
+        assert req is not None and req.endswith(bytes.fromhex("a003800109a1028000"))
+        cotp_send_data(ied, _gnl_response(_invoke_id_of(req), ["LD0"], False))
+        pages = [
+            (["LLN0$BR$CB01", "LLN0$BR$CB01$RptID", "LLN0$RP$URCB1"], True),
+            (["LLN0$RP$URCB1$RptEna", "XCBR1$ST$Pos"], False),
+        ]
+        for names, more in pages:
+            req = cotp_recv_data(ied, timeout=2)
+            assert req is not None
+            continue_after.append(req.split(b"\x82", 1)[1][1:] if b"\x82\x0d" in req else b"")
+            cotp_send_data(ied, _gnl_response(_invoke_id_of(req), names, more))
+
+    fake_ied(script)
+    client = MMSReportsClient("ied", timeout=2)
+    client.connect()
+    try:
+        reports = discover_reports(client)
+    finally:
+        client.close()
+    assert reports == [("LD0", "LLN0$BR$CB01"), ("LD0", "LLN0$RP$URCB1")]
+    assert continue_after == [b"", b"LLN0$RP$URCB1"]

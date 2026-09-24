@@ -163,25 +163,50 @@ class MMSReportsClient:
         object_class: int,
         scope_vmd: bool = True,
         domain_id: Optional[str] = None,
+        continue_after: Optional[str] = None,
     ) -> Optional[tuple[list[str], bool]]:
-        """Envoie GetNameList et retourne (liste_de_noms, more_follows) ou None en cas d'échec."""
+        """Send one GetNameList; return ``(names, more_follows)`` or None on failure."""
         if self._sock is None:
-            raise MMSConnectionError("Connexion MMS non établie.")
-        pdu = encode_mms_get_name_list(object_class, scope_vmd=scope_vmd, domain_id=domain_id)
+            raise MMSConnectionError("MMS connection not established.")
+        pdu = encode_mms_get_name_list(
+            object_class, scope_vmd=scope_vmd, domain_id=domain_id, continue_after=continue_after
+        )
         if self._debug:
-            print(f"[DEBUG] >>> GetNameList objectClass={object_class} scope_vmd={scope_vmd} domain={domain_id!r}")
+            print(f"[DEBUG] >>> GetNameList objectClass={object_class} scope_vmd={scope_vmd} "
+                  f"domain={domain_id!r} continueAfter={continue_after!r}")
             print(f"[DEBUG]     {_hex_debug(pdu)}")
         cotp_send_data(self._sock, pdu)
         resp = self._recv_until_response()
         if resp is None:
             return None
         if self._debug:
-            print(f"[DEBUG] <<< GetNameList response ({len(resp)} octets)")
+            print(f"[DEBUG] <<< GetNameList response ({len(resp)} bytes)")
             print(f"[DEBUG]     {_hex_debug(resp)}")
         result = decode_mms_get_name_list_response(resp)
         if self._debug and result:
-            print(f"[DEBUG]     → {len(result[0])} noms, moreFollows={result[1]}")
+            print(f"[DEBUG]     -> {len(result[0])} names, moreFollows={result[1]}")
         return result
+
+    def get_all_names(
+        self,
+        object_class: int,
+        scope_vmd: bool = True,
+        domain_id: Optional[str] = None,
+        max_pages: int = 10_000,
+    ) -> Optional[list[str]]:
+        """Follow GetNameList pages with continueAfter; None if the first request fails."""
+        names: list[str] = []
+        continue_after: Optional[str] = None
+        for _ in range(max_pages):
+            result = self.get_name_list(object_class, scope_vmd, domain_id, continue_after)
+            if result is None:
+                return None if not names else names
+            page, more_follows = result
+            names.extend(page)
+            if not more_follows or not page:
+                break
+            continue_after = page[-1]
+        return names
 
     def probe_rcb(self, domain_id: str, item_id: str) -> bool:
         """Envoie GetRCBValues et retourne True si le RCB existe (Read-Response), False sinon."""
