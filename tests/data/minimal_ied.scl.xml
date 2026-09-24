@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal hand-written SCL used by tests/test_scl_parser.py. -->
+<SCL xmlns="http://www.iec.ch/61850/2003/SCL" version="2007" revision="B">
+  <Header id="po-tests"/>
+  <IED name="IED1">
+    <AccessPoint name="AP1">
+      <Server>
+        <Authentication/>
+        <LDevice inst="LD0">
+          <LN0 lnClass="LLN0" inst="" lnType="LLN0_T">
+            <DataSet name="DS1">
+              <FCDA ldInst="LD0" prefix="" lnClass="XCBR" lnInst="1" doName="Pos" daName="stVal" fc="ST"/>
+              <FCDA ldInst="LD0" prefix="" lnClass="MMXU" lnInst="1" doName="TotW" daName="mag" fc="MX"/>
+              <FCDA ldInst="LD0" prefix="" lnClass="MMXU" lnInst="1" doName="A.phsA" fc="MX"/>
+            </DataSet>
+          </LN0>
+          <LN lnClass="XCBR" inst="1" lnType="XCBR_T"/>
+          <LN lnClass="MMXU" inst="1" lnType="MMXU_T"/>
+        </LDevice>
+      </Server>
+    </AccessPoint>
+  </IED>
+  <DataTypeTemplates>
+    <LNodeType id="LLN0_T" lnClass="LLN0"/>
+    <LNodeType id="XCBR_T" lnClass="XCBR">
+      <DO name="Pos" type="DPC_T"/>
+    </LNodeType>
+    <LNodeType id="MMXU_T" lnClass="MMXU">
+      <DO name="TotW" type="MV_T"/>
+      <DO name="A" type="WYE_T"/>
+    </LNodeType>
+    <DOType id="DPC_T" cdc="DPC">
+      <DA name="stVal" bType="Dbpos" fc="ST"/>
+      <DA name="q" bType="Quality" fc="ST"/>
+    </DOType>
+    <DOType id="MV_T" cdc="MV">
+      <DA name="mag" bType="Struct" type="AV_T" fc="MX"/>
+    </DOType>
+    <DOType id="WYE_T" cdc="WYE">
+      <SDO name="phsA" type="CMV_T"/>
+    </DOType>
+    <DOType id="CMV_T" cdc="CMV">
+      <DA name="cVal" bType="Struct" type="VEC_T" fc="MX"/>
+      <DA name="q" bType="Quality" fc="MX"/>
+      <DA name="t" bType="Timestamp" fc="MX"/>
+    </DOType>
+    <DAType id="AV_T">
+      <BDA name="f" bType="FLOAT32"/>
+    </DAType>
+    <DAType id="VEC_T">
+      <BDA name="mag" bType="Struct" type="AV_T"/>
+      <BDA name="ang" bType="Struct" type="AV_T"/>
+    </DAType>
+  </DataTypeTemplates>
+</SCL>

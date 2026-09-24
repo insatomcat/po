@@ -78,6 +78,15 @@ po/
 
 Each subdirectory has its own **README** (applications, services, CLI clients, API).
 
+## Tests
+
+```bash
+python3 -m pip install pytest
+python3 -m pytest
+```
+
+The suite runs without network access, scapy or pcapy. The `rt_sender` checks need Linux and a C compiler.
+
 ## Licence and constraints
 
 - MMS core: in-house TPKT/COTP/MMS implementation in BER, **without any GPL library**.
