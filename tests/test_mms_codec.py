@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from iec61850 import ber
 from iec_data import (
     BitStringData,
     BoolData,
@@ -114,12 +115,19 @@ def test_initiate_is_a_fixed_replay() -> None:
     assert encode_mms_initiate() == pdu
 
 
-@pytest.mark.xfail(strict=True, reason="known bug: asn1_codec writes BER lengths on one byte")
+def _walk(data: bytes) -> list[bytes]:
+    """Decode every TLV recursively; return the primitive contents in order."""
+    out: list[bytes] = []
+    for tlv in ber.iter_tlvs(data):
+        out.extend(_walk(tlv.value) if ber.is_constructed(tlv.tag) else [tlv.value])
+    return out
+
+
 def test_long_item_name_uses_long_form_length() -> None:
-    pdu = encode_mms_get_rcb("IED01_LD0", "LLN0$BR$" + "X" * 120)
-    # Presentation 0x61 content is longer than 127 bytes: needs 81 xx.
-    assert pdu[4] == 0x61
-    assert pdu[5] == 0x81
+    item = "LLN0$BR$" + "X" * 120
+    pdu = encode_mms_get_rcb("IED01_LD0", item)
+    assert pdu[4:6].hex() == "6181"  # presentation content > 127 bytes: long form
+    assert _walk(pdu[4:])[-2:] == [b"IED01_LD0", item.encode()]
 
 
 # --- Responses --------------------------------------------------------------

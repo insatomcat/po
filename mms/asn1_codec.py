@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from iec61850.ber import encode_tlv as _tlv
 from iec_data import (
     BoolData, IntData, UIntData, FloatData,
     BitStringData, OctetStringData, VisibleStringData, MmsStringData,
@@ -84,8 +85,7 @@ def _next_invoke_id() -> int:
 
 def _encode_ia5(s: str) -> bytes:
     """Encode une IA5String : tag 1a + len + octets."""
-    b = s.encode("ascii")
-    return bytes([_TAG_IA5_STRING, len(b)]) + b
+    return _tlv(_TAG_IA5_STRING, s.encode("ascii"))
 
 
 def _encode_domain_specific_name(domain_id: str, item_id: str) -> bytes:
@@ -141,9 +141,6 @@ def encode_mms_get_rcb(domain_id: str, item_id: str) -> bytes:
     """
     name_part = _encode_domain_specific_name(domain_id, item_id)
 
-    def _tlv(tag: int, value: bytes) -> bytes:
-        return bytes([tag, len(value)]) + value
-
     a1_inner = _tlv(_TAG_CTX1_C, name_part)
     a0_1     = _tlv(_TAG_CTX0_C, a1_inner)
     seq_1    = _tlv(_TAG_SEQUENCE, a0_1)
@@ -187,11 +184,7 @@ def encode_mms_get_name_list(
         if not domain_id:
             raise ValueError("domain_id requis pour scope domain-specific")
         # domain-specific [1] IMPLICIT Identifier (VisibleString)
-        id_bytes = _encode_ia5(domain_id)
-        obj_scope = b"\x81" + bytes([len(id_bytes)]) + id_bytes
-
-    def _tlv(tag: int, value: bytes) -> bytes:
-        return bytes([tag, len(value)]) + value
+        obj_scope = _tlv(0x81, _encode_ia5(domain_id))
 
     gnl_req     = _tlv(_TAG_SEQUENCE, obj_class + obj_scope)
     gnl_wrapper = _tlv(_TAG_CTX1_C, gnl_req)
@@ -253,9 +246,6 @@ def encode_mms_set_rcb_attribute(
     """
     full_item = f"{item_id}${attribute}" if attribute else item_id
     name_part = _encode_domain_specific_name(domain_id, full_item)
-
-    def _tlv(tag: int, value: bytes) -> bytes:
-        return bytes([tag, len(value)]) + value
 
     a1_inner      = _tlv(_TAG_CTX1_C, name_part)
     a0_name_inner = _tlv(_TAG_CTX0_C, a1_inner)
