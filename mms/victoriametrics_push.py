@@ -441,3 +441,22 @@ def push_mms_report_flush(base_url: str) -> None:
     """Force l'envoi immédiat du buffer pour l'URL donnée."""
     batcher = _Batcher.get(base_url, DEFAULT_BATCH_INTERVAL_SEC, DEFAULT_BATCH_SIZE_MAX)
     batcher.flush()
+
+
+def push_lines(
+    base_url: str,
+    lines: List[str],
+    *,
+    batch_interval_sec: float = DEFAULT_BATCH_INTERVAL_SEC,
+    batch_max_lines: int = DEFAULT_BATCH_SIZE_MAX,
+    debug: bool = False,
+) -> None:
+    """Queue Prometheus lines for VictoriaMetrics (batched), or post them now if batching is off."""
+    if not lines:
+        return
+    if batch_interval_sec <= 0:
+        _do_post_impl(base_url, lines, debug)
+        return
+    batcher = _Batcher.get(base_url, batch_interval_sec, batch_max_lines)
+    batcher.add(lines, debug=debug)
+    batcher.ensure_started()

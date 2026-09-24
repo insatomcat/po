@@ -13,6 +13,8 @@ from dataclasses import asdict
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
+from .reporting import DEFAULT_TRIGGERS, parse_triggers
+
 if TYPE_CHECKING:
     from .mms_service import SubscriptionManager, SubscriptionRuntime
 
@@ -53,6 +55,8 @@ def handle_mms(
             "scl": cfg.scl,
             "rcb_list": cfg.rcb_list,
             "debug": cfg.debug,
+            "triggers": cfg.triggers or DEFAULT_TRIGGERS,
+            "integrity_ms": cfg.integrity_ms,
             "last_error": rt.last_error,
             "rcb_items": list(rt.rcb_items),
         }
@@ -101,7 +105,13 @@ def handle_mms(
             scl=data.get("scl"),
             rcb_list=data.get("rcb_list"),
             debug=bool(data.get("debug", False)),
+            triggers=data.get("triggers"),
+            integrity_ms=int(data.get("integrity_ms") or 2000),
         )
+        try:
+            parse_triggers(cfg.triggers)
+        except ValueError as e:
+            return HTTPStatus.BAD_REQUEST, {"error": str(e)}
         try:
             rt = manager.create_subscription(cfg)
         except ValueError as e:
@@ -114,16 +124,21 @@ def handle_mms(
         data, ok = _read_json()
         if not ok or data is None:
             return HTTPStatus.BAD_REQUEST, {"error": "invalid JSON body"}
-        allowed_fields = {"ied_host", "ied_port", "domain", "scl", "rcb_list", "debug"}
+        allowed_fields = {"ied_host", "ied_port", "domain", "scl", "rcb_list", "debug", "triggers", "integrity_ms"}
         update_fields: Dict[str, Any] = {}
         for k, v in data.items():
             if k not in allowed_fields:
                 continue
-            if k == "ied_port" and v is not None:
+            if k == "triggers" and v is not None:
+                try:
+                    parse_triggers(v)
+                except ValueError as e:
+                    return HTTPStatus.BAD_REQUEST, {"error": str(e)}
+            if k in ("ied_port", "integrity_ms") and v is not None:
                 try:
                     v = int(v)
                 except (TypeError, ValueError):
-                    return HTTPStatus.BAD_REQUEST, {"error": "invalid ied_port"}
+                    return HTTPStatus.BAD_REQUEST, {"error": f"invalid {k}"}
             update_fields[k] = v
         try:
             rt = manager.update_subscription(sub_id, update_fields)

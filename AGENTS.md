@@ -36,9 +36,10 @@ under the historical names and holds the JSON mapping (with its goose_cli
 quirks); `goose61850.codec` / `.types` re-export the GOOSE codec, and
 `goose61850.transport` builds and parses frames with `iec61850.ethernet`
 (scapy is imported only inside `GoosePublisher.send` / `GooseService._send_one`).
-Still on their own parsers: po's MMS service (`mms/`, not yet migrated to
-`iec61850.mms`; do it once the new client is validated on the VMC7) and the
-SV listeners. The SV listener runs per packet at 2400+ frames/s, so switch it to
+po's MMS subscription service runs on `iec61850.mms` (see below). Still on
+their own code: MMS controls (`send_command`, old client), the legacy CLIs
+`mms/test_client_reports.py` and `mms/discover_reports.py`, and the SV
+listeners. The SV listener runs per packet at 2400+ frames/s, so switch it to
 `iec61850.sv` only after measuring the cost.
 
 ## Layout
@@ -60,7 +61,21 @@ Imports rely on `sys.path.insert` hacks: `iec_data` and `processbus_capture`
 are top-level modules, `goose/` and `goose_listener/` are added to the path by
 `po_service.py`. Run things from the repo root.
 
-## MMS stack as implemented
+## MMS service (`mms/mms_service.py`)
+
+One thread per subscription: `MmsClient.connect`, GetNameList of the domain,
+`reporting.plan_subscriptions` (every RCB group, or the `rcb_list` entries; a
+trailing instance number is the preferred instance, instances used before
+come first), `rcb.find_free`, data set members and types read from the IED
+(`reporting.load_data_set`, SCL labels only as fallback), `rcb.enable` with
+po's historical OptFlds and the configured `triggers` / `integrity_ms`.
+Reports are decoded on the worker thread; `reporting.report_to_lines` keeps
+the historical VictoriaMetrics series (a test compares it with the old
+pipeline byte for byte), `reporting.format_report` feeds the SSE logs when
+debug is on. Stopping a stream disables its RCBs. Reconnect backoff 5 s to
+60 s as before.
+
+## Legacy MMS stack (`mms/`, still used by controls and old CLIs)
 
 Layers: `tpkt.py` (RFC 1006) -> `cotp.py` (class 0, CR/CC, DT with fixed
 `02 F0 80`) -> `asn1_codec.py` (everything above COTP) -> `mms_reports_client.py`
@@ -107,6 +122,19 @@ What the VMC7 capture taught (IEDscout, 2026-09-24):
 - IEDscout's own Initiate is 204 bytes (po replays a 180-byte one); both
   are accepted.
 
+What the second capture taught (IEDscout on the VMC7, 2026-09-24, fixtures
+in `tests/data/iedscout_reports_control.json`):
+- IEDscout enables a BRCB with RptEna=FALSE, a read of the whole block,
+  ResvTms=42, RptEna=TRUE: it keeps the IED's TrgOps/OptFlds (OptFlds 7a00,
+  no EntryID) and does not purge, so ~500 buffered reports arrive at once.
+- Data-change reports include 1 to 3 of 19 members: partial inclusion is the
+  normal case once dchg/qchg are enabled.
+- Control is direct-with-enhanced-security: one Oper write per command
+  (ctlVal TRUE = close, FALSE = open, orCat 2, ctlNum 0, Check c0), write
+  response in ~2 ms, then a CommandTermination (informationReport on
+  `...$CO$Pos$Oper` echoing the Oper) 60 to 90 ms later. po's second
+  "step3" Oper for closing is not needed.
+
 RCB activation (`enable_reporting`): one GetRCBValues, then eight separate
 writes (ResvTms, IntgPd, TrgOps=`020c`, OptFlds=`067b00`, PurgeBuf,
 EntryID=0, RptEna, GI). Write responses are not checked.
@@ -139,9 +167,11 @@ refreshed to "now" on every send.
 - GOOSE service: `t` is set to "now" on every retransmission (it must be the
   time of the last stNum change), and `modify_stream` bumps stNum without
   resetting sqNum to 0.
-- po's RCB settings: `DEFAULT_TRG_OPS = 020c` is integrity + GI only (the
-  comment claims data-change and quality-change), so po only gets periodic
-  integrity reports and GI, never reports on change.
+- Legacy RCB settings: `DEFAULT_TRG_OPS = 020c` is integrity + GI only (the
+  comment claims data-change and quality-change). The service keeps it as
+  the default `triggers` (`integrity,gi`); set `dchg,qchg,...` to get
+  reports on change. The legacy VictoriaMetrics pipeline also mislabels
+  members when the inclusion bitstring skips some; the new one does not.
 - RCB writes: `_encode_mms_value_unsigned` uses tag `0x85` (integer) below 256
   and `0x86` (unsigned) above, so `IntgPd` < 256 ms would go out as an integer.
 - `iec_data_from_json` turns strings with control chars into `RawData(0x83)`

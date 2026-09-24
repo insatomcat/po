@@ -1406,7 +1406,9 @@ SPDX-License-Identifier: Apache-2.0
         "mms.debugOff": "Désactiver debug",
         "mms.lastError": "Dernière erreur",
         "mms.rcbList": "RCB list",
-        "mms.rcbBuiltin": "liste intégrée",
+        "mms.rcbBuiltin": "tous les RCB du domaine",
+        "mms.triggers": "Déclencheurs",
+        "mms.integrity": "intégrité {ms} ms",
         "mms.reports": "Reports ({n})",
         "mms.loadingParen": "(chargement…)",
         "mms.noCommands": "Aucune commande enregistrée.",
@@ -1772,7 +1774,9 @@ SPDX-License-Identifier: Apache-2.0
         "mms.debugOff": "Disable debug",
         "mms.lastError": "Last error",
         "mms.rcbList": "RCB list",
-        "mms.rcbBuiltin": "built-in list",
+        "mms.rcbBuiltin": "every RCB of the domain",
+        "mms.triggers": "Triggers",
+        "mms.integrity": "integrity {ms} ms",
         "mms.reports": "Reports ({n})",
         "mms.loadingParen": "(loading…)",
         "mms.noCommands": "No saved commands.",
@@ -2546,6 +2550,7 @@ SPDX-License-Identifier: Apache-2.0
         <dt>${t('mms.col.domain')}</dt><dd>${escapeHtml(s.domain)}</dd>
         <dt>SCL</dt><dd>${escapeHtml(s.scl) || '-'}</dd>
         <dt>${t('mms.rcbList')}</dt><dd>${escapeHtml(s.rcb_list) || t('mms.rcbBuiltin')}</dd>
+        <dt>${t('mms.triggers')}</dt><dd>${escapeHtml(s.triggers || 'integrity,gi')} · ${t('mms.integrity', { ms: s.integrity_ms || 2000 })}</dd>
         <dt>${t('mms.col.debug')}</dt><dd>${s.debug ? t('common.yes') : t('common.no')}</dd>
         <dt>${t('mms.reports', { n: items.length })}</dt><dd>${rcbList}</dd>
         ${errBlock}
@@ -2614,7 +2619,7 @@ SPDX-License-Identifier: Apache-2.0
           const r = mmsRecentsCache[parseInt(btn.dataset.idx, 10)];
           if (!r) return;
           try {
-            await fetch(API.mms + '/subscriptions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl, rcb_list: r.rcb_list, debug: r.debug }) });
+            await fetch(API.mms + '/subscriptions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl, rcb_list: r.rcb_list, debug: r.debug, triggers: r.triggers, integrity_ms: r.integrity_ms }) });
             mmsLoad();
           } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
         });

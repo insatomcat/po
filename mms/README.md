@@ -81,7 +81,7 @@ python3 mms/mms_service.py --port 8080 --victoriametrics-url http://localhost:84
 
 #### API HTTP (résumé)
 
-- **POST /subscriptions** – Créer un flux (ied_host, ied_port, domain, scl, rcb_list, debug)
+- **POST /subscriptions** – Créer un flux (ied_host, ied_port, domain, scl, rcb_list, debug, triggers, integrity_ms)
 - **GET /subscriptions** – Lister les flux
 - **GET /subscriptions/<id>** – Détail d’un flux
 - **PUT /subscriptions/<id>** – Modifier un flux (ré démarre le thread avec la nouvelle config)
@@ -118,9 +118,18 @@ python3 -m mms.mmsctl delete flux-1 --api-url http://127.0.0.1:7050
 
 Avec un service MMS standalone sur 8080 : `--api-url http://127.0.0.1:8080 --no-unified`.
 
-## Fichier SCL/ICD
+## Service: RCB, libellés et déclencheurs
 
-Pour les libellés lisibles (`[8] LogOut10`, `[9] A.phsA`, etc.), fournir le **fichier CID** (Configured IED Description) de l’IED. Le script et le service utilisent `scl_parser.py` pour faire correspondre l’index d’entrée au nom du membre (Data set + FCDA).
+Le service s'appuie sur le client `iec61850.mms` de la librairie :
+
+- **RCB** : sans `rcb_list`, le service s'abonne à tous les RCB du domaine (un par groupe d'instances `..._DQPO01` à `..._DQPO04`). Une `rcb_list` (un nom par ligne) restreint la liste ; un numéro d'instance final indique l'instance préférée. Le service prend une instance libre (ni activée, ni réservée par un autre client), la réserve (`ResvTms`), la configure et l'active, puis la désactive à l'arrêt du flux.
+- **Libellés** : les membres des data sets et leurs types sont lus sur l'IED (GetNamedVariableListAttributes, GetVariableAccessAttributes). Le fichier SCL n'est plus nécessaire ; s'il est fourni, il sert de repli.
+- **Déclencheurs** : `triggers` (`dchg`, `qchg`, `dupd`, `integrity`, `gi`, défaut `integrity,gi`) et `integrity_ms` (défaut 2000).
+- **VictoriaMetrics** : mêmes séries qu'avant, `mms_report_value{rpt_id, data_set, member[, component]}`.
+
+## Fichier SCL/ICD (script de test)
+
+`test_client_reports.py` (ancien client) utilise encore le **fichier CID** de l’IED pour les libellés (`scl_parser.py`). Pour un client en ligne de commande à jour, voir `tools/mms_client.py`.
 
 ## Structure des fichiers
 
@@ -139,7 +148,7 @@ Pour les libellés lisibles (`[8] LogOut10`, `[9] A.phsA`, etc.), fournir le **f
 | `discover_reports.py` | Découverte des reports MMS disponibles sur un IED |
 | `mmsctl.py` | CLI HTTP (create, list, get, update, delete) |
 
-Les RCB abonnés en mode script sont définis dans `test_client_reports.py` (liste `ITEM_IDS`). En mode service, ils viennent de la config de chaque flux (fichier rcb_list ou liste intégrée).
+Les RCB abonnés en mode script sont définis dans `test_client_reports.py` (liste `ITEM_IDS`). En mode service, ils sont découverts sur l'IED (voir plus haut).
 
 ## License
 

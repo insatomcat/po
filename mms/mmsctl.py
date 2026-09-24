@@ -145,6 +145,10 @@ def cmd_create(args: argparse.Namespace) -> int:
         payload["scl"] = args.scl
     if args.rcb_list:
         payload["rcb_list"] = args.rcb_list
+    if args.triggers:
+        payload["triggers"] = args.triggers
+    if args.integrity_ms:
+        payload["integrity_ms"] = args.integrity_ms
     if args.debug is not None:
         payload["debug"] = args.debug
     status, body = _http_request("POST", url, json_body=payload)
@@ -177,6 +181,10 @@ def cmd_update(args: argparse.Namespace) -> int:
         payload["scl"] = args.scl
     if args.rcb_list is not None:
         payload["rcb_list"] = args.rcb_list
+    if args.triggers is not None:
+        payload["triggers"] = args.triggers
+    if args.integrity_ms is not None:
+        payload["integrity_ms"] = args.integrity_ms
     if args.debug is not None:
         payload["debug"] = args.debug
     if not payload:
@@ -271,6 +279,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("--domain", required=True, help="Domain ID MMS (LD).")
     p_create.add_argument("--scl", help="Chemin du fichier SCL/ICD.")
     p_create.add_argument("--rcb-list", help="Chemin du fichier listant les RCB.")
+    p_create.add_argument("--triggers", help="Trigger options: dchg,qchg,dupd,integrity,gi (default integrity,gi).")
+    p_create.add_argument("--integrity-ms", type=int, help="Integrity period in ms (default 2000).")
     dbg = p_create.add_mutually_exclusive_group()
     dbg.add_argument("--debug", dest="debug", action="store_true", help="Activer le mode debug (affichage console).")
     dbg.add_argument("--no-debug", dest="debug", action="store_false", help="Désactiver le mode debug.")
@@ -284,6 +294,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--domain", help="Nouveau Domain ID MMS (LD).")
     p_update.add_argument("--scl", help="Nouveau chemin du fichier SCL/ICD (utiliser chaîne vide pour le désactiver).")
     p_update.add_argument("--rcb-list", help="Nouveau chemin du fichier RCB (utiliser chaîne vide pour revenir par défaut).")
+    p_update.add_argument("--triggers", help="Trigger options: dchg,qchg,dupd,integrity,gi.")
+    p_update.add_argument("--integrity-ms", type=int, help="Integrity period in ms.")
     dbg2 = p_update.add_mutually_exclusive_group()
     dbg2.add_argument("--debug", dest="debug", action="store_true", help="Activer le mode debug (affichage console).")
     dbg2.add_argument("--no-debug", dest="debug", action="store_false", help="Désactiver le mode debug.")

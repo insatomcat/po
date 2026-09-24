@@ -94,9 +94,9 @@ API HTTP (JSON, état persistant dans mms/subscriptions.json) :
 """
 
 import argparse
-import errno
 import json
 import os
+import queue
 import sys
 import threading
 from pathlib import Path
@@ -107,14 +107,19 @@ from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Optional, Any, Tuple
 
-from mms.mms_reports_client import MMSReportsClient, MMSConnectionError
-from mms.scl_parser import parse_scl_data_set_members_with_components
-from mms.mms_report_processing import (
-    DATA_SET_MEMBER_LABELS,
-    DATA_SET_MEMBER_COMPONENTS,
-    load_item_ids_from_file,
-    process_mms_report,
+from iec61850.mms import (
+    OBJECT_CLASS_NAMED_VARIABLE,
+    MmsClient,
+    MmsError,
+    ObjectName,
+    decode_report,
+    is_report,
+    rcb,
 )
+from iec61850.mms import pdu as pdu_types
+from mms import reporting
+from mms.scl_parser import parse_scl_data_set_members_with_components
+from mms.victoriametrics_push import push_lines
 
 # Capture des logs pour diffusion SSE (seq monotonique pour fenêtre glissante)
 LOG_LINES: list[tuple[int, str]] = []  # (seq, line)
@@ -158,6 +163,8 @@ class SubscriptionConfig:
     scl: Optional[str] = None
     rcb_list: Optional[str] = None
     debug: bool = False
+    triggers: Optional[str] = None  # e.g. "integrity,gi" (default) or "dchg,qchg,integrity,gi"
+    integrity_ms: int = 2000
 
 
 @dataclass
@@ -166,7 +173,7 @@ class SubscriptionRuntime:
     last_error: Optional[str] = None
     thread: Optional[threading.Thread] = None
     stop_event: threading.Event = threading.Event()
-    client: Optional[MMSReportsClient] = None
+    client: Optional[MmsClient] = None
     total_reports: int = 0
     reports_since_log: int = 0
     last_log_ts: float = 0.0
@@ -267,13 +274,8 @@ class SubscriptionManager:
             runtime.config = cfg
             runtime.debug_console[0] = cfg.debug
             _DEBUG_CONSOLE[cfg.id] = cfg.debug
-            self._stop_runtime_locked(runtime)
             self._save_state_locked()
-        t = runtime.thread
-        if t and t.is_alive():
-            t.join(timeout=5.0)
-            if t.is_alive():
-                print(f"[MMS] Avertissement: thread {t.name!r} n'a pas terminé dans les délais.")
+        self._stop_runtime(runtime)
         self._start_subscription_thread(runtime)
         return runtime
 
@@ -312,6 +314,8 @@ class SubscriptionManager:
             "scl": cfg.scl,
             "rcb_list": cfg.rcb_list,
             "debug": cfg.debug,
+            "triggers": cfg.triggers,
+            "integrity_ms": cfg.integrity_ms,
             "rcb_items": list(runtime.rcb_items),
         }
         with self._lock:
@@ -647,13 +651,8 @@ class SubscriptionManager:
             print(f"[State] Erreur lors de l'enregistrement de {self._state_path}: {e}")
 
     def _stop_runtime_locked(self, runtime: SubscriptionRuntime) -> None:
+        """Ask the worker to stop; it disables its report control blocks before closing."""
         runtime.stop_event.set()
-        client = runtime.client
-        if client is not None:
-            try:
-                client.close()
-            except OSError:
-                pass
 
     def _stop_runtime(self, runtime: SubscriptionRuntime) -> None:
         self._stop_runtime_locked(runtime)
@@ -661,159 +660,193 @@ class SubscriptionManager:
         if t and t.is_alive():
             t.join(timeout=5.0)
             if t.is_alive():
-                print(f"[MMS] Avertissement: thread {t.name!r} n'a pas terminé dans les délais.")
+                client = runtime.client
+                if client is not None:
+                    client.close()
+                t.join(timeout=2.0)
+                if t.is_alive():
+                    print(f"[MMS] Warning: thread {t.name!r} did not stop in time.")
 
     def _subscription_worker(self, runtime: SubscriptionRuntime) -> None:
-        """Boucle de (re)connexion pour un flux, très proche de test_client_reports.main()."""
+        """Connect, subscribe and process reports; reconnect with backoff until stopped."""
         cfg = runtime.config
-
-        # Charger le SCL (optionnel) pour renseigner les labels des DataSet
+        scl_labels: Dict[str, list] = {}
         if cfg.scl:
             try:
-                parsed, comp, enums = parse_scl_data_set_members_with_components(cfg.scl)
-                # On met à jour les mappings globaux (partagés) – adapté aux cas usuels
-                DATA_SET_MEMBER_LABELS.update(parsed)
-                for k, v in comp.items():
-                    DATA_SET_MEMBER_COMPONENTS.setdefault(k, {}).update(v)
-                # enums n'est pas utilisé ici, mais conservé pour compat future
-                _ = enums
-                print(f"[SCL] {len(parsed)} data set(s) chargé(s) depuis {cfg.scl}")
+                scl_labels, _, _ = parse_scl_data_set_members_with_components(cfg.scl)
+                print(f"[SCL] {len(scl_labels)} data set key(s) loaded from {cfg.scl} (fallback labels)")
             except Exception as e:
-                print(f"[SCL] Erreur lors du chargement de {cfg.scl}: {e}")
-
-        item_ids = load_item_ids_from_file(cfg.rcb_list)
-        runtime.rcb_items = list(item_ids)
-        print(
-            f"[RCB] Flux {cfg.id}: {len(item_ids)} RCB à activer "
-            f"(source: {'fichier' if cfg.rcb_list else 'liste intégrée'})"
-        )
+                print(f"[SCL] Cannot load {cfg.scl}: {e}")
+        wanted = load_rcb_list(cfg.rcb_list)
+        try:
+            settings = reporting.rcb_settings(cfg.triggers, cfg.integrity_ms)
+        except ValueError as e:
+            runtime.last_error = str(e)
+            print(f"[MMS] Stream {cfg.id}: {e}")
+            return
 
         reconnect_delay_sec = _RECONNECT_DELAY_INITIAL
-        vm_url = self._vm_url
-        batch_interval_sec = self._vm_batch_ms / 1000.0 if self._vm_batch_ms > 0 else 0.0
-
         while not runtime.stop_event.is_set():
-            _connection_ok = False
-            client = MMSReportsClient(cfg.ied_host, cfg.ied_port, debug=False)
-            runtime.client = client
+            reports: "queue.Queue[pdu_types.InformationReport]" = queue.Queue()
+            client: Optional[MmsClient] = None
+            enabled: list[ObjectName] = []
+            connection_ok = False
             try:
-                print(f"[MMS] Flux {cfg.id}: connexion à {cfg.ied_host}:{cfg.ied_port} ...")
-                client.connect()
-                print("[MMS] Connexion établie. Activation des RCB...")
-
-                def _log(msg: str) -> None:
-                    """Écrit vers journalctl (stdout) + LOG_LINES (fenêtre logs web UI)."""
-                    sys.__stdout__.write(msg + "\n")
-                    sys.__stdout__.flush()
-                    with LOG_LOCK:
-                        global LOG_NEXT_SEQ
-                        LOG_NEXT_SEQ += 1
-                        LOG_LINES.append((LOG_NEXT_SEQ, msg))
-                        if len(LOG_LINES) > LOG_MAX:
-                            LOG_LINES.pop(0)
-                        LOG_CONDITION.notify_all()
-
-                class _LogStream:
-                    """Stream qui écrit vers stdout + LOG_LINES (pour reports debug dans web UI)."""
-
-                    def __init__(self) -> None:
-                        self._buf = ""
-
-                    def write(self, s: str) -> None:
-                        self._buf += s
-                        while "\n" in self._buf:
-                            line, self._buf = self._buf.split("\n", 1)
-                            _log(line)
-
-                    def flush(self) -> None:
-                        if self._buf:
-                            _log(self._buf)
-                            self._buf = ""
-                        sys.__stdout__.flush()
-
-                _log_stream = _LogStream()
-
-                def callback(report: Any) -> None:
-                    now = time.time()
-                    runtime.total_reports += 1
-                    runtime.reports_since_log += 1
-                    if now - runtime.last_log_ts >= 60.0:
-                        _log(
-                            f"[Flux {cfg.id}] Statut: {len(item_ids)} RCB abonnés, "
-                            f"{runtime.reports_since_log} report(s) reçu(s) sur les "
-                            f"{int(now - runtime.last_log_ts)} dernières secondes."
-                        )
-                        runtime.reports_since_log = 0
-                        runtime.last_log_ts = now
-                    show_console = _DEBUG_CONSOLE.get(cfg.id, False)
-                    process_mms_report(
-                        report,
-                        vm_url=vm_url,
-                        show_in_console=show_console,
-                        verbose=False,
-                        batch_interval_sec=batch_interval_sec,
-                        batch_max_lines=500,
-                        member_components=DATA_SET_MEMBER_COMPONENTS or None,
-                        console_out=_log_stream,
-                    )
-
-                for i, item_id in enumerate(item_ids, 1):
-                    if runtime.stop_event.is_set():
-                        break
-                    print(f"[Flux {cfg.id}] Abonnement [{i}/{len(item_ids)}] {cfg.domain}/{item_id} ...")
-                    client.enable_reporting(cfg.domain, item_id, report_callback=callback)
-
+                print(f"[MMS] Stream {cfg.id}: connecting to {cfg.ied_host}:{cfg.ied_port} ...")
+                client = MmsClient.connect(cfg.ied_host, cfg.ied_port, timeout=10.0, on_information_report=reports.put)
+                runtime.client = client
+                data_sets, enabled = self._subscribe(runtime, client, wanted, settings, scl_labels)
+                connection_ok = bool(enabled)
+                print(f"[Stream {cfg.id}] {len(enabled)} RCB enabled: {', '.join(r.item for r in enabled)}")
+                while not runtime.stop_event.is_set():
+                    try:
+                        message = reports.get(timeout=0.5)
+                    except queue.Empty:
+                        if not client.is_connected:
+                            break
+                        continue
+                    self._handle_report(runtime, message, data_sets)
+                if not runtime.stop_event.is_set():
+                    reason = client.wait_closed(0)
+                    print(f"[Stream {cfg.id}] Connection closed ({reason}). Reconnecting...")
+            except MmsError as e:
                 if runtime.stop_event.is_set():
-                    break
-
-                print(
-                    f"[Flux {cfg.id}] {len(item_ids)} RCB abonnés. En attente de reports..."
-                )
-
-                # Boucle bloquante jusqu'à perte de connexion ou arrêt
-                client.loop_reports(callback, quiet_heartbeat=True)
-                _connection_ok = True
-
-                if runtime.stop_event.is_set():
-                    break
-                print(f"[Flux {cfg.id}] Connexion fermée par l'IED. Tentative de reconnexion...")
-
-            except MMSConnectionError as e:
-                if runtime.stop_event.is_set():
-                    # Arrêt demandé pendant une opération MMS : on sort proprement.
                     break
                 runtime.last_error = str(e)
-                print(f"[MMS] Flux {cfg.id}: erreur de connexion ou de protocole : {e}")
-            except Exception as e:
-                # Cas fréquent : socket fermé pendant un arrêt → EBADF, qu'on ne logue pas comme erreur.
-                if isinstance(e, OSError) and getattr(e, "errno", None) == errno.EBADF:
-                    break
+                print(f"[MMS] Stream {cfg.id}: {e}")
+            except Exception as e:  # noqa: BLE001 - keep the stream alive
                 if runtime.stop_event.is_set():
-                    # Erreur liée probablement à la fermeture du socket lors d'un arrêt demandé
                     break
-                runtime.last_error = str(e)
-                print(f"[Flux {cfg.id}] Erreur inattendue: {e}")
+                runtime.last_error = f"{type(e).__name__}: {e}"
+                print(f"[Stream {cfg.id}] Unexpected error: {runtime.last_error}")
             finally:
-                try:
+                if client is not None:
+                    if runtime.stop_event.is_set() and client.is_connected:
+                        for r in enabled:
+                            try:
+                                rcb.disable(client, r)
+                            except MmsError:
+                                pass
+                        if enabled:
+                            print(f"[Stream {cfg.id}] {len(enabled)} RCB disabled.")
                     client.close()
-                except OSError:
-                    pass
                 runtime.client = None
 
             if runtime.stop_event.is_set():
                 break
-
-            if _connection_ok:
+            if connection_ok:
                 reconnect_delay_sec = _RECONNECT_DELAY_INITIAL
             else:
                 reconnect_delay_sec = min(reconnect_delay_sec * 2.0, _RECONNECT_DELAY_MAX)
-            print(f"[MMS] Flux {cfg.id}: nouvelle tentative dans {reconnect_delay_sec:.0f} s...")
-            for _ in range(int(reconnect_delay_sec * 10)):
-                if runtime.stop_event.is_set():
-                    break
-                time.sleep(0.1)
+            print(f"[MMS] Stream {cfg.id}: retrying in {reconnect_delay_sec:.0f} s...")
+            runtime.stop_event.wait(reconnect_delay_sec)
 
-        print(f"[Flux {cfg.id}] Arrêt du thread de subscription.")
+        print(f"[Stream {cfg.id}] Subscription thread stopped.")
+
+    def _subscribe(
+        self,
+        runtime: SubscriptionRuntime,
+        client: MmsClient,
+        wanted: Optional[list],
+        settings: "rcb.RcbSettings",
+        scl_labels: Dict[str, list],
+    ) -> "tuple[Dict[str, reporting.DataSetInfo], list[ObjectName]]":
+        """Pick a free instance of each wanted block group, read its data set and enable it."""
+        cfg = runtime.config
+        names = client.get_name_list(OBJECT_CLASS_NAMED_VARIABLE, cfg.domain)
+        available = [n for n in names if rcb.is_rcb_name(n)]
+        plan, missing = reporting.plan_subscriptions(available, wanted, previous=runtime.rcb_items)
+        for name in missing:
+            print(f"[Stream {cfg.id}] RCB {name} not found in {cfg.domain}")
+        data_sets: Dict[str, reporting.DataSetInfo] = {}
+        enabled: list[ObjectName] = []
+        errors: list[str] = []
+        for i, candidates in enumerate(plan, 1):
+            if runtime.stop_event.is_set():
+                break
+            status = rcb.find_free(client, [ObjectName(c, cfg.domain) for c in candidates])
+            if status is None:
+                errors.append(f"{rcb.instance_base(candidates[0])}: every instance is in use")
+                print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {errors[-1]}")
+                continue
+            ds_ref = status.dat_set or ""
+            if ds_ref and ds_ref not in data_sets:
+                data_sets[ds_ref] = reporting.load_data_set(client, ds_ref, scl_labels.get(ds_ref))
+            try:
+                rcb.enable(client, status.rcb, settings)
+            except MmsError as e:
+                errors.append(str(e))
+                print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {e}")
+                continue
+            enabled.append(status.rcb)
+            members = len(data_sets[ds_ref].members) if ds_ref in data_sets else 0
+            print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {status.rcb.item} enabled "
+                  f"(RptID {status.rpt_id}, {members} members)")
+        runtime.rcb_items = [r.item for r in enabled]
+        runtime.last_error = "; ".join(errors) or None
+        return data_sets, enabled
+
+    def _handle_report(
+        self,
+        runtime: SubscriptionRuntime,
+        message: "pdu_types.InformationReport",
+        data_sets: "Dict[str, reporting.DataSetInfo]",
+    ) -> None:
+        cfg = runtime.config
+        if not is_report(message):
+            _log_line(f"[Stream {cfg.id}] informationReport {message.variables}: {message.results}")
+            return
+        try:
+            report = decode_report(message)
+        except MmsError as e:
+            _log_line(f"[Stream {cfg.id}] undecodable report: {e}")
+            return
+        now = time.time()
+        runtime.total_reports += 1
+        runtime.reports_since_log += 1
+        if now - runtime.last_log_ts >= 60.0:
+            _log_line(
+                f"[Stream {cfg.id}] Status: {len(runtime.rcb_items)} RCB, {runtime.reports_since_log} "
+                f"report(s) in the last {int(now - runtime.last_log_ts)} s."
+            )
+            runtime.reports_since_log = 0
+            runtime.last_log_ts = now
+        data_set = data_sets.get(report.data_set or "")
+        if self._vm_url:
+            push_lines(
+                self._vm_url,
+                reporting.report_to_lines(report, data_set),
+                batch_interval_sec=self._vm_batch_ms / 1000.0 if self._vm_batch_ms > 0 else 0.0,
+            )
+        if _DEBUG_CONSOLE.get(cfg.id, False):
+            for line in reporting.format_report(report, data_set):
+                _log_line(line)
+
+
+def load_rcb_list(path: Optional[str]) -> Optional[list]:
+    """Block names or groups from a text file (one per line, # comments); None = every group."""
+    if not path:
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            items = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+    except OSError as e:
+        print(f"[RCB] Cannot read {path}: {e}. Subscribing to every group.", flush=True)
+        return None
+    return items or None
+
+
+def _log_line(msg: str) -> None:
+    """Write to the real stdout (journalctl) and to the SSE log buffer."""
+    global LOG_NEXT_SEQ
+    sys.__stdout__.write(msg + "\n")
+    sys.__stdout__.flush()
+    with LOG_LOCK:
+        LOG_NEXT_SEQ += 1
+        LOG_LINES.append((LOG_NEXT_SEQ, msg))
+        if len(LOG_LINES) > LOG_MAX:
+            LOG_LINES.pop(0)
+        LOG_CONDITION.notify_all()
 
 
 def _json_error(handler: BaseHTTPRequestHandler, status: int, message: str) -> None:
@@ -954,7 +987,14 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             scl=data.get("scl"),
             rcb_list=data.get("rcb_list"),
             debug=bool(data.get("debug", False)),
+            triggers=data.get("triggers"),
+            integrity_ms=int(data.get("integrity_ms") or 2000),
         )
+        try:
+            reporting.parse_triggers(cfg.triggers)
+        except ValueError as e:
+            _json_error(self, HTTPStatus.BAD_REQUEST, str(e))
+            return
         try:
             rt = self.manager.create_subscription(cfg)
         except ValueError as e:
@@ -972,16 +1012,22 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             _json_error(self, HTTPStatus.BAD_REQUEST, "invalid JSON body")
             return
         # On accepte seulement les champs connus
-        allowed_fields = {"ied_host", "ied_port", "domain", "scl", "rcb_list", "debug"}
+        allowed_fields = {"ied_host", "ied_port", "domain", "scl", "rcb_list", "debug", "triggers", "integrity_ms"}
         update_fields: Dict[str, Any] = {}
         for k, v in data.items():
             if k not in allowed_fields:
                 continue
-            if k == "ied_port" and v is not None:
+            if k == "triggers" and v is not None:
+                try:
+                    reporting.parse_triggers(v)
+                except ValueError as e:
+                    _json_error(self, HTTPStatus.BAD_REQUEST, str(e))
+                    return
+            if k in ("ied_port", "integrity_ms") and v is not None:
                 try:
                     v = int(v)
                 except (TypeError, ValueError):
-                    _json_error(self, HTTPStatus.BAD_REQUEST, "invalid ied_port")
+                    _json_error(self, HTTPStatus.BAD_REQUEST, f"invalid {k}")
                     return
             update_fields[k] = v
         try:
@@ -1024,6 +1070,8 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             "scl": cfg.scl,
             "rcb_list": cfg.rcb_list,
             "debug": cfg.debug,
+            "triggers": cfg.triggers or reporting.DEFAULT_TRIGGERS,
+            "integrity_ms": cfg.integrity_ms,
             "last_error": rt.last_error,
             "rcb_items": list(rt.rcb_items),
         }
