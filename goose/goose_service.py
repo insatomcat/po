@@ -5,6 +5,7 @@
 """Service GOOSE : point d'entrée principal (API HTTP + envoi continu)."""
 from __future__ import annotations
 
+import logging
 import argparse
 import pathlib
 import signal
@@ -16,6 +17,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from goose61850.service import GooseService  # type: ignore[import-not-found]
+
+log = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -34,6 +37,7 @@ def main() -> None:
         help="Port d'écoute de l'API HTTP (défaut: 7053).",
     )
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     service = GooseService(host=args.host, port=args.port)
     service.start()
@@ -47,10 +51,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
 
-    print(f"Service GOOSE démarré sur http://{args.host}:{args.port}")
-    print("  API:     /api/streams (GET, POST, GET/PATCH/DELETE /api/streams/<id>)")
-    print("  Web UI:  / (interface graphique)")
-    print("Interrompre avec Ctrl+C.")
+    log.info(f"GOOSE service on http://{args.host}:{args.port} (API /api/streams, web UI /); Ctrl+C to stop")
 
     stop_event.wait()
 

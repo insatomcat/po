@@ -97,6 +97,7 @@ import argparse
 import json
 import os
 import queue
+import logging
 import sys
 import threading
 from pathlib import Path
@@ -120,42 +121,12 @@ from iec61850.mms import (
     rcb,
 )
 from iec61850.mms import pdu as pdu_types
+import po_logging
 from mms import reporting
 from mms.scl_parser import parse_scl_data_set_members_with_components
 from mms.victoriametrics_push import push_lines
 
-# Capture des logs pour diffusion SSE (seq monotonique pour fenêtre glissante)
-LOG_LINES: list[tuple[int, str]] = []  # (seq, line)
-LOG_NEXT_SEQ = 0
-LOG_MAX = 500
-LOG_LOCK = threading.Lock()
-LOG_CONDITION = threading.Condition(LOG_LOCK)
-
-
-class _TeeStdout:
-    """Redirige stdout vers la sortie réelle + buffer pour GET /logs."""
-
-    def __init__(self, real: Any) -> None:
-        self._real = real
-        self._buf = ""
-
-    def write(self, s: str) -> None:
-        global LOG_NEXT_SEQ
-        self._real.write(s)
-        self._real.flush()  # journalctl immédiat (stdout en pipe = buffer par bloc)
-        with LOG_LOCK:
-            self._buf += s
-            while "\n" in self._buf:
-                line, self._buf = self._buf.split("\n", 1)
-                LOG_NEXT_SEQ += 1
-                LOG_LINES.append((LOG_NEXT_SEQ, line))
-                if len(LOG_LINES) > LOG_MAX:
-                    LOG_LINES.pop(0)
-                LOG_CONDITION.notify_all()
-
-    def flush(self) -> None:
-        self._real.flush()
-
+log = logging.getLogger(__name__)
 
 @dataclass
 class SubscriptionConfig:
@@ -300,7 +271,7 @@ class SubscriptionManager:
                 runtime.debug_console[0] = new_val
                 _DEBUG_CONSOLE[sub_id] = new_val
                 self._save_state_locked()
-                print(f"[MMS] Flux {sub_id}: debug={new_val} (sans restart)", flush=True)
+                log.info(f"[MMS] Stream {sub_id}: debug={new_val} (no restart)")
                 return runtime
 
             # Cas 2 : modification host/port/domain/scl/rcb_list → redémarrer le flux
@@ -367,7 +338,7 @@ class SubscriptionManager:
         except FileNotFoundError:
             return
         except Exception as e:
-            print(f"[Recents] Impossible de charger {self._recents_path}: {e}")
+            log.warning(f"[Recents] Cannot load {self._recents_path}: {e}")
             return
         if isinstance(raw, list):
             items = raw
@@ -383,7 +354,7 @@ class SubscriptionManager:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
             os.replace(tmp_path, self._recents_path)
         except Exception as e:
-            print(f"[Recents] Erreur sauvegarde {self._recents_path}: {e}")
+            log.error(f"[Recents] Cannot save {self._recents_path}: {e}")
 
     # --- commandes MMS (persistence + envoi) ---
 
@@ -427,16 +398,16 @@ class SubscriptionManager:
             raise ValueError(f"position must be one of: {'|'.join(COMMAND_POSITIONS)}")
 
         name = ObjectName(cfg.item, cfg.domain)
-        _log_line(f"[MMS-CMD] {cfg.position} {name} on {cfg.ied_host}:{cfg.ied_port} ctlNum={ctl_num}")
+        log.info(f"[MMS-CMD] {cfg.position} {name} on {cfg.ied_host}:{cfg.ied_port} ctlNum={ctl_num}")
         try:
             with MmsClient.connect(cfg.ied_host, cfg.ied_port, timeout=5.0) as client:
                 result = control.operate(
                     client, name, COMMAND_POSITIONS[cfg.position], origin=COMMAND_ORIGIN, ctl_num=ctl_num
                 )
         except MmsError as exc:
-            _log_line(f"[MMS-CMD] {cfg.position} {name} failed: {exc}")
+            log.warning(f"[MMS-CMD] {cfg.position} {name} failed: {exc}")
             raise
-        _log_line(f"[MMS-CMD] {cfg.position} {name} done: {result}")
+        log.info(f"[MMS-CMD] {cfg.position} {name} done: {result}")
         return {
             "ctl_model": control.CTL_MODELS.get(result.ctl_model, str(result.ctl_model)),
             "ctl_num": result.ctl_num,
@@ -451,7 +422,7 @@ class SubscriptionManager:
         except FileNotFoundError:
             return
         except Exception as e:
-            print(f"[MMS-CMD] Impossible de charger {self._commands_path}: {e}")
+            log.warning(f"[MMS-CMD] Cannot load {self._commands_path}: {e}")
             return
 
         if isinstance(raw, list):
@@ -479,14 +450,14 @@ class SubscriptionManager:
                     position=str(item.get("position") or "closed"),
                 )
             except (KeyError, TypeError, ValueError) as e:
-                print(f"[MMS-CMD] Commande ignorée (données invalides): {e}")
+                log.warning(f"[MMS-CMD] Command skipped (invalid data): {e}")
                 continue
             loaded[cmd.id] = cmd
 
         with self._lock:
             self._commands = loaded
         if loaded:
-            print(f"[MMS-CMD] {len(loaded)} commande(s) rechargée(s) depuis {self._commands_path}.")
+            log.info(f"[MMS-CMD] {len(loaded)} command(s) reloaded from {self._commands_path}.")
 
     def _save_commands_locked(self) -> None:
         try:
@@ -496,7 +467,7 @@ class SubscriptionManager:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
             os.replace(tmp_path, self._commands_path)
         except Exception as e:
-            print(f"[MMS-CMD] Erreur sauvegarde {self._commands_path}: {e}")
+            log.error(f"[MMS-CMD] Cannot save {self._commands_path}: {e}")
 
     # --- gestion des threads ---
 
@@ -524,10 +495,10 @@ class SubscriptionManager:
         except FileNotFoundError:
             return
         except Exception as e:
-            print(f"[State] Impossible de charger {self._state_path}: {e}")
+            log.warning(f"[State] Cannot load {self._state_path}: {e}")
             return
         if not isinstance(raw, list):
-            print(f"[State] Format inattendu dans {self._state_path}, ignoré.")
+            log.warning(f"[State] Unexpected format in {self._state_path}, ignored.")
             return
         for item in raw:
             if not isinstance(item, dict):
@@ -535,13 +506,13 @@ class SubscriptionManager:
             try:
                 cfg = SubscriptionConfig(**item)
             except TypeError as e:
-                print(f"[State] Config invalide ignorée: {e}")
+                log.warning(f"[State] Invalid configuration skipped: {e}")
                 continue
             rt = SubscriptionRuntime(config=cfg, debug_console=[cfg.debug])
             self._subs[cfg.id] = rt
             _DEBUG_CONSOLE[cfg.id] = cfg.debug
         if self._subs:
-            print(f"[State] {len(self._subs)} flux rechargés depuis {self._state_path}.")
+            log.info(f"[State] {len(self._subs)} stream(s) reloaded from {self._state_path}.")
             # Démarrer les threads après reconstruction des runtimes
             for rt in list(self._subs.values()):
                 self._start_subscription_thread(rt)
@@ -555,7 +526,7 @@ class SubscriptionManager:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             os.replace(tmp_path, self._state_path)
         except Exception as e:
-            print(f"[State] Erreur lors de l'enregistrement de {self._state_path}: {e}")
+            log.error(f"[State] Cannot save {self._state_path}: {e}")
 
     def _stop_runtime_locked(self, runtime: SubscriptionRuntime) -> None:
         """Ask the worker to stop; it disables its report control blocks before closing."""
@@ -572,7 +543,7 @@ class SubscriptionManager:
                     client.close()
                 t.join(timeout=2.0)
                 if t.is_alive():
-                    print(f"[MMS] Warning: thread {t.name!r} did not stop in time.")
+                    log.warning(f"[MMS] Thread {t.name!r} did not stop in time.")
 
     def _subscription_worker(self, runtime: SubscriptionRuntime) -> None:
         """Connect, subscribe and process reports; reconnect with backoff until stopped."""
@@ -581,16 +552,16 @@ class SubscriptionManager:
         if cfg.scl:
             try:
                 scl_labels, _, _ = parse_scl_data_set_members_with_components(cfg.scl)
-                print(f"[SCL] {len(scl_labels)} data set key(s) loaded from {cfg.scl} (fallback labels)")
+                log.info(f"[SCL] {len(scl_labels)} data set key(s) loaded from {cfg.scl} (fallback labels)")
             except Exception as e:
-                print(f"[SCL] Cannot load {cfg.scl}: {e}")
+                log.warning(f"[SCL] Cannot load {cfg.scl}: {e}")
         wanted = load_rcb_list(cfg.rcb_list)
         scl_ied = load_scl_ied(cfg)
         try:
             settings = reporting.rcb_settings(cfg.triggers, cfg.integrity_ms)
         except ValueError as e:
             runtime.last_error = str(e)
-            print(f"[MMS] Stream {cfg.id}: {e}")
+            log.error(f"[MMS] Stream {cfg.id}: {e}")
             return
 
         reconnect_delay_sec = _RECONNECT_DELAY_INITIAL
@@ -600,12 +571,12 @@ class SubscriptionManager:
             enabled: list[ObjectName] = []
             connection_ok = False
             try:
-                print(f"[MMS] Stream {cfg.id}: connecting to {cfg.ied_host}:{cfg.ied_port} ...")
+                log.info(f"[MMS] Stream {cfg.id}: connecting to {cfg.ied_host}:{cfg.ied_port} ...")
                 client = MmsClient.connect(cfg.ied_host, cfg.ied_port, timeout=10.0, on_information_report=reports.put)
                 runtime.client = client
                 data_sets, enabled = self._subscribe(runtime, client, wanted, scl_ied, settings, scl_labels)
                 connection_ok = bool(enabled)
-                print(f"[Stream {cfg.id}] {len(enabled)} RCB enabled: {', '.join(str(r) for r in enabled)}")
+                log.info(f"[Stream {cfg.id}] {len(enabled)} RCB enabled: {', '.join(str(r) for r in enabled)}")
                 while not runtime.stop_event.is_set():
                     try:
                         message = reports.get(timeout=0.5)
@@ -616,17 +587,17 @@ class SubscriptionManager:
                     self._handle_report(runtime, message, data_sets)
                 if not runtime.stop_event.is_set():
                     reason = client.wait_closed(0)
-                    print(f"[Stream {cfg.id}] Connection closed ({reason}). Reconnecting...")
+                    log.warning(f"[Stream {cfg.id}] Connection closed ({reason}). Reconnecting...")
             except MmsError as e:
                 if runtime.stop_event.is_set():
                     break
                 runtime.last_error = str(e)
-                print(f"[MMS] Stream {cfg.id}: {e}")
+                log.warning(f"[MMS] Stream {cfg.id}: {e}")
             except Exception as e:  # noqa: BLE001 - keep the stream alive
                 if runtime.stop_event.is_set():
                     break
                 runtime.last_error = f"{type(e).__name__}: {e}"
-                print(f"[Stream {cfg.id}] Unexpected error: {runtime.last_error}")
+                log.exception(f"[Stream {cfg.id}] Unexpected error: {runtime.last_error}")
             finally:
                 if client is not None:
                     if runtime.stop_event.is_set() and client.is_connected:
@@ -636,7 +607,7 @@ class SubscriptionManager:
                             except MmsError:
                                 pass
                         if enabled:
-                            print(f"[Stream {cfg.id}] {len(enabled)} RCB disabled.")
+                            log.info(f"[Stream {cfg.id}] {len(enabled)} RCB disabled.")
                     client.close()
                 runtime.client = None
 
@@ -646,10 +617,10 @@ class SubscriptionManager:
                 reconnect_delay_sec = _RECONNECT_DELAY_INITIAL
             else:
                 reconnect_delay_sec = min(reconnect_delay_sec * 2.0, _RECONNECT_DELAY_MAX)
-            print(f"[MMS] Stream {cfg.id}: retrying in {reconnect_delay_sec:.0f} s...")
+            log.info(f"[MMS] Stream {cfg.id}: retrying in {reconnect_delay_sec:.0f} s...")
             runtime.stop_event.wait(reconnect_delay_sec)
 
-        print(f"[Stream {cfg.id}] Subscription thread stopped.")
+        log.info(f"[Stream {cfg.id}] Subscription thread stopped.")
 
     def _subscribe(
         self,
@@ -667,8 +638,8 @@ class SubscriptionManager:
             groups, patterns=reporting.parse_rcb_filter(cfg.rcb_filter), wanted=wanted, previous=runtime.rcb_items
         )
         for name in missing:
-            print(f"[Stream {cfg.id}] no report control block matches {name}")
-        print(f"[Stream {cfg.id}] {len(plan)} of {len(groups)} report control block(s) selected")
+            log.warning(f"[Stream {cfg.id}] no report control block matches {name}")
+        log.info(f"[Stream {cfg.id}] {len(plan)} of {len(groups)} report control block(s) selected")
         data_sets: Dict[str, reporting.DataSetInfo] = {}
         enabled: list[ObjectName] = []
         errors: list[str] = []
@@ -692,13 +663,13 @@ class SubscriptionManager:
             if status is None:
                 base = rcb.instance_base(str(candidates[0]))
                 errors.append(f"{base}: every instance is in use" + (f" ({refused[-1]})" if refused else ""))
-                print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {errors[-1]}")
+                log.warning(f"[Stream {cfg.id}] [{i}/{len(plan)}] {errors[-1]}")
                 continue
             ds_ref = status.dat_set or ""
             enabled.append(status.rcb)
             members = len(data_sets[ds_ref].members) if ds_ref in data_sets else 0
-            print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {status.rcb.item} enabled "
-                  f"(RptID {status.rpt_id}, {members} members)")
+            log.info(f"[Stream {cfg.id}] [{i}/{len(plan)}] {status.rcb.item} enabled "
+                     f"(RptID {status.rpt_id}, {members} members)")
         runtime.rcb_items = [str(r) for r in enabled]
         runtime.last_error = "; ".join(errors) or None
         return data_sets, enabled
@@ -715,9 +686,9 @@ class SubscriptionManager:
             known = [d for d in scl_ied.domains if d in wanted_domains]
             if known:
                 groups = reporting.groups_from_scl(scl_ied, known)
-                print(f"[Stream {cfg.id}] {len(groups)} report control block(s) of {scl_ied.name} from {cfg.scl}")
+                log.info(f"[Stream {cfg.id}] {len(groups)} report control block(s) of {scl_ied.name} from {cfg.scl}")
                 return groups
-            print(
+            log.info(
                 f"[Stream {cfg.id}] {cfg.scl} describes {scl_ied.name} ({_list(scl_ied.domains)}) but the IED at "
                 f"{cfg.ied_host} has {_list(ied_domains)}: asking the IED instead"
             )
@@ -726,7 +697,7 @@ class SubscriptionManager:
             names = client.get_name_list(OBJECT_CLASS_NAMED_VARIABLE, domain)
             found = reporting.groups_from_names(domain, names)
             if found:
-                print(f"[Stream {cfg.id}] {domain}: {len(found)} report control block(s) among {len(names)} names")
+                log.info(f"[Stream {cfg.id}] {domain}: {len(found)} report control block(s) among {len(names)} names")
             groups += found
         return groups
 
@@ -738,18 +709,18 @@ class SubscriptionManager:
     ) -> None:
         cfg = runtime.config
         if not is_report(message):
-            _log_line(f"[Stream {cfg.id}] informationReport {message.variables}: {message.results}")
+            log.info(f"[Stream {cfg.id}] informationReport {message.variables}: {message.results}")
             return
         try:
             report = decode_report(message)
         except MmsError as e:
-            _log_line(f"[Stream {cfg.id}] undecodable report: {e}")
+            log.warning(f"[Stream {cfg.id}] undecodable report: {e}")
             return
         now = time.time()
         runtime.total_reports += 1
         runtime.reports_since_log += 1
         if now - runtime.last_log_ts >= 60.0:
-            _log_line(
+            log.info(
                 f"[Stream {cfg.id}] Status: {len(runtime.rcb_items)} RCB, {runtime.reports_since_log} "
                 f"report(s) in the last {int(now - runtime.last_log_ts)} s."
             )
@@ -764,7 +735,7 @@ class SubscriptionManager:
             )
         if _DEBUG_CONSOLE.get(cfg.id, False):
             for line in reporting.format_report(report, data_set):
-                _log_line(line)
+                log.info(line)
 
 
 def _list(names: list[str], shown: int = 4) -> str:
@@ -778,13 +749,13 @@ def load_scl_ied(cfg: SubscriptionConfig) -> "Optional[scl.SclIed]":
     try:
         ieds = scl.load_ieds(cfg.scl)
     except scl.SclError as e:
-        print(f"[SCL] {e}")
+        log.warning(f"[SCL] {e}")
         return None
     ied = scl.find_ied(ieds, cfg.ied_host)
     if ied is None:
-        print(f"[SCL] {cfg.scl}: no IED at {cfg.ied_host} among {_list([i.name for i in ieds])}")
+        log.warning(f"[SCL] {cfg.scl}: no IED at {cfg.ied_host} among {_list([i.name for i in ieds])}")
     elif ied.addresses and cfg.ied_host not in ied.addresses:
-        print(f"[SCL] {cfg.scl}: {ied.name} is at {', '.join(ied.addresses)}, connecting to {cfg.ied_host}")
+        log.info(f"[SCL] {cfg.scl}: {ied.name} is at {', '.join(ied.addresses)}, connecting to {cfg.ied_host}")
     return ied
 
 
@@ -800,22 +771,9 @@ def load_rcb_list(path: Optional[str]) -> Optional[list]:
         with open(path, "r", encoding="utf-8") as f:
             items = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
     except OSError as e:
-        print(f"[RCB] Cannot read {path}: {e}. Subscribing to every group.", flush=True)
+        log.warning(f"[RCB] Cannot read {path}: {e}. Subscribing to every group.")
         return None
     return items or None
-
-
-def _log_line(msg: str) -> None:
-    """Write to the real stdout (journalctl) and to the SSE log buffer."""
-    global LOG_NEXT_SEQ
-    sys.__stdout__.write(msg + "\n")
-    sys.__stdout__.flush()
-    with LOG_LOCK:
-        LOG_NEXT_SEQ += 1
-        LOG_LINES.append((LOG_NEXT_SEQ, msg))
-        if len(LOG_LINES) > LOG_MAX:
-            LOG_LINES.pop(0)
-        LOG_CONDITION.notify_all()
 
 
 def _json_error(handler: BaseHTTPRequestHandler, status: int, message: str) -> None:
@@ -866,13 +824,13 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
         last_sent_seq = 0
         while True:
             try:
-                with LOG_LOCK:
-                    for seq, line in LOG_LINES:
+                with po_logging.LOG_LOCK:
+                    for seq, line in po_logging.LOG_LINES:
                         if seq > last_sent_seq:
                             self.wfile.write(f"data: {escape_sse(line)}\n\n".encode("utf-8"))
                             self.wfile.flush()
                             last_sent_seq = seq
-                    LOG_CONDITION.wait(timeout=2.0)
+                    po_logging.LOG_CONDITION.wait(timeout=2.0)
                 self.wfile.write(b": \n\n")
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, OSError):
@@ -1005,8 +963,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
         _json_error(self, HTTPStatus.NOT_FOUND, "unknown endpoint")
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
-        # Réduire le bruit des logs HTTP standard
-        print(f"[HTTP] {self.address_string()} - {format % args}")
+        log.debug(f"[HTTP] {self.address_string()} - {format % args}")
 
     @staticmethod
     def _runtime_to_dict(rt: SubscriptionRuntime) -> Dict[str, Any]:
@@ -1044,18 +1001,18 @@ def main() -> int:
     manager = SubscriptionManager(vm_url=args.victoriametrics_url, vm_batch_ms=args.vm_batch_ms)
     MMSServiceHandler.manager = manager
 
-    sys.stdout = _TeeStdout(sys.__stdout__)
+    po_logging.setup()
 
     server_address = (args.listen_host, args.listen_port)
     httpd = ThreadingHTTPServer(server_address, MMSServiceHandler)
-    print(
-        f"Service MMS démarré sur http://{args.listen_host}:{args.listen_port} "
-        f"(VictoriaMetrics: {args.victoriametrics_url or 'désactivé'}, batch={args.vm_batch_ms}ms)"
+    log.info(
+        f"MMS service on http://{args.listen_host}:{args.listen_port} "
+        f"(VictoriaMetrics: {args.victoriametrics_url or 'off'}, batch={args.vm_batch_ms} ms)"
     )
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n[Interrupt] Arrêt du service MMS demandé par l'utilisateur.")
+        log.info("[Interrupt] MMS service stopped by the user.")
     finally:
         httpd.server_close()
     return 0

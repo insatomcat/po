@@ -4,6 +4,7 @@
 """Service GOOSE : envoi continu de flux GOOSE avec API HTTP."""
 from __future__ import annotations
 
+import logging
 import html as html_module
 import json
 import threading
@@ -14,6 +15,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+log = logging.getLogger(__name__)
 
 # Chemins des fichiers de persistance (dans goose/)
 _GOOSE_DIR = Path(__file__).resolve().parent.parent
@@ -362,7 +365,7 @@ class GooseService:
                 )
                 tmp_path.replace(path)
         except (OSError, TypeError, ValueError) as e:
-            print(f"[GOOSE] Erreur sauvegarde état: {e}")
+            log.error(f"[GOOSE] Cannot save the state: {e}")
 
     def _load_state(self) -> None:
         """Recharge les flux depuis streams.json et recents.json."""
@@ -373,13 +376,13 @@ class GooseService:
                 raw = json.loads(self._streams_path.read_text(encoding="utf-8"))
                 streams_data = raw.get("streams") or []
             except (OSError, json.JSONDecodeError, AttributeError) as e:
-                print(f"[GOOSE] Impossible de charger {self._streams_path}: {e}")
+                log.warning(f"[GOOSE] Cannot load {self._streams_path}: {e}")
         if self._recents_path.exists():
             try:
                 raw = json.loads(self._recents_path.read_text(encoding="utf-8"))
                 recent_data = raw.get("recents") or raw.get("recent") or []
             except (OSError, json.JSONDecodeError, AttributeError) as e:
-                print(f"[GOOSE] Impossible de charger {self._recents_path}: {e}")
+                log.warning(f"[GOOSE] Cannot load {self._recents_path}: {e}")
         now = time.monotonic()
 
         with self._streams_lock:
@@ -413,7 +416,7 @@ class GooseService:
                     s.new_state(float(max(self.IEC_MIN_MS, 1)))
                     self._streams[s.id] = s
                 except (KeyError, TypeError, ValueError) as e:
-                    print(f"[GOOSE] Entrée de flux ignorée (données invalides): {e}")
+                    log.warning(f"[GOOSE] Stream entry skipped (invalid data): {e}")
                     continue
 
             # Recharge l'historique récent tel quel (les conversions auront lieu
@@ -436,7 +439,7 @@ class GooseService:
                 try:
                     self._send_one(s, pdu)
                 except Exception as e:
-                    print(f"[GOOSE] Erreur envoi flux {s.id}: {e}")
+                    log.warning(f"[GOOSE] Cannot send stream {s.id}: {e}")
 
     def _due_frames(self, now: float) -> List[tuple[GooseStream, GoosePDU]]:
         """Build the PDUs due at ``now`` and advance sqNum and the schedule.

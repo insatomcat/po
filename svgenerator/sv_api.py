@@ -7,9 +7,12 @@ Routes: /flows, /flows/recents, /flows/{name}
 """
 from __future__ import annotations
 
+import logging
 import json
 import sys
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Ajouter le répertoire parent pour les imports
 _here = Path(__file__).resolve().parent
@@ -87,7 +90,7 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
             try:
                 proc = start_flow_process(cfg)
             except Exception as exc:
-                print(f"[sv] start failed: {exc}", flush=True)
+                log.warning(f"[sv] start failed: {exc}")
                 return 500, {"detail": str(exc)}
             flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
         _add_to_recents(cfg)
@@ -109,7 +112,7 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
             try:
                 proc = start_flow_process(cfg)
             except Exception as exc:
-                print(f"[sv] start failed: {exc}", flush=True)
+                log.warning(f"[sv] start failed: {exc}")
                 return 500, {"detail": str(exc)}
             flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
         _add_to_recents(cfg)

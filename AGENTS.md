@@ -73,6 +73,13 @@ The command-line MMS client is `tools/mms_client.py` (see Captures).
 | `svlistener_view/` | SV capture + phasor display (Flask). Uses svID/smpCnt/seqData (quality ignored), 6I3U or 4I4U, 96-sample DFT at 50 Hz. |
 | `stress/` | SSH + `stress-ng` load on host cores, CPU topology from `seapath-alloc`. Not 61850. |
 
+Logging: services call `logging.getLogger(__name__)`; `po_logging.setup()`
+(called by `po_service.py` and the standalone service entry points) sends
+records to stdout for journalctl and keeps the last 500 lines for the MMS
+log panel (`GET /api/mms/logs`, SSE). Level from `--log-level` or
+`$PO_LOG_LEVEL` (INFO by default; DEBUG adds one line per HTTP request).
+The iec61850 library logs nothing. Command-line tools keep `print`.
+
 Imports rely on `sys.path.insert` hacks: `iec_data` and `processbus_capture`
 are top-level modules, `goose/` and `goose_listener/` are added to the path by
 `po_service.py`. Run things from the repo root.
@@ -204,7 +211,6 @@ only by sqNum.
   are not resolved to components. The service reads labels from the IED
   and uses these only as a fallback.
 - The `svgenerator/` diagnostic scripts still carry their own BER readers.
-- No `logging` (prints, plus a stdout tee for SSE).
 - Three HTTP stacks coexist: `http.server` (unified, MMS, GOOSE), FastAPI
   (SV standalone, models reused by the unified API), Flask (SV listener).
 

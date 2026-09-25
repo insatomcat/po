@@ -216,10 +216,8 @@ def handle_mms(
 
 
 def serve_logs_sse(handler: Any) -> None:
-    """
-    Flux SSE = équivalent journalctl -f : envoie d'abord le buffer (500 lignes), puis le temps réel.
-    """
-    from mms.mms_service import LOG_LINES, LOG_LOCK, LOG_CONDITION
+    """Server-sent events, like journalctl -f: the buffered lines first, then new ones."""
+    from po_logging import LOG_CONDITION, LOG_LINES, LOG_LOCK
 
     def escape_sse(s: str) -> str:
         return s.replace("\r", "").replace("\n", " ").replace("\x00", "")

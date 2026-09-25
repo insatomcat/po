@@ -85,7 +85,10 @@ def _wait(condition, timeout: float = 5.0) -> None:  # type: ignore[no-untyped-d
     raise AssertionError("condition not met in time")
 
 
-def test_subscription_end_to_end(service: tuple[mms_service.SubscriptionManager, FakeIed, list[str]]) -> None:
+def test_subscription_end_to_end(
+    service: tuple[mms_service.SubscriptionManager, FakeIed, list[str]], caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("INFO", logger="mms.mms_service")
     manager, ied, pushed = service
     cfg = mms_service.SubscriptionConfig(id="s1", ied_host="ied", ied_port=102, domain="LD0", debug=True)
     runtime = manager.create_subscription(cfg)
@@ -97,9 +100,7 @@ def test_subscription_end_to_end(service: tuple[mms_service.SubscriptionManager,
     assert [a for a, _ in writes] == ["ResvTms", "IntgPd", "TrgOps", "OptFlds", "PurgeBuf", "EntryID", "RptEna", "GI"]
     assert dict(writes)["TrgOps"].value == b"\x0c"  # po's historical integrity + GI
     assert any('member="A.phsA",component="mag"} 12.5' in line for line in pushed)
-    with mms_service.LOG_LOCK:
-        logs = [line for _, line in mms_service.LOG_LINES]
-    assert any(line.startswith("REPORT LDTEST_DEP1 seq=7") for line in logs)
+    assert any(r.getMessage().startswith("REPORT LDTEST_DEP1 seq=7") for r in caplog.records)
 
     manager.delete_subscription("s1")
     assert ied.model.writes[-2:] == [("LLN0$BR$CB_A02$RptEna", BoolData(False)), ("LLN0$BR$CB_A02$ResvTms", IntData(0))]

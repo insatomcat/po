@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import binascii
 import queue
 import sys
@@ -16,6 +17,8 @@ from iec61850 import ethernet
 
 from .codec import decode_goose_pdu, encode_goose_pdu
 from .types import GooseFrame, GoosePDU
+
+log = logging.getLogger(__name__)
 
 
 GOOSE_ETHERTYPE = 0x88B8
@@ -169,10 +172,9 @@ class GooseSubscriber:
             pdu = None
 
         if self.debug and pdu is not None:
-            print(
+            log.info(
                 f"[DEBUG] GOOSE {src_mac}→{dst_mac} app=0x{app_id:04x} "
                 f"st={pdu.st_num} sq={pdu.sq_num}",
-                flush=True,
             )
 
         frame = GooseFrame(
@@ -240,10 +242,9 @@ class GooseSubscriber:
             self._drain_queue()
             return self._drops
 
-        print(
+        log.warning(
             f"[goose] WARNING: direct capture on {self.iface} "
             f"(process bus capture unavailable), GOOSE only",
-            flush=True,
         )
         from iec61850.capture import PacketCapture
 

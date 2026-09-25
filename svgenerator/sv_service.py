@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import json
 import os
 import pathlib
@@ -13,6 +14,8 @@ from subprocess import Popen
 from typing import Dict, Optional
 
 import shutil
+
+log = logging.getLogger(__name__)
 _SEAPATH_RUN = shutil.which("seapath-run")
 _SEAPATH_ALLOC_AVAILABLE = _SEAPATH_RUN is not None
 
@@ -291,7 +294,7 @@ def load_config() -> Dict[str, FlowConfig]:
             cfg = FlowConfig(**migrate_flow_dict(item))
         except Exception as exc:
             name = item.get("name", "<unknown>")
-            print(f"Skipping invalid SV flow config '{name}': {exc}")
+            log.warning(f"Skipping invalid SV flow config '{name}': {exc}")
             continue
         result[cfg.name] = cfg
     return result
@@ -459,7 +462,7 @@ def start_flow_process(cfg: FlowConfig) -> Popen:
             cmd = ["taskset", "-c", cores, "chrt", "-f", str(cfg.seapath_priority)] + cmd
     PIDS_DIR.mkdir(parents=True, exist_ok=True)
     log_path = PIDS_DIR / f"{cfg.name}.log"
-    print(f"[sv] start: {' '.join(cmd)}", flush=True)
+    log.info(f"[sv] start: {' '.join(cmd)}")
     # start_new_session=True: le processus survit au redémarrage du service po.
     with log_path.open("a") as log:
         proc = Popen(
@@ -524,7 +527,7 @@ def rebuild_from_config() -> None:
                 proc = start_flow_process(cfg)
                 flows[name] = FlowRuntime(config=cfg, proc=proc, pid=proc.pid)
             except Exception as exc:
-                print(f"Failed to start flow {name}: {exc}")
+                log.warning(f"Failed to start flow {name}: {exc}")
                 flows[name] = FlowRuntime(config=cfg, proc=None, pid=None)
 
 
@@ -864,7 +867,7 @@ def create_flow(cfg: FlowConfig) -> FlowState:
         try:
             proc = start_flow_process(cfg)
         except Exception as exc:
-            print(f"[sv] start failed: {exc}", flush=True)
+            log.warning(f"[sv] start failed: {exc}")
             raise HTTPException(status_code=500, detail=str(exc))
         flows[cfg.name] = FlowRuntime(config=cfg, proc=proc)
     _add_to_recents(cfg)
@@ -883,7 +886,7 @@ def update_flow(name: str, cfg: FlowConfig) -> FlowState:
         try:
             proc = start_flow_process(cfg)
         except Exception as exc:
-            print(f"[sv] start failed: {exc}", flush=True)
+            log.warning(f"[sv] start failed: {exc}")
             raise HTTPException(status_code=500, detail=str(exc))
         flows[name] = FlowRuntime(config=cfg, proc=proc)
     _add_to_recents(cfg)

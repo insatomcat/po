@@ -4,6 +4,7 @@
 """GOOSE Listener : scan de flux et mesure delta déclenchement → référence SV (smpCnt / cycle)."""
 from __future__ import annotations
 
+import logging
 import json
 import math
 import random
@@ -15,6 +16,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Set, Tuple
+
+log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 GOOSE_ROOT = ROOT / "goose"
@@ -568,7 +571,7 @@ def list_sv_flow_infos() -> List[SvFlowInfo]:
         try:
             raw = list(getter() or [])
         except Exception as exc:
-            print(f"[GOOSE Listener] Lecture des flux SV impossible: {exc}")
+            log.warning(f"[GOOSE Listener] Cannot read the SV flows: {exc}")
             raw = []
     else:
         try:
@@ -592,7 +595,7 @@ def list_sv_flow_infos() -> List[SvFlowInfo]:
                         for fr in flows.values()
                     ]
             except Exception as exc:
-                print(f"[GOOSE Listener] Lecture des flux SV impossible: {exc}")
+                log.warning(f"[GOOSE Listener] Cannot read the SV flows: {exc}")
                 raw = []
     out: List[SvFlowInfo] = []
     seen: Set[str] = set()
@@ -1136,7 +1139,7 @@ class GooseListenerManager:
             )
             tmp_path.replace(ANALYSIS_STATE_PATH)
         except (OSError, TypeError, ValueError) as exc:
-            print(f"[GOOSE Listener] Erreur sauvegarde état: {exc}")
+            log.error(f"[GOOSE Listener] Cannot save the state: {exc}")
 
     def restore_analysis_if_needed(self) -> None:
         """Restaure les mappings ; relance l'analyse si elle tournait (sans l'historique)."""
@@ -1145,8 +1148,8 @@ class GooseListenerManager:
         try:
             raw = json.loads(ANALYSIS_STATE_PATH.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            print(
-                f"[GOOSE Listener] Impossible de charger {ANALYSIS_STATE_PATH}: {exc}"
+            log.warning(
+                f"[GOOSE Listener] Cannot load {ANALYSIS_STATE_PATH}: {exc}"
             )
             return
         if not isinstance(raw, dict):
@@ -1175,17 +1178,17 @@ class GooseListenerManager:
             except Exception as exc:
                 err = str(exc)
             if not err:
-                print(
-                    f"[GOOSE Listener] Analyse relancée ({len(targets)} flux) "
-                    f"après restart du service"
+                log.info(
+                    f"[GOOSE Listener] Analysis restarted ({len(targets)} stream(s)) "
+                    f"after a service restart"
                 )
                 return
-            print(f"[GOOSE Listener] Relance analyse ignorée: {err}")
+            log.warning(f"[GOOSE Listener] Analysis not restarted: {err}")
         self._install_idle_targets(targets)
         if targets:
-            print(
-                f"[GOOSE Listener] {len(targets)} mapping(s) restauré(s) "
-                f"après restart du service"
+            log.info(
+                f"[GOOSE Listener] {len(targets)} mapping(s) restored "
+                f"after a service restart"
             )
 
     def _install_idle_targets(self, targets: List[AnalysisTarget]) -> None:

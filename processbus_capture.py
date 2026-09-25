@@ -9,13 +9,15 @@ active subscribers.
 """
 from __future__ import annotations
 
+import logging
 import queue
 import threading
-import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 import sys
+
+log = logging.getLogger(__name__)
 
 GOOSE_ETHERTYPE = 0x88B8
 SV_ETHERTYPE = 0x88BA
@@ -301,13 +303,13 @@ class ProcessbusCapture:
             with self._stats_lock:
                 self._stats.loop_errors += 1
                 self._stats.last_error = f"setfilter: {exc}"
-            print(f"[processbus] filter {self.iface} ERROR: {exc}", flush=True)
+            log.error(f"[processbus] filter {self.iface}: {exc}")
             return
         with self._lock:
             self._applied_bpf_gen = gen
         with self._stats_lock:
             self._stats.bpf_mode = ethertypes_for_modes(goose=goose, sv=sv)[1]
-        print(f"[processbus] filter {self.iface} -> {label}", flush=True)
+        log.info(f"[processbus] filter {self.iface} -> {label}")
 
     def _goose_worker_loop(self) -> None:
         """Ring buffer + handlers GOOSE hors du thread de capture (ne pas bloquer les SV)."""
@@ -323,12 +325,12 @@ class ProcessbusCapture:
                 try:
                     ring.add(ts_rx, raw)
                 except Exception:
-                    traceback.print_exc()
+                    log.exception("[processbus] GOOSE ring buffer")
             for handler in handlers:
                 try:
                     handler(ts_rx, raw)
                 except Exception:
-                    traceback.print_exc()
+                    log.exception("[processbus] GOOSE handler")
 
     def _enqueue_goose(self, raw: bytes, ts_rx: float) -> None:
         try:
@@ -350,7 +352,7 @@ class ProcessbusCapture:
             try:
                 sv.handler(header, raw, ts_rx)
             except Exception:
-                traceback.print_exc()
+                log.exception("[processbus] SV handler")
 
     def _enqueue_sv(self, header: object, raw: bytes, ts_rx: float) -> None:
         try:
@@ -375,7 +377,7 @@ class ProcessbusCapture:
                     self._apply_bpf_if_needed(cap)
                     with self._stats_lock:
                         self._stats.last_error = None
-                    print(f"[processbus] capture {self.iface}", flush=True)
+                    log.info(f"[processbus] capture {self.iface}")
                 except Exception as exc:
                     with self._stats_lock:
                         self._stats.loop_errors += 1

@@ -9,10 +9,13 @@ Lines are buffered per URL and sent at most every 200 ms, or as soon as
 
 from __future__ import annotations
 
+import logging
 import threading
 import urllib.error
 import urllib.request
 from typing import Dict, List, Optional
+
+log = logging.getLogger(__name__)
 
 DEFAULT_BATCH_INTERVAL_SEC = 0.2
 DEFAULT_BATCH_SIZE_MAX = 500
@@ -28,11 +31,11 @@ def _do_post_impl(base_url: str, lines: List[str], debug: bool = False) -> None:
         with urllib.request.urlopen(req, timeout=15) as resp:
             code = getattr(resp, "status", 200)
             if debug:
-                print(f"[VictoriaMetrics] pushed {len(lines)} metrics -> {code}", flush=True)
+                log.info(f"[VictoriaMetrics] pushed {len(lines)} metrics -> {code}")
     except urllib.error.HTTPError as err:
-        print(f"[VictoriaMetrics] push failed: HTTP {err.code} {err.reason}", flush=True)
+        log.warning(f"[VictoriaMetrics] push failed: HTTP {err.code} {err.reason}")
     except urllib.error.URLError as err:
-        print(f"[VictoriaMetrics] push failed: {err}", flush=True)
+        log.warning(f"[VictoriaMetrics] push failed: {err}")
 
 
 class _Batcher:

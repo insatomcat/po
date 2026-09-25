@@ -21,18 +21,20 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 import struct
 import sys
 import threading
 import time
-import traceback
 from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from iec61850 import sv as sv_codec  # noqa: E402
+
+log = logging.getLogger(__name__)
 
 try:
     # Facultatif: permet de faire tourner Flask sous uvicorn via ASGI.
@@ -622,10 +624,9 @@ def capture_loop_multiplexed(
         stats["capture_running"] = True
         stats["last_error"] = None
         stats["last_error_at"] = None
-    print(
-        f"[capture] SV via multiplexeur {iface} (GOOSE+SV, socket unique)"
+    log.info(
+        f"[capture] SV from the shared capture on {iface}"
         + (f", svID={config.get('svid')}" if config.get("svid") else ""),
-        flush=True,
     )
 
     mux = ProcessbusCapture.get(iface)
@@ -655,8 +656,7 @@ def capture_loop_multiplexed(
                 stats["capture_loop_errors"] += 1
                 stats["last_error"] = err
                 stats["last_error_at"] = time.time()
-            print(f"[capture] erreur SV ({iface}): {err}", file=sys.stderr)
-            traceback.print_exc()
+            log.exception(f"[capture] SV error ({iface}): {err}")
 
     try:
         unsubscribe = mux.subscribe_sv(on_sv)
@@ -666,7 +666,7 @@ def capture_loop_multiplexed(
             stats["last_error"] = str(exc)
             stats["last_error_at"] = time.time()
             stats["capture_running"] = False
-        print(f"[capture] {exc}", file=sys.stderr)
+        log.error(f"[capture] {exc}")
         return
 
     try:
@@ -733,7 +733,7 @@ def create_svview_app(
     stats_lock = threading.Lock()
 
     if not HAS_FLASK:
-        print("Flask requis pour l'interface web: pip install flask", file=sys.stderr)
+        log.error("Flask is needed for the web interface: pip install flask")
         sys.exit(1)
 
     capture_mgr = CaptureManager(
@@ -763,11 +763,14 @@ def main() -> None:
     """
     iface = os.environ.get("SVVIEW_INTERFACE")
     if not iface:
-        print("SVVIEW_INTERFACE non défini (interface réseau requise)", file=sys.stderr)
+        print("SVVIEW_INTERFACE is not set (network interface needed)", file=sys.stderr)
         sys.exit(1)
+    import po_logging
+
+    po_logging.setup()
     flask_app = _flask_app or create_svview_app(iface)
     port = int(os.environ.get("SVVIEW_PORT", "7052"))
-    print(f"[+] Interface web: http://0.0.0.0:{port}", file=sys.stderr)
+    log.info(f"Web interface: http://0.0.0.0:{port}")
     flask_app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
 
 

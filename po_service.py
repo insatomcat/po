@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import signal
 import socket
@@ -36,11 +37,13 @@ sys.path.insert(0, str(ROOT / "goose"))
 sys.path.insert(0, str(ROOT / "svgenerator"))
 
 # Import après configuration du path
-from mms import mms_service as _mms_svc
-from mms.mms_service import SubscriptionManager, _TeeStdout
+import po_logging
+from mms.mms_service import SubscriptionManager
 from mms.mms_api import handle_mms, serve_logs_sse
 from goose61850.service import GooseService, _handle_api as goose_handle_api
 from svgenerator.sv_api import handle_sv, init_sv_api
+
+log = logging.getLogger("po_service")
 
 sys.path.insert(0, str(ROOT / "goose_listener"))
 from goose_listener_api import (  # noqa: E402
@@ -346,15 +349,8 @@ class UnifiedHandler(BaseHTTPRequestHandler):
         self.wfile.write(html.encode("utf-8"))
 
     def log_message(self, format: str, *args: object) -> None:
-        msg = f"[HTTP] {self.address_string()} - {format % args}"
-        print(msg)
-        # Alimenter le buffer des logs MMS (affichage onglet MMS) même après restart
-        with _mms_svc.LOG_LOCK:
-            _mms_svc.LOG_NEXT_SEQ += 1
-            _mms_svc.LOG_LINES.append((_mms_svc.LOG_NEXT_SEQ, msg))
-            if len(_mms_svc.LOG_LINES) > _mms_svc.LOG_MAX:
-                _mms_svc.LOG_LINES.pop(0)
-            _mms_svc.LOG_CONDITION.notify_all()
+        # One line per request (the UI polls every second): shown at DEBUG only.
+        log.debug(f"[HTTP] {self.address_string()} - {format % args}")
 
 
 def main() -> int:
@@ -388,7 +384,13 @@ def main() -> int:
         metavar="IFACE",
         help="Interface réseau pour SV Listener (capture 0x88ba, onglet phasors).",
     )
+    parser.add_argument(
+        "--log-level",
+        default=None,
+        help="DEBUG, INFO, WARNING or ERROR (default: $PO_LOG_LEVEL or INFO); DEBUG also logs every HTTP request.",
+    )
     args = parser.parse_args()
+    po_logging.setup(args.log_level)
 
     svview_port: int | None = None
     if args.svview_interface:
@@ -413,8 +415,8 @@ def main() -> int:
         t.start()
         UnifiedHandler.svview_port = svview_port
         configure_goose_listener(args.svview_interface)
-        print(f"[+] SV Listener sur http://127.0.0.1:{svview_port} (proxy /api/svview)", file=sys.stderr)
-        print(f"[+] GOOSE Listener sur {args.svview_interface} (/api/gooselistener)", file=sys.stderr)
+        log.info(f"SV Listener on http://127.0.0.1:{svview_port} (proxy /api/svview)")
+        log.info(f"GOOSE Listener on {args.svview_interface} (/api/gooselistener)")
 
     manager = SubscriptionManager(
         vm_url=args.victoriametrics_url,
@@ -425,8 +427,6 @@ def main() -> int:
     goose = GooseService(host="127.0.0.1", port=0)  # pas de serveur HTTP
     goose.start_sender_only()
     UnifiedHandler.goose_service = goose
-
-    sys.stdout = _TeeStdout(sys.__stdout__)
 
     init_sv_api()
 
@@ -441,10 +441,7 @@ def main() -> int:
 
     server_address = (args.listen_host, args.listen_port)
     httpd = ThreadingHTTPServer(server_address, UnifiedHandler)
-    print(
-        f"Service PO démarré sur http://{args.listen_host}:{args.listen_port} "
-        f"(MMS, GOOSE, SV, Stress)"
-    )
+    log.info(f"PO service on http://{args.listen_host}:{args.listen_port} (MMS, GOOSE, SV, Stress)")
     def _on_sigterm(_signum: int, _frame: object) -> None:
         raise KeyboardInterrupt  # systemd stop: same clean shutdown as Ctrl-C
 
@@ -452,7 +449,7 @@ def main() -> int:
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n[Interrupt] Arrêt demandé.")
+        log.info("Stopping.")
     finally:
         manager.stop_all()  # disable and release the RCBs so the next start finds them free
         goose.stop()

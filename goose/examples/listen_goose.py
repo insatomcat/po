@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import math
 import pathlib
 import signal
@@ -530,6 +531,7 @@ def main() -> None:
         "À utiliser si l'analyse GUI tourne — même résultats que l'UI.",
     )
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 
     if args.from_api:
         if not args.problem_diag:

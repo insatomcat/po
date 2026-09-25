@@ -84,6 +84,7 @@ Options:
 - `--listen-host`, `--listen-port`: where the service listens (default port 7050)
 - `--victoriametrics-url http://victoriametrics:8428`: push MMS report values to VictoriaMetrics (Grafana)
 - `--vm-batch-ms`: VictoriaMetrics batching interval
+- `--log-level`: DEBUG, INFO (default), WARNING or ERROR; also `$PO_LOG_LEVEL`. Logs go to stdout (journalctl) and to the log panel of the MMS tab
 - `--svview-interface eth1`: the process bus interface; enables the SV Listener and GOOSE Listener tabs (API **503** without it)
 
 `po-service.service` is a systemd unit for the service; site settings (`SVVIEW_INTERFACE`, `PO_VICTORIAMETRICS_URL`) go in a drop-in (`systemctl edit po-service`).
@@ -109,6 +110,7 @@ po/
 ├── po_service.py          # Unified HTTP service
 ├── unified_ui.html        # Web UI
 ├── processbus_capture.py  # Shared GOOSE/SV capture per interface
+├── po_logging.py          # Logging setup of the services
 ├── iec_data.py            # JSON mapping of MMS values for the HTTP APIs
 ├── mms/                   # MMS subscription service, API, CLI
 ├── goose/                 # GOOSE service and goose61850 package
