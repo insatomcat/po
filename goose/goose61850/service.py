@@ -24,7 +24,7 @@ STREAMS_PATH = _GOOSE_DIR / "streams.json"
 RECENTS_PATH = _GOOSE_DIR / "recents.json"
 from urllib.parse import parse_qs, urlparse
 
-from iec61850.data import encode_binary_time, encode_utc_time
+from open61850.data import encode_binary_time, encode_utc_time
 from iec_data import IECData, RawData, TimestampData, iec_data_from_json, iec_data_to_json
 from .transport import _build_frame
 from .types import GoosePDU

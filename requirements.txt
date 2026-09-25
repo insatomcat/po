@@ -1,0 +1,5 @@
+# Copyright 2026 Florent Carli
+# SPDX-License-Identifier: Apache-2.0
+
+# The IEC 61850 library PO is built on.
+open61850 @ git+https://github.com/insatomcat/open61850@v0.1.0

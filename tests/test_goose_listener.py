@@ -61,10 +61,10 @@ def test_classify_trigger(prev: object, curr: object, kind: str) -> None:
 def test_dep_token_matching() -> None:
     assert extract_dep_token("SSC600LD0/LLN0$GO$LDPX_GSI_DEP5_B") == "DEP5"
     flows = [
-        SvFlowInfo(name="a", svid="LDTM1_SVI_DEP5", fault=True, fault_cycle_s=4, fault_smpcnt=0, fault_offset_s=0),
-        SvFlowInfo(name="b", svid="LDTM1_SVI_DEP50", fault=True, fault_cycle_s=4, fault_smpcnt=0, fault_offset_s=0),
+        SvFlowInfo(name="a", svid="IED01_SV_DEP5", fault=True, fault_cycle_s=4, fault_smpcnt=0, fault_offset_s=0),
+        SvFlowInfo(name="b", svid="IED01_SV_DEP50", fault=True, fault_cycle_s=4, fault_smpcnt=0, fault_offset_s=0),
     ]
-    assert auto_svid_for_goose("X/LLN0$GO$LDPX_GSI_DEP5_B", "", flows) == "LDTM1_SVI_DEP5"
+    assert auto_svid_for_goose("X/LLN0$GO$LDPX_GSI_DEP5_B", "", flows) == "IED01_SV_DEP5"
     assert auto_svid_for_goose("X/LLN0$GO$LDPX_GSI_DEP6", "", flows) is None
 
 

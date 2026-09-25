@@ -32,7 +32,7 @@ def handle_mms(
     body: raw body (JSON for POST/PUT)
     Returns (status_code, body), body being a JSON-serialisable dict/list, or None for 204.
     """
-    from iec61850.mms.control import ControlError
+    from open61850.mms.control import ControlError
 
     from .mms_service import CONFIG_FIELDS, COMMAND_POSITIONS, MMSCommandConfig, config_from_json, runtime_to_json
 

@@ -1,14 +1,14 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""GOOSE codec entry points used by po; the codec lives in :mod:`iec61850.goose`."""
+"""GOOSE codec entry points used by po; the codec lives in :mod:`open61850.goose`."""
 
 from __future__ import annotations
 
-from iec61850.data import DATA_TYPES
-from iec61850.goose import GooseDecodeError as ASN1DecodeError  # noqa: F401 - historical name
-from iec61850.goose import GoosePDU, decode_goose_pdu  # noqa: F401 - re-exported
-from iec61850.goose import encode_goose_pdu as _encode_goose_pdu
+from open61850.data import DATA_TYPES
+from open61850.goose import GooseDecodeError as ASN1DecodeError  # noqa: F401 - historical name
+from open61850.goose import GoosePDU, decode_goose_pdu  # noqa: F401 - re-exported
+from open61850.goose import encode_goose_pdu as _encode_goose_pdu
 from iec_data import iec_data_from_json
 
 

@@ -11,12 +11,12 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from test_lib_mms import FakeModel, FakeServer
+from fake_ied import FakeModel, FakeServer
 from test_mms_reporting import DS, MEMBERS, _report_bytes
 
-from iec61850 import ber
-from iec61850.data import BoolData, IntData, VisibleStringData
-from iec61850.mms import pdu, transport
+from open61850 import ber
+from open61850.data import BoolData, IntData, VisibleStringData
+from open61850.mms import pdu, transport
 from mms import mms_service
 
 
@@ -162,9 +162,9 @@ def test_http_api_fields(service: tuple[mms_service.SubscriptionManager, FakeIed
 def test_command_operates_the_breaker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import json
 
-    from test_lib_mms_control import ControlIed, _last_appl_error, _report, _terminate
+    from fake_ied import ControlIed, _last_appl_error, _report, _terminate
 
-    from iec61850.mms import control
+    from open61850.mms import control
     from mms.mms_api import handle_mms
 
     monkeypatch.setattr(mms_service, "COMMANDS_PATH", tmp_path / "commands.json")
@@ -244,7 +244,7 @@ def test_blocks_are_discovered_when_the_scl_describes_another_ied(tmp_path: Path
 
 
 def test_a_missing_domain_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from iec61850.mms import MmsError
+    from open61850.mms import MmsError
 
     with pytest.raises(MmsError, match="domain IED01_XLD0 not on the IED at 192.0.2.10, which has IED02LD0"):
         _groups(tmp_path, monkeypatch, _NamesClient({"IED02LD0": []}), domain="IED01_XLD0")

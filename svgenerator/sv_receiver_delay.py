@@ -27,7 +27,7 @@ import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from iec61850.capture import PacketCapture  # noqa: E402
+from open61850.capture import PacketCapture  # noqa: E402
 
 ETH_HEADER_LEN = 14
 ETH_VLAN_LEN = 4

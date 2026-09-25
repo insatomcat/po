@@ -6,7 +6,7 @@
 :func:`setup` sends every record to stdout (journalctl adds the time) and
 keeps the last :data:`LOG_MAX` lines in memory for the log panel of the web
 UI (``GET /api/mms/logs``, server-sent events). Modules only call
-``logging.getLogger(__name__)``; the iec61850 library configures nothing.
+``logging.getLogger(__name__)``; the open61850 library configures nothing.
 """
 
 from __future__ import annotations

@@ -14,8 +14,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from iec61850 import ber
-from iec61850.data import (
+from open61850 import ber
+from open61850.data import (
     BitStringData,
     BoolData,
     FloatData,
@@ -28,9 +28,9 @@ from iec61850.data import (
     encode_binary_time,
     encode_data,
 )
-from iec61850.mms import ObjectName, TrgOps, decode_report, pdu
-from iec61850.mms.report import ReasonCode, bitstring_of
-from iec61850.mms.types import PrimitiveType, StructureType
+from open61850.mms import ObjectName, TrgOps, decode_report, pdu
+from open61850.mms.report import ReasonCode, bitstring_of
+from open61850.mms.types import PrimitiveType, StructureType
 from mms import reporting
 
 DS = "IED01_LD0/LLN0$DS_TEST"
@@ -196,7 +196,7 @@ def test_plan_prefers_requested_then_previous_instances() -> None:
 def test_groups_from_scl_and_filter() -> None:
     from conftest import DATA_DIR
 
-    from iec61850 import scl
+    from open61850 import scl
 
     ied = scl.find_ied(scl.load_ieds(DATA_DIR / "two_ieds.scd.xml"), "192.0.2.10")
     assert ied is not None and ied.domains == ["IED01_ALD0", "IED01_ACTRL"]

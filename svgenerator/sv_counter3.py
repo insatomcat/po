@@ -8,7 +8,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from iec61850.capture import PacketCapture  # noqa: E402
+from open61850.capture import PacketCapture  # noqa: E402
 
 IFACE = sys.argv[1]
 CPU = sys.argv[2]

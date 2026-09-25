@@ -49,8 +49,8 @@ from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Optional, Any, Tuple
 
-from iec61850 import scl
-from iec61850.mms import (
+from open61850 import scl
+from open61850.mms import (
     OBJECT_CLASS_DOMAIN,
     OBJECT_CLASS_NAMED_VARIABLE,
     MmsClient,
@@ -61,7 +61,7 @@ from iec61850.mms import (
     is_report,
     rcb,
 )
-from iec61850.mms import pdu as pdu_types
+from open61850.mms import pdu as pdu_types
 import po_logging
 from mms import reporting
 from mms.scl_parser import parse_scl_data_set_members_with_components

@@ -39,7 +39,7 @@ The capture starts with `POST /api/capture/start` (the UI does it) and stops wit
 
 | File | Content |
 |------|---------|
-| `sv_listener_view.py` | Flask app, SV subscription to the shared capture, decoding (`iec61850.sv`), phasors, statistics |
+| `sv_listener_view.py` | Flask app, SV subscription to the shared capture, decoding (`open61850.sv`), phasors, statistics |
 | `templates/index.html` | Standalone web page (the unified UI has its own SV Listener tab) |
 
 ## License

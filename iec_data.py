@@ -3,7 +3,7 @@
 
 """Application-side view of the IEC 61850 ``Data`` model.
 
-The model and its BER codec live in :mod:`iec61850.data`. This module keeps
+The model and its BER codec live in :mod:`open61850.data`. This module keeps
 the historical names used across po and the JSON mapping of the HTTP APIs,
 including the legacy goose_cli forms.
 """
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from iec61850 import ber
-from iec61850.data import (  # noqa: F401 - re-exported
+from open61850 import ber
+from open61850.data import (  # noqa: F401 - re-exported
     DATA_TYPES as _IEC_DATA_TYPES,
     ArrayData,
     BitStringData,

@@ -1,6 +1,6 @@
 # MMS: report subscriptions and controls
 
-The MMS part of PO subscribes to IEC 61850 reports of one or more IEDs, pushes their values to VictoriaMetrics for Grafana, and sends controls. The protocol lives in the `iec61850.mms` library of this repository (standard library only).
+The MMS part of PO subscribes to IEC 61850 reports of one or more IEDs, pushes their values to VictoriaMetrics for Grafana, and sends controls. The protocol lives in the [open61850](https://github.com/insatomcat/open61850) library (`open61850.mms`).
 
 ## Components
 
@@ -14,7 +14,7 @@ The MMS part of PO subscribes to IEC 61850 reports of one or more IEDs, pushes t
 | `mmsctl.py` | Command line for the service API |
 | `webui.html` | Page of the standalone service |
 
-`tools/mms_client.py` talks to an IED directly (domains, RCBs, reads, a subscription, a control), without the service.
+`open61850-mms` (from open61850) talks to an IED directly (domains, RCBs, reads, a subscription, a control), without the service.
 
 ## Running it
 

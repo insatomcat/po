@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from open61850 import sv
+
 import sv_listener_view as svl
 from parse_ref_pkt import REF
 from processbus_capture import ethertypes_for_modes, frame_ethertype
@@ -52,8 +54,8 @@ def _seq_data_6i3u(values: list[int]) -> bytes:
 def test_reference_packet_4i4u() -> None:
     asdus = svl.parse_sv_asdus_with_seqdata(REF)
     assert asdus == [
-        ("LDTM1_SVI_DEP3", 0x11B8, [0] * 9),
-        ("LDTM1_SVI_DEP3", 0x11B9, [0] * 9),
+        ("IED01_MU01_SV1", 0x11B8, [0] * 9),
+        ("IED01_MU01_SV1", 0x11B9, [0] * 9),
     ]
 
 
@@ -199,3 +201,20 @@ def test_rt_sender_dump_sine_scaling(rt_sender: Path) -> None:
     angle = 2 * math.pi * 50 / 4800
     assert vals1[0] == round(10 * math.sin(angle) * 1000)
     assert vals1[6] == round(100 * math.sin(angle) * 100)
+
+
+# --- open61850.sv against the rt_sender layout -------------------------------
+
+
+def test_sv_encoder_matches_rt_sender_layout() -> None:
+    samples = [(1000, 0), (-500, 0x2000), (-500, 0), (0, 0), (0, 0), (0, 0), (10000, 0), (-5000, 0), (-5000, 0)]
+    asdus = [
+        sv.SvAsdu(sv_id="SV_1", smp_cnt=n, conf_rev=10000, smp_synch=2, sample=sv.encode_int32_samples(samples))
+        for n in (0, 1)
+    ]
+    expected = _sv_payload(0x4060, [_asdu("SV_1", n, 10000, 2, sv.encode_int32_samples(samples)) for n in (0, 1)])
+    raw = sv.encode_sv_frame(sv.SvPDU(asdus), dst_mac="01:0c:cd:04:00:01", src_mac="00:00:00:00:00:01", app_id=0x4060)
+    assert raw[14:] == expected
+    frame, pdu = sv.decode_sv_frame(raw)  # type: ignore[misc]
+    assert pdu.asdus == asdus
+    assert sv.decode_int32_samples(pdu.asdus[0].sample)[1] == (-500, 0x2000)

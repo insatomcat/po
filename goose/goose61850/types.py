@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from iec61850.goose import GoosePDU  # noqa: F401 - re-exported
+from open61850.goose import GoosePDU  # noqa: F401 - re-exported
 
 
 @dataclass

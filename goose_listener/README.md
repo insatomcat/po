@@ -211,7 +211,7 @@ If `tcpdump` sees sqNum 0 to 4 and PO does not, look at PO (APPID filter, no dou
 
 ## Requirements
 
-- Linux, root or `CAP_NET_RAW` for the capture (`iec61850.capture`)
+- Linux, root or `CAP_NET_RAW` for the capture (`open61850.capture`)
 - `goose61850` (in `goose/`) and `iec_data.py` (repository root)
 - The same interface as the SV Listener (`--svview-interface`)
 

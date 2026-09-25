@@ -1,7 +1,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Report handling of the MMS service, on top of iec61850.mms.
+"""Report handling of the MMS service, on top of open61850.mms.
 
 - Which report control blocks to subscribe to, and which instance.
 - Data set members and their types, read from the IED.
@@ -18,11 +18,11 @@ from dataclasses import dataclass, field
 from datetime import timezone
 from typing import Optional
 
-from iec61850.data import ArrayData, BitStringData, BoolData, FloatData, IECData, IntData, StructureData, UIntData
-from iec61850.display import format_value
-from iec61850.mms import DataAccessError, MmsClient, MmsError, MmsType, ObjectName, OptFlds, Report, TrgOps, rcb
-from iec61850 import scl
-from iec61850.mms.types import StructureType, label
+from open61850.data import ArrayData, BitStringData, BoolData, FloatData, IECData, IntData, StructureData, UIntData
+from open61850.display import format_value
+from open61850.mms import DataAccessError, MmsClient, MmsError, MmsType, ObjectName, OptFlds, Report, TrgOps, rcb
+from open61850 import scl
+from open61850.mms.types import StructureType, label
 
 # --- settings -----------------------------------------------------------------
 

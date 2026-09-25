@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple, Union
 
-from iec61850 import ethernet
+from open61850 import ethernet
 
 from .codec import decode_goose_pdu, encode_goose_pdu
 from .types import GooseFrame, GoosePDU
@@ -246,7 +246,7 @@ class GooseSubscriber:
             f"[goose] WARNING: direct capture on {self.iface} "
             f"(process bus capture unavailable), GOOSE only",
         )
-        from iec61850.capture import PacketCapture
+        from open61850.capture import PacketCapture
 
         with PacketCapture(
             self.iface, (ethernet.ETHERTYPE_GOOSE,), buffer_bytes=_CAPTURE_BUFFER_BYTES, timeout=_CAPTURE_TIMEOUT_S

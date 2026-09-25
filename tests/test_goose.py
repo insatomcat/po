@@ -15,7 +15,7 @@ from goose61850 import service as goose_service
 from goose61850.codec import decode_goose_pdu, encode_goose_pdu
 from goose61850.transport import _build_frame, parse_ethernet_goose
 from goose61850.types import GoosePDU
-from iec61850.data import encode_utc_time
+from open61850.data import encode_utc_time
 from iec_data import BitStringData, BoolData, FloatData, IntData, RawData, TimestampData, UIntData
 
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)

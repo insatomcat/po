@@ -2,50 +2,11 @@
 
 Test and diagnostic platform for IEC 61850 on a digital substation process bus. PO speaks **MMS** (reports, controls), **GOOSE** (publish, subscribe, trip delay measurement) and **Sampled Values** (generation, phasor view), behind one HTTP service with a web UI.
 
-The protocol code lives in [`iec61850/`](iec61850/), a pure-stdlib Python library under the Apache 2.0 licence, meant to become a reusable alternative to the GPL libiec61850.
-
-## The `iec61850` library
-
-No dependency outside the standard library, and no I/O except in the capture and MMS transport modules.
-
-| Module | Content |
-|--------|---------|
-| `ber` | ASN.1 BER primitives (tags, lengths, INTEGER, OBJECT IDENTIFIER, ...) |
-| `data` | MMS `Data` values, encoding and decoding, UtcTime |
-| `quality` | Quality and TimeQuality in readable form |
-| `display` | Readable text for MMS values |
-| `ethernet` | Ethernet II / 802.1Q frames with an APPID header |
-| `goose` | GOOSE PDUs and frames |
-| `sv` | Sampled Values PDUs and frames (IEC 61850-9-2 / 61869-9) |
-| `capture` | Linux frame capture on an AF_PACKET ring (no libpcap), kernel timestamps |
-| `scl` | SCL (CID/SCD) reader: IEDs, logical devices, data sets, report control blocks |
-| `mms.transport` | TPKT and COTP over TCP |
-| `mms.association` | Association request (Session, Presentation, ACSE, MMS Initiate) and the negotiated limits of the response |
-| `mms.client` | `MmsClient`: requests matched by invokeID, reports delivered to callbacks, typed errors |
-| `mms.report` | IEC 61850 report decoding driven by OptFlds and the inclusion bit string |
-| `mms.rcb` | Report control blocks: status, reservation, enabling, release |
-| `mms.control` | Controls: direct and select-before-operate, normal and enhanced security |
-| `mms.types` | Type descriptions (GetVariableAccessAttributes) and value labels |
-
-```python
-from iec61850.mms import MmsClient, ObjectName, OBJECT_CLASS_DOMAIN
-
-with MmsClient.connect("192.0.2.10") as client:
-    print(client.association.max_outstanding_calling)
-    for domain in client.get_name_list(OBJECT_CLASS_DOMAIN):
-        print(domain)
-    print(client.read(ObjectName("LLN0$ST$Mod$stVal", "IED01_LD0")))
-```
-
-`tools/mms_client.py` puts the MMS client on the command line:
+The protocol code is the [open61850](https://github.com/insatomcat/open61850) library: IEC 61850 in pure Python, standard library only, Apache 2.0 (an MMS client with reports, report control blocks and controls; GOOSE and Sampled Values codecs; an SCL reader; a Linux capture for the process bus). It started in this repository and now lives in its own; PO pins a tagged version in `requirements.txt`.
 
 ```bash
-python3 tools/mms_client.py 192.0.2.10 association   # what the IED accepted
-python3 tools/mms_client.py 192.0.2.10 domains
-python3 tools/mms_client.py 192.0.2.10 rcbs --status
-python3 tools/mms_client.py 192.0.2.10 read 'IED01_LD0/LLN0$DC$NamPlt'
-python3 tools/mms_client.py 192.0.2.10 subscribe 'IED01_LD0/LLN0$BR$CB_LDPHAS1'
-python3 tools/mms_client.py 192.0.2.10 operate 'IED01_BayLD/CBCSWI1$CO$Pos' open
+pip install -r requirements.txt
+open61850-mms 192.0.2.10 domains      # the library's command line, handy against a live IED
 ```
 
 ## Applications
@@ -65,7 +26,7 @@ GOOSE and SV reception share one capture per interface (`processbus_capture.py`)
 ## Requirements
 
 - **Python 3.10+**
-- Library and MMS: standard library only
+- `open61850` (`pip install -r requirements.txt`), standard library only
 - Capture (GOOSE Listener, SV Listener View): **Linux**, root or `CAP_NET_RAW`
 - GOOSE publication: **scapy**
 - SV Generator: FastAPI and friends, see [svgenerator/requirements.txt](svgenerator/requirements.txt), and a C compiler for `rt_sender`
@@ -106,7 +67,6 @@ Options:
 
 ```
 po/
-├── iec61850/              # The IEC 61850 library (Apache 2.0, stdlib only)
 ├── po_service.py          # Unified HTTP service
 ├── unified_ui.html        # Web UI
 ├── processbus_capture.py  # Shared GOOSE/SV capture per interface
@@ -118,7 +78,8 @@ po/
 ├── svgenerator/           # SV generator (rt_sender.c) and diagnostics
 ├── svlistener_view/       # SV phasor view
 ├── stress/                # Node stress test
-├── tools/                 # mms_client.py, pcap_mms.py, bench_sv_decode.py
+├── requirements.txt       # open61850, pinned to a tag
+├── tools/                 # pcap_mms.py (MMS PDUs of a capture)
 └── tests/                 # pytest suite
 ```
 

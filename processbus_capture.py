@@ -3,7 +3,7 @@
 
 """One process bus capture per interface, shared by GOOSE and SV consumers.
 
-Frames are read with iec61850.capture (an AF_PACKET TPACKET_V3 ring, stdlib
+Frames are read with open61850.capture (an AF_PACKET TPACKET_V3 ring, stdlib
 only, Linux). The kernel filter keeps GOOSE, SV or both, following the
 active subscribers.
 """
@@ -62,7 +62,7 @@ class _Capture:
     """The capture socket as the loop uses it."""
 
     def __init__(self, iface: str) -> None:
-        from iec61850.capture import PacketCapture
+        from open61850.capture import PacketCapture
 
         # On lo every frame also shows up as outgoing; drop that copy.
         self._cap = PacketCapture(iface, buffer_bytes=CAPTURE_BUFFER_BYTES, timeout=CAPTURE_TIMEOUT_S, outgoing=iface != "lo")

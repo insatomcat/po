@@ -26,6 +26,10 @@ for sub in ("", "goose", "goose_listener", "svgenerator", "svlistener_view"):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+# open61850 comes installed (requirements.txt); a checkout next to po works too.
+if importlib.util.find_spec("open61850") is None and (ROOT.parent / "open61850" / "src").is_dir():
+    sys.path.insert(0, str(ROOT.parent / "open61850" / "src"))
+
 
 def _install_stub(name: str, attrs: dict[str, object]) -> None:
     module = types.ModuleType(name)

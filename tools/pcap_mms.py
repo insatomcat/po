@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from iec61850 import ber  # noqa: E402
+from open61850 import ber  # noqa: E402
 
 SESSION_DATA = b"\x01\x00\x01\x00"
 PDU_KINDS = {

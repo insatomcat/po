@@ -1,6 +1,6 @@
 # GOOSE: publication service and goose61850 package
 
-Publishes and receives **GOOSE** messages (IEC 61850-8-1). It has an HTTP service that keeps streams on the bus, a command line for its API, and the `goose61850` package (codec re-exported from `iec61850.goose`, transport, analysis).
+Publishes and receives **GOOSE** messages (IEC 61850-8-1). It has an HTTP service that keeps streams on the bus, a command line for its API, and the `goose61850` package (codec re-exported from `open61850.goose`, transport, analysis).
 
 ## Components
 

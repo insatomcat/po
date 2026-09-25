@@ -26,7 +26,7 @@ from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from iec61850 import sv as sv_codec  # noqa: E402
+from open61850 import sv as sv_codec  # noqa: E402
 
 log = logging.getLogger(__name__)
 
