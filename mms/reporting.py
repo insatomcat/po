@@ -209,7 +209,11 @@ def format_report(report: Report, data_set: Optional[DataSetInfo]) -> list[str]:
         name = str(member.name) if member else f"[{entry.index}]"
         reasons = [k for k, v in vars(entry.reason).items() if v] if entry.reason else []
         lines.append(f"  {name} ({','.join(reasons)})")
-        lines.append(f"      {format_value(entry.value, member.mms_type if member else None)}")
+        value = entry.value
+        if isinstance(value, DataAccessError):  # a server may send one in place of a member's value
+            lines.append(f"      access error: {value}")
+        else:
+            lines.append(f"      {format_value(value, member.mms_type if member else None)}")
     return lines
 
 

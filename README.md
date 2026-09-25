@@ -2,7 +2,7 @@
 
 Test and diagnostic platform for IEC 61850 on a digital substation process bus. PO speaks **MMS** (reports, controls), **GOOSE** (publish, subscribe, trip delay measurement) and **Sampled Values** (generation, phasor view), behind one HTTP service with a web UI.
 
-The protocol code is the [open61850](https://github.com/insatomcat/open61850) library: IEC 61850 in pure Python, standard library only, Apache 2.0 (an MMS client with reports, report control blocks and controls; GOOSE and Sampled Values codecs; an SCL reader; a Linux capture for the process bus). It started in this repository and now lives in its own; PO pins a version from PyPI in `requirements.txt`.
+The protocol code is the [open61850](https://github.com/insatomcat/open61850) library: IEC 61850 in pure Python, standard library only, Apache 2.0 (an MMS client with reports, report control blocks and controls; an MMS server; GOOSE and Sampled Values codecs, publishers and stream supervision; SCL and COMTRADE readers; pcap files and a Linux capture for the process bus). It started in this repository and now lives in its own; PO pins a version from PyPI in `requirements.txt`.
 
 ```bash
 pip install -r requirements.txt

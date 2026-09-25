@@ -18,8 +18,13 @@ then PO moves to the new tag.
 
 PO consumes `open61850.data`, `.ethernet`, `.goose`, `.sv`, `.scl`,
 `.capture` and `.mms` (client, reports, RCBs, controls, association).
-`open61850-mms HOST domains|rcbs|read|subscribe|operate|association` is the
-command line to try things against a live IED.
+`open61850-mms HOST domains|browse|rcbs|read|subscribe|operate|association|compare-scl`
+is the command line to try things against a live IED. Since 0.4 the library
+also has what PO may use later: an MMS server (`open61850.server`,
+`open61850-server IED.cid`, a simulated IED to test against), GOOSE and SV
+supervision (`open61850-supervise` on a pcap or an interface), a GOOSE
+publisher, SV playback of captures and COMTRADE records, and SCL data sets,
+GOOSE/SV control blocks and data models (`scl.load_model`).
 
 Adapters kept for the applications: `iec_data.py` re-exports `open61850.data`
 under the historical names and holds the JSON mapping (with its goose_cli
