@@ -3,13 +3,12 @@
 
 """One process bus capture per interface, shared by GOOSE and SV consumers.
 
-Two backends read the frames: ``afpacket`` (iec61850.capture, an AF_PACKET
-TPACKET_V3 ring, stdlib only) and ``pcapy`` (libpcap). ``PO_CAPTURE_BACKEND``
-chooses; pcapy is the default until afpacket has run in the service.
+Frames are read with iec61850.capture (an AF_PACKET TPACKET_V3 ring, stdlib
+only, Linux). The kernel filter keeps GOOSE, SV or both, following the
+active subscribers.
 """
 from __future__ import annotations
 
-import os
 import queue
 import threading
 import traceback
@@ -21,19 +20,10 @@ import sys
 GOOSE_ETHERTYPE = 0x88B8
 SV_ETHERTYPE = 0x88BA
 
-PCAP_SNAPLEN = 65535
-PCAP_READ_TIMEOUT_MS = 50
-PCAP_BUFFER_BYTES = 4 * 1024 * 1024
+CAPTURE_TIMEOUT_S = 0.05
+CAPTURE_BUFFER_BYTES = 4 * 1024 * 1024
 SV_QUEUE_MAX = 20_000
 GOOSE_QUEUE_MAX = 20_000
-
-GOOSE_BPF = "(ether proto 0x88b8) or (vlan and ether proto 0x88b8)"
-SV_BPF = "(ether proto 0x88ba) or (vlan and ether proto 0x88ba)"
-# libpcap's "vlan" shifts the offsets of every test after it, across "or" too:
-# it must come last, once. "(A) or (vlan and A) or (B) or (vlan and B)" reads
-# B at the wrong offset: with a NIC that strips tags, only the SV streams sent
-# by the host itself (tag still inline) went through.
-PROCESSBUS_BPF = "ether proto 0x88b8 or ether proto 0x88ba or (vlan and (ether proto 0x88b8 or ether proto 0x88ba))"
 
 GooseHandler = Callable[[float, bytes], None]
 SvHandler = Callable[[object, bytes, float], None]
@@ -51,86 +41,8 @@ def frame_ethertype(frame: bytes) -> Optional[int]:
     return eth_type
 
 
-def ethertypes_for_modes(*, goose: bool, sv: bool) -> Tuple[int, ...]:
-    """The afpacket equivalent of :func:`bpf_for_modes`."""
-    if goose and sv:
-        return (GOOSE_ETHERTYPE, SV_ETHERTYPE)
-    if sv:
-        return (SV_ETHERTYPE,)
-    return (GOOSE_ETHERTYPE,)
-
-
-class _PcapyBackend:
-    name = "pcapy"
-
-    def __init__(self, iface: str) -> None:
-        import pcapy
-
-        self._cap = pcapy.open_live(iface, PCAP_SNAPLEN, 1, PCAP_READ_TIMEOUT_MS)
-        try:
-            self._cap.setbuff(PCAP_BUFFER_BYTES)
-        except Exception:
-            pass
-
-    def set_modes(self, goose: bool, sv: bool) -> str:
-        bpf, mode = bpf_for_modes(goose=goose, sv=sv)
-        self._cap.setfilter(bpf)
-        return f"{mode} ({bpf})"
-
-    def next(self) -> Optional[Tuple[float, bytes]]:
-        header, pkt = self._cap.next()
-        if header is None or not pkt:
-            return None
-        sec, usec = header.getts()
-        return float(sec) + float(usec) / 1e6, bytes(pkt)
-
-    def stats(self) -> Tuple[int, int, int]:
-        recv, drop, ifdrop = self._cap.stats()
-        return int(recv), int(drop), int(ifdrop)
-
-    def close(self) -> None:
-        self._cap = None
-
-
-class _AfPacketBackend:
-    name = "afpacket"
-
-    def __init__(self, iface: str) -> None:
-        from iec61850.capture import PacketCapture
-
-        # On lo every frame also shows up as outgoing; libpcap drops those too.
-        self._cap = PacketCapture(
-            iface, buffer_bytes=PCAP_BUFFER_BYTES, timeout=PCAP_READ_TIMEOUT_MS / 1000, outgoing=iface != "lo"
-        )
-
-    def set_modes(self, goose: bool, sv: bool) -> str:
-        ethertypes = ethertypes_for_modes(goose=goose, sv=sv)
-        self._cap.set_ethertypes(ethertypes)
-        mode = bpf_for_modes(goose=goose, sv=sv)[1]
-        return f"{mode} (ethertypes {', '.join(f'0x{e:04x}' for e in ethertypes)})"
-
-    def next(self) -> Optional[Tuple[float, bytes]]:
-        frame = self._cap.recv()
-        return None if frame is None else (frame.timestamp, frame.data)
-
-    def stats(self) -> Tuple[int, int, int]:
-        received, dropped = self._cap.stats()
-        return received, dropped, 0
-
-    def close(self) -> None:
-        self._cap.close()
-
-
-BACKENDS = {"pcapy": _PcapyBackend, "afpacket": _AfPacketBackend}
-
-
-def capture_backend() -> str:
-    name = os.environ.get("PO_CAPTURE_BACKEND", "pcapy").strip().lower()
-    return name if name in BACKENDS else "pcapy"
-
-
-def bpf_for_modes(*, goose: bool, sv: bool) -> Tuple[str, str]:
-    """(kernel filter, label) for the active subscribers.
+def ethertypes_for_modes(*, goose: bool, sv: bool) -> Tuple[Tuple[int, ...], str]:
+    """(ethertypes of the kernel filter, label) for the active subscribers.
 
     The filter is recomputed on every subscribe and unsubscribe and checked on
     every pass of the capture loop, so it lets SV through exactly while an SV
@@ -138,12 +50,35 @@ def bpf_for_modes(*, goose: bool, sv: bool) -> Tuple[str, str]:
     second on a process bus) stay in the kernel.
     """
     if goose and sv:
-        return PROCESSBUS_BPF, "goose+sv"
-    if goose:
-        return GOOSE_BPF, "goose"
+        return (GOOSE_ETHERTYPE, SV_ETHERTYPE), "goose+sv"
     if sv:
-        return SV_BPF, "sv"
-    return GOOSE_BPF, "idle"
+        return (SV_ETHERTYPE,), "sv"
+    return (GOOSE_ETHERTYPE,), "goose" if goose else "idle"
+
+
+class _Capture:
+    """The capture socket as the loop uses it."""
+
+    def __init__(self, iface: str) -> None:
+        from iec61850.capture import PacketCapture
+
+        # On lo every frame also shows up as outgoing; drop that copy.
+        self._cap = PacketCapture(iface, buffer_bytes=CAPTURE_BUFFER_BYTES, timeout=CAPTURE_TIMEOUT_S, outgoing=iface != "lo")
+
+    def set_modes(self, goose: bool, sv: bool) -> str:
+        ethertypes, mode = ethertypes_for_modes(goose=goose, sv=sv)
+        self._cap.set_ethertypes(ethertypes)
+        return f"{mode} (ethertypes {', '.join(f'0x{e:04x}' for e in ethertypes)})"
+
+    def next(self) -> Optional[Tuple[float, bytes]]:
+        frame = self._cap.recv()
+        return None if frame is None else (frame.timestamp, frame.data)
+
+    def stats(self) -> Tuple[int, int]:
+        return tuple(self._cap.stats())  # type: ignore[return-value]
+
+    def close(self) -> None:
+        self._cap.close()
 
 
 @dataclass
@@ -156,10 +91,8 @@ class ProcessbusCaptureStats:
     loop_errors: int = 0
     last_error: Optional[str] = None
     bpf_mode: str = "idle"
-    backend: str = ""
-    pcap_recv: int = 0
-    pcap_drop: int = 0
-    pcap_ifdrop: int = 0
+    kernel_recv: int = 0
+    kernel_drop: int = 0
 
 
 @dataclass
@@ -246,7 +179,6 @@ class ProcessbusCapture:
                 "goose_subscribers": goose_n,
                 "sv_active": sv_on,
                 "bpf_mode": s.bpf_mode,
-                "backend": s.backend or capture_backend(),
                 "packets": s.packets,
                 "goose_packets": s.goose_packets,
                 "sv_packets": s.sv_packets,
@@ -254,9 +186,8 @@ class ProcessbusCapture:
                 "sv_queue_drops": s.sv_queue_drops,
                 "goose_queue_size": int(self._goose_queue.qsize()),
                 "goose_queue_drops": s.goose_queue_drops,
-                "pcap_recv": s.pcap_recv,
-                "pcap_drop": s.pcap_drop,
-                "pcap_ifdrop": s.pcap_ifdrop,
+                "kernel_recv": s.kernel_recv,
+                "kernel_drop": s.kernel_drop,
                 "loop_errors": s.loop_errors,
                 "last_error": s.last_error,
             }
@@ -345,15 +276,14 @@ class ProcessbusCapture:
             return
         self._stop.set()
 
-    def _poll_pcap_stats(self, cap: object) -> None:
+    def _poll_kernel_stats(self, cap: _Capture) -> None:
         try:
-            recv, drop, ifdrop = cap.stats()  # type: ignore[attr-defined]
+            recv, drop = cap.stats()
         except Exception:
             return
         with self._stats_lock:
-            self._stats.pcap_recv = int(recv)
-            self._stats.pcap_drop = int(drop)
-            self._stats.pcap_ifdrop = int(ifdrop)
+            self._stats.kernel_recv = int(recv)
+            self._stats.kernel_drop = int(drop)
 
     def _flush_bpf(self, cap: Optional[object]) -> None:
         if cap is not None:
@@ -376,11 +306,11 @@ class ProcessbusCapture:
         with self._lock:
             self._applied_bpf_gen = gen
         with self._stats_lock:
-            self._stats.bpf_mode = bpf_for_modes(goose=goose, sv=sv)[1]
+            self._stats.bpf_mode = ethertypes_for_modes(goose=goose, sv=sv)[1]
         print(f"[processbus] filter {self.iface} -> {label}", flush=True)
 
     def _goose_worker_loop(self) -> None:
-        """Ring buffer + handlers GOOSE hors du thread pcap (ne pas bloquer les SV)."""
+        """Ring buffer + handlers GOOSE hors du thread de capture (ne pas bloquer les SV)."""
         while not self._stop.is_set() or not self._goose_queue.empty():
             try:
                 raw, ts_rx = self._goose_queue.get(timeout=0.2)
@@ -430,9 +360,6 @@ class ProcessbusCapture:
                 self._stats.sv_queue_drops += 1
 
     def _capture_loop(self) -> None:
-        backend = BACKENDS[capture_backend()]
-        with self._stats_lock:
-            self._stats.backend = backend.name
         cap = None
         while not self._stop.is_set():
             with self._lock:
@@ -441,18 +368,18 @@ class ProcessbusCapture:
 
             if cap is None:
                 try:
-                    cap = backend(self.iface)
+                    cap = _Capture(self.iface)
                     with self._lock:
                         self._cap = cap
                         self._applied_bpf_gen = -1
                     self._apply_bpf_if_needed(cap)
                     with self._stats_lock:
                         self._stats.last_error = None
-                    print(f"[processbus] capture {self.iface} with {backend.name}", flush=True)
+                    print(f"[processbus] capture {self.iface}", flush=True)
                 except Exception as exc:
                     with self._stats_lock:
                         self._stats.loop_errors += 1
-                        self._stats.last_error = f"{backend.name}: {exc}"
+                        self._stats.last_error = f"capture: {exc}"
                     if self._stop.wait(1.0):
                         break
                     continue
@@ -485,7 +412,7 @@ class ProcessbusCapture:
                 self._stats.packets += 1
                 n = self._stats.packets
             if n % 50 == 0:
-                self._poll_pcap_stats(cap)
+                self._poll_kernel_stats(cap)
 
             with self._lock:
                 sv_active = self._sv_sub is not None

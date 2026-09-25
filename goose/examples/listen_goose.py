@@ -30,7 +30,6 @@ if str(GOOSE_LISTENER_ROOT) not in sys.path:
     sys.path.insert(0, str(GOOSE_LISTENER_ROOT))
 
 from goose61850 import GooseSubscriber
-from goose61850.transport import goose_bpf_filter
 from iec_data import BoolData
 from trigger_classify import classify_trigger
 from goose_listener_service import (
@@ -475,7 +474,7 @@ def main() -> None:
     parser.add_argument(
         "--measure-delay",
         action="store_true",
-        help="Mesure Δ net sur déclenchements (stNum↑, sqNum=0, ts réception pcap).",
+        help="Mesure Δ net sur déclenchements (stNum↑, sqNum=0, ts réception capture).",
     )
     parser.add_argument(
         "--triggers-only",
@@ -779,7 +778,6 @@ def main() -> None:
         f"gocbRef={'*' if args.gocb_ref is None else args.gocb_ref})...",
         file=sys.stderr,
     )
-    print(f"Filtre BPF : {goose_bpf_filter(args.app_id)}", file=sys.stderr)
     display_filters: List[str] = []
     if args.sqnum_zero:
         display_filters.append("sqNum=0")

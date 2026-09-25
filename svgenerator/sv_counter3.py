@@ -2,9 +2,13 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-import pcapy,sys,struct,sys,os
+import sys,struct,os
 import threading,queue
 from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from iec61850.capture import PacketCapture  # noqa: E402
 
 IFACE = sys.argv[1]
 CPU = sys.argv[2]
@@ -146,19 +150,19 @@ def update_stats(smpcnts,usec):
             entry["missed_count"] += 1
             print(f"[{svID}] missed packet {packet_to_assume_lost}, total missed={entry['missed_count']}")
 
-def capture_loop(iface="eth0", snaplen=250, promisc=True, read_timeout_ms=100):
+def capture_loop(iface="eth0", promisc=True, read_timeout_ms=100):
     """Capture packets and put raw payloads into the queue."""
     print(f"[+] Opening interface {iface} for capture...")
-    cap = pcapy.open_live(iface, snaplen, int(promisc), read_timeout_ms)
+    cap = PacketCapture(iface, (0x88BA,), promiscuous=promisc, timeout=read_timeout_ms / 1000)
     print("[+] Capture started. Press Ctrl+C to stop.\n")
 
     try:
         while True:
-            header, payload = cap.next()
-            if not header:
+            frame = cap.recv()
+            if frame is None:
                 continue
             try:
-                packet_queue.put_nowait((header,payload))
+                packet_queue.put_nowait((frame.timestamp, frame.data))
             except queue.Full:
                 print("queue full")
                 pass  # drop packet if processing is slower than capture
@@ -173,8 +177,9 @@ def process_loop():
 
     try:
         while True:
-            (header, payload) = packet_queue.get()  # blocking
-            sec, usec = header.getts()
+            (ts, payload) = packet_queue.get()  # blocking
+            sec = int(ts)
+            usec = min(999_999, round((ts - sec) * 1_000_000))
             smpCnts = process_pkt(payload)
 
             if smpCnts:

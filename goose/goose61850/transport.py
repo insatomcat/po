@@ -20,27 +20,12 @@ from .types import GooseFrame, GoosePDU
 
 GOOSE_ETHERTYPE = 0x88B8
 _QUEUE_MAX = 50_000
-_PCAP_SNAPLEN = 65535
-_PCAP_READ_TIMEOUT_MS = 50
-_PCAP_BUFFER_BYTES = 4 * 1024 * 1024
-
-
-def goose_bpf_filter(app_id: Optional[int] = None) -> str:
-    """Filtre BPF kernel : GOOSE (0x88b8) uniquement, optionnellement par APPID.
-
-    Sans filtre BPF, la capture reçoit aussi les SV (0x88ba) et autres trames
-    sur processbus ; le worker ne suit pas les rafales GOOSE (sqNum 0..3).
-    """
-    if app_id is None:
-        return "(ether proto 0x88b8) or (vlan and ether proto 0x88b8)"
-    aid = f"0x{app_id:04x}"
-    plain = f"ether proto 0x88b8 and ether[14:2]={aid}"
-    tagged = f"vlan and ether proto 0x88b8 and ether[18:2]={aid}"
-    return f"({plain}) or ({tagged})"
+_CAPTURE_TIMEOUT_S = 0.05
+_CAPTURE_BUFFER_BYTES = 4 * 1024 * 1024
 
 
 def nic_rx_stats(iface: str) -> Dict[str, int]:
-    """Compteurs RX noyau (/sys/class/net/…) — pertes avant libpcap."""
+    """Kernel RX counters (/sys/class/net/...): losses before the capture socket."""
     base = Path("/sys/class/net") / iface / "statistics"
     out: Dict[str, int] = {}
     for name in ("rx_missed_errors", "rx_dropped", "rx_errors", "rx_fifo_errors"):
@@ -119,7 +104,7 @@ class _RawPacket:
 
 
 class GooseSubscriber:
-    """Souscripteur GOOSE : capture pcapy (bytes bruts) + worker de décodage."""
+    """GOOSE subscriber: raw frames from the shared process bus capture, decoded on a worker."""
 
     def __init__(
         self,
@@ -256,42 +241,21 @@ class GooseSubscriber:
             return self._drops
 
         print(
-            f"[goose] ATTENTION: capture directe sur {self.iface} "
-            f"(multiplexeur processbus indisponible) — BPF GOOSE seul",
+            f"[goose] WARNING: direct capture on {self.iface} "
+            f"(process bus capture unavailable), GOOSE only",
             flush=True,
         )
-        try:
-            import pcapy
-        except ImportError as exc:
-            raise RuntimeError(
-                "pcapy requis pour la capture GOOSE fiable : pip install pcapy"
-            ) from exc
+        from iec61850.capture import PacketCapture
 
-        bpf = goose_bpf_filter(self.app_id)
-        cap = pcapy.open_live(self.iface, _PCAP_SNAPLEN, 1, _PCAP_READ_TIMEOUT_MS)
-        try:
-            cap.setfilter(bpf)
-        except Exception as exc:
-            raise RuntimeError(f"setfilter({bpf!r}) sur {self.iface}: {exc}") from exc
-        try:
-            cap.setbuff(_PCAP_BUFFER_BYTES)
-        except Exception:
-            pass
-
-        while not should_stop():
-            try:
-                header, pkt = cap.next()
-            except Exception:
-                if should_stop():
-                    break
-                time.sleep(poll_s)
-                continue
-            if not pkt:
-                continue
-            self._packets += 1
-            ts = header.getts()
-            ts_rx = float(ts[0]) + float(ts[1]) / 1e6
-            self._enqueue_raw(ts_rx, bytes(pkt))
+        with PacketCapture(
+            self.iface, (ethernet.ETHERTYPE_GOOSE,), buffer_bytes=_CAPTURE_BUFFER_BYTES, timeout=_CAPTURE_TIMEOUT_S
+        ) as cap:
+            while not should_stop():
+                frame = cap.recv()
+                if frame is None:
+                    continue
+                self._packets += 1
+                self._enqueue_raw(frame.timestamp, frame.data)
 
         self._drain_queue()
         return self._drops

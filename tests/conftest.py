@@ -4,9 +4,9 @@
 """Shared test setup.
 
 The application modules rely on ``sys.path`` tweaks (top-level ``iec_data``,
-``goose/`` and ``goose_listener/`` on the path) and import scapy and pcapy at
-module level. The tests reproduce the path layout of ``po_service.py`` and
-install inert stand-ins for scapy and pcapy when they are not installed, so
+``goose/`` and ``goose_listener/`` on the path) and import scapy at module
+level. The tests reproduce the path layout of ``po_service.py`` and
+install an inert stand-in for scapy when it is not installed, so
 the pure codecs can be exercised on any machine. Nothing here sends or
 captures packets.
 """
@@ -43,9 +43,3 @@ if importlib.util.find_spec("scapy") is None:
         "scapy.all",
         {"Dot1Q": None, "Ether": None, "Raw": None, "sendp": _no_network},
     )
-
-if importlib.util.find_spec("pcapy") is None:
-    def _no_capture(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError("pcapy stub: capture is not available in tests")
-
-    _install_stub("pcapy", {"open_live": _no_capture})

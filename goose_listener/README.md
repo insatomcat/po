@@ -18,7 +18,7 @@ Le listener ne remplace pas une analyse réseau complète : il agrège capture, 
 
 ### Timestamp de référence
 
-Le Δ est calculé à partir du **timestamp libpcap** (`pkt.time`) à la réception de la trame, **pas** à l’heure de traitement Python (évite une dérive artificielle si la file de capture sature).
+Le Δ est calculé à partir du **timestamp noyau** de réception de la trame (AF_PACKET), **pas** à l’heure de traitement Python (évite une dérive artificielle si la file de capture sature).
 
 ### Formule
 
@@ -92,7 +92,7 @@ goose_listener/
 ├── analysis_state.json         # (généré) mappings + relance analyse au restart
 └── README.md                   # Ce fichier
 
-goose/goose61850/transport.py   # GooseSubscriber (pcapy, BPF, file bytes bruts)
+goose/goose61850/transport.py   # GooseSubscriber (capture partagée, file bytes bruts)
 goose/examples/listen_goose.py  # CLI diagnostic et écoute
 unified_ui.html                 # Onglet GOOSE Listener
 ```
@@ -100,12 +100,12 @@ unified_ui.html                 # Onglet GOOSE Listener
 ### Capture réseau
 
 - Interface : celle passée à `po_service` via **`--svview-interface`** (souvent `processbus`)
-- **Filtre BPF kernel** : trames GOOSE uniquement (`0x88b8`), optionnellement par **APPID**
-- **pcapy** + **file d’attente** (`bytes` bruts, pas d’objet Scapy) : une seule session libpcap continue
+- **Filtre kernel** : trames GOOSE uniquement (`0x88b8`, avec ou sans tag VLAN)
+- **Capture partagée** `processbus_capture` (anneau AF_PACKET TPACKET_V3) + **file d’attente** (`bytes` bruts, pas d’objet Scapy)
 - **Worker** dédié : décodage GOOSE hors thread de capture
 - **Fiabilité** : compteurs `drops`, file, NIC (`rx_missed_errors`) ; analyse marquée **non fiable** si perte depuis le début de session
 - **Tampon PCAP** : pendant l’analyse, les **4 dernières secondes** de trafic GOOSE sont conservées en mémoire ; à chaque **nouveau** problème détecté, un fichier `.pcap` est écrit dans `goose_listener/dumps/` (téléchargeable via le bouton **PCAP** ou `GET /api/gooselistener/analysis/dumps/{id}/pcap`)
-- Le timestamp de mesure vient de **`pkt.time`**
+- Le timestamp de mesure est celui du noyau, pris avant la file d’attente
 
 ### Modes du gestionnaire
 
@@ -177,7 +177,6 @@ Bouton **Simuler un retard** : injecte un déclenchement fictif avec Δ > seuil 
 
 ```json
 "capture": {
-  "backend": "pcapy",
   "queue_size": 0,
   "drops": 0,
   "drops_since_analysis_start": 0,
@@ -191,11 +190,11 @@ Bouton **Simuler un retard** : injecte un déclenchement fictif avec Δ > seuil 
 
 - `queue_size` > 100 → traitement en retard (mesure non fiable)
 - `drops_since_analysis_start` > 0 → paquets GOOSE perdus (file Python pleine)
-- `nic_delta_since_analysis_start.rx_missed_errors` > 0 → pertes noyau/NIC avant libpcap
+- `nic_delta_since_analysis_start.rx_missed_errors` > 0 → pertes noyau/NIC avant la socket de capture
 - `reliable: false` → problème `capture_unreliable` ; les Δ ne sont pas validables
-- Au démarrage (ou après restart de `po_service`), le suivi des pertes attend ~2 s que la socket libpcap soit chaude, pour ne pas marquer la session non fiable à cause du burst d'ouverture
+- Au démarrage (ou après restart de `po_service`), le suivi des pertes attend ~2 s que la socket de capture soit chaude, pour ne pas marquer la session non fiable à cause du burst d'ouverture
 
-Chaque événement expose aussi `processing_lag_ms` (écart traitement − réception pcap).
+Chaque événement expose aussi `processing_lag_ms` (écart traitement − réception noyau).
 
 ---
 
@@ -318,7 +317,7 @@ Vérifie pour chaque `stNum` si `sqNum=0` est bien reçu en premier.
 
 ### Mode API (GUI déjà active)
 
-Quand `po_service` capture déjà `processbus`, **ne pas** lancer une deuxième capture CLI (conflit libpcap → trames perdues). Utiliser :
+Quand `po_service` capture déjà `processbus`, **ne pas** lancer une deuxième capture CLI (deux captures en parallèle → trames perdues). Utiliser :
 
 ```bash
 python3 goose/examples/listen_goose.py processbus \
@@ -331,7 +330,7 @@ Même source de problèmes que l’onglet GUI.
 
 | Option | Description |
 |--------|-------------|
-| `--app-id 0x150A` | Filtre BPF + logiciel (fortement recommandé sur `processbus`) |
+| `--app-id 0x150A` | Filtre par APPID (fortement recommandé sur `processbus`) |
 | `--measure-delay` | Calcule Δ net sur déclenchements |
 | `--triggers-only` | N’affiche que les déclenchements (pas les retransmissions) |
 | `--problem-diag` | Mode diagnostic silencieux |
@@ -346,7 +345,7 @@ Même source de problèmes que l’onglet GUI.
 
 ### Capture unique `processbus` (GOOSE + SV)
 
-`processbus_capture.py` : **une socket libpcap** par interface, **BPF adaptatif** :
+`processbus_capture.py` : **une socket AF_PACKET** par interface, **filtre kernel adaptatif** :
 
 | Abonnés actifs | Filtre kernel |
 |----------------|---------------|
@@ -354,7 +353,7 @@ Même source de problèmes que l’onglet GUI.
 | SV seul | `0x88ba` uniquement |
 | GOOSE + SV | les deux |
 
-**Fiabilité** : invalidation sur `libpcap ps_drop` / file Python, pas sur `rx_dropped` interface (compteur global du bus, peut monter même si la capture GOOSE est saine).
+**Fiabilité** : invalidation sur les pertes de la socket (`kernel_drop`) / file Python, pas sur `rx_dropped` interface (compteur global du bus, peut monter même si la capture GOOSE est saine).
 
 Éviter toutefois une **deuxième** capture externe (`tcpdump` lourd, CLI `listen_goose` direct en double). Préférer **`--from-api`** si l’analyse GUI tourne.
 
@@ -389,13 +388,12 @@ Le cycle défaut de chaque flux vient du générateur SV lié (`fault_cycle_s`).
 Souvent :
 
 - Mesure sur **sqNum=4** (paquets 0–3 perdus) → vérifier colonne **sqNum** dans Problèmes
-- Ancienne dérive `time.time()` au traitement → corrigé avec `pkt.time` (redéployer `po_service`)
 
 ---
 
 ## Dépendances
 
-- **pcapy** (capture GOOSE via `GooseSubscriber`) ; **scapy** reste utilisé pour la publication
+- **Linux**, root ou CAP_NET_RAW pour la capture (`iec61850.capture`) ; **scapy** reste utilisé pour la publication
 - **goose61850** (décodage PDU, dans `goose/`)
 - **iec_data.py** (types `allData`, racine du dépôt)
 - Même interface réseau que le SV Listener (`--svview-interface`)

@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Receiver SV (BER, 2 ASDU/pkt) via pcap – vérification format rt_sender, mesure usec/delay.
+Receiver SV (BER, 2 ASDU/pkt) via AF_PACKET – vérification format rt_sender, mesure usec/delay.
 
-Inspiré de sv_counter3.py: capture pcap (timestamps par paquet), file + 2 threads.
+Inspiré de sv_counter3.py: capture AF_PACKET (timestamps noyau par paquet), file + 2 threads.
 Parse BER comme receiver, calcule delay = (usec - expected) % 1e6, expected = smpCnt * (1e6/4800).
 
 Usage:
@@ -25,11 +25,9 @@ import struct
 import sys
 import threading
 
-try:
-    import pcapy
-except ImportError:
-    print("pcapy required: pip install pcapy", file=sys.stderr)
-    sys.exit(1)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from iec61850.capture import PacketCapture  # noqa: E402
 
 ETH_HEADER_LEN = 14
 ETH_VLAN_LEN = 4
@@ -38,7 +36,6 @@ SMP_PER_SEC = 4800
 USEC_PER_SEC = 1_000_000
 PER_SAMPLE_US = USEC_PER_SEC / SMP_PER_SEC
 QUEUE_MAX = 10000
-SNAPLEN = 512
 READ_TIMEOUT_MS = 100
 
 
@@ -147,23 +144,20 @@ def check_format(payload: bytes) -> None:
 
 def capture_loop(
     iface: str,
-    packet_queue: queue.Queue[tuple[object, bytes]],
+    packet_queue: queue.Queue[tuple[float, bytes]],
     drop_non_wrap: bool,
 ) -> None:
-    cap = pcapy.open_live(iface, SNAPLEN, 1, READ_TIMEOUT_MS)
-    try:
-        cap.setfilter("ether proto 0x88ba")
-    except Exception as e:
-        print(f"[capture] setfilter failed: {e}", file=sys.stderr)
+    cap = PacketCapture(iface, (ETH_P_61850_SV,), timeout=READ_TIMEOUT_MS / 1000)
     msg = f"[+] Capture sur {iface} (0x88ba). Ctrl+C pour arrêter."
     if drop_non_wrap:
         msg += " [--drop-non-wrap: enqueue 0,1 uniquement]"
     print(msg + "\n")
     try:
         while True:
-            header, raw = cap.next()
-            if not header:
+            frame = cap.recv()
+            if frame is None:
                 continue
+            raw = frame.data
             if drop_non_wrap:
                 payload, _ = payload_from_frame(raw)
                 if payload:
@@ -171,7 +165,7 @@ def capture_loop(
                     if asdus and asdus[0][1] > 1:
                         continue
             try:
-                packet_queue.put_nowait((header, raw))
+                packet_queue.put_nowait((frame.timestamp, raw))
             except queue.Full:
                 pass
     except KeyboardInterrupt:
@@ -179,15 +173,16 @@ def capture_loop(
 
 
 def process_loop(
-    packet_queue: queue.Queue[tuple[object, bytes]],
+    packet_queue: queue.Queue[tuple[float, bytes]],
     only_wrap: bool,
     backlog_warn: list[bool],
 ) -> None:
     last_smp: int | None = None
     try:
         while True:
-            header, raw = packet_queue.get()
-            sec, usec = header.getts()
+            ts, raw = packet_queue.get()
+            sec = int(ts)
+            usec = min(999_999, round((ts - sec) * USEC_PER_SEC))
             usec_in_sec = usec  # 0..999999
             payload, _ = payload_from_frame(raw)
             if not payload:
@@ -224,7 +219,7 @@ def process_loop(
                 delay_str = str(delays[0])
             else:
                 delay_str = ", ".join(str(d) for d in delays)
-            # usec = µs dans la seconde (pcap), delay = µs vs expected (smpCnt * 1e6/4800)
+            # usec = µs dans la seconde (timestamp noyau), delay = µs vs expected (smpCnt * 1e6/4800)
             print(f"usec, {usec_in_sec}, delay, {delay_str}")
             packet_queue.task_done()
     except KeyboardInterrupt:
@@ -233,7 +228,7 @@ def process_loop(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="SV receiver via pcap (format rt_sender, usec/delay).",
+        description="SV receiver on an AF_PACKET capture (format rt_sender, usec/delay).",
     )
     ap.add_argument("-i", "--interface", required=True, metavar="IFACE", help="Interface (ex. eth0, lo)")
     ap.add_argument(
@@ -268,20 +263,16 @@ def main() -> None:
             sys.exit(1)
 
     iface = args.interface
-    packet_queue: queue.Queue[tuple[object, bytes]] = queue.Queue(maxsize=QUEUE_MAX)
+    packet_queue: queue.Queue[tuple[float, bytes]] = queue.Queue(maxsize=QUEUE_MAX)
 
     if args.check_format:
-        cap = pcapy.open_live(iface, SNAPLEN, 1, 2000)
-        try:
-            cap.setfilter("ether proto 0x88ba")
-        except Exception:
-            pass
+        cap = PacketCapture(iface, (ETH_P_61850_SV,), timeout=2.0)
         print(f"[check-format] Capture 1 paquet sur {iface}...")
         for _ in range(5000):
-            h, raw = cap.next()
-            if not h:
+            frame = cap.recv()
+            if frame is None:
                 continue
-            payload, _ = payload_from_frame(raw)
+            payload, _ = payload_from_frame(frame.data)
             if payload:
                 check_format(payload)
                 break

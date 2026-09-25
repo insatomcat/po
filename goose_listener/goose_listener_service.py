@@ -915,8 +915,7 @@ class GooseListenerManager:
             cap.get("drops_since_analysis_start", 0),
             cap.get("queue_size", 0),
             cap.get("reliable", True),
-            mux.get("pcap_drop", 0),
-            mux.get("pcap_ifdrop", 0),
+            mux.get("kernel_drop", 0),
             mux.get("bpf_mode"),
             _targets_fingerprint(snap.targets),
         )
@@ -1831,7 +1830,6 @@ class GooseListenerManager:
         else:
             base = sub.stats()
             base["nic"] = nic_rx_stats(self.iface)
-        base["backend"] = mux.get("backend", "pcapy")
         base["processbus"] = mux
         base["processbus_active"] = bool(mux.get("running"))
         return base
@@ -1843,7 +1841,7 @@ class GooseListenerManager:
         return int(mux.get("packets") or 0) > 0
 
     def _schedule_capture_baseline(self) -> None:
-        """Ignore le burst d'ouverture libpcap (restart / capture froide)."""
+        """Ignore le burst d'ouverture de la capture (restart / capture froide)."""
         if self._mux_capture_ready():
             self._analysis_capture_baseline = self._snapshot_capture_baseline()
             self._analysis_baseline_active = True
@@ -1880,8 +1878,7 @@ class GooseListenerManager:
         return {
             "drops": int(stats.get("drops", 0)),
             "nic": dict(stats.get("nic", {})),
-            "pcap_drop": int(mux.get("pcap_drop", 0)),
-            "pcap_ifdrop": int(mux.get("pcap_ifdrop", 0)),
+            "kernel_drop": int(mux.get("kernel_drop", 0)),
             "sv_queue_drops": int(mux.get("sv_queue_drops", 0)),
         }
 
@@ -1895,8 +1892,7 @@ class GooseListenerManager:
         baseline = self._analysis_capture_baseline if track_deltas else {}
 
         drops_delta = 0
-        pcap_drop_delta = 0
-        pcap_ifdrop_delta = 0
+        kernel_drop_delta = 0
         sv_q_drop_delta = 0
         nic_delta: Dict[str, int] = {}
         nic_notes: List[str] = []
@@ -1908,13 +1904,9 @@ class GooseListenerManager:
                 {k: int(v) for k, v in (baseline.get("nic") or {}).items()},
                 {k: int(v) for k, v in nic_now.items()},
             )
-            pcap_drop_delta = max(
+            kernel_drop_delta = max(
                 0,
-                int(mux.get("pcap_drop", 0)) - int(baseline.get("pcap_drop", 0)),
-            )
-            pcap_ifdrop_delta = max(
-                0,
-                int(mux.get("pcap_ifdrop", 0)) - int(baseline.get("pcap_ifdrop", 0)),
+                int(mux.get("kernel_drop", 0)) - int(baseline.get("kernel_drop", 0)),
             )
             sv_q_drop_delta = max(
                 0,
@@ -1924,39 +1916,35 @@ class GooseListenerManager:
                 reasons.append(f"{drops_delta} paquet(s) perdus (file Python GOOSE)")
             if queue_size > self.CAPTURE_QUEUE_WARN:
                 reasons.append(f"file GOOSE {queue_size} (retard traitement)")
-            if pcap_drop_delta:
-                reasons.append(f"libpcap ps_drop +{pcap_drop_delta}")
-            if pcap_ifdrop_delta:
-                reasons.append(f"libpcap ps_ifdrop +{pcap_ifdrop_delta}")
+            if kernel_drop_delta:
+                reasons.append(f"capture drop +{kernel_drop_delta}")
             if sv_q_drop_delta:
                 reasons.append(f"file SV +{sv_q_drop_delta}")
             bpf_mode = mux.get("bpf_mode")
-            pcap_ok = pcap_drop_delta == 0 and pcap_ifdrop_delta == 0
+            capture_ok = kernel_drop_delta == 0
             missed = nic_delta.get("rx_missed_errors", 0)
-            if missed and not (bpf_mode == "goose" and pcap_ok):
+            if missed and not (bpf_mode == "goose" and capture_ok):
                 nic_notes.append(f"rx_missed_errors +{missed}")
             rx_drop = nic_delta.get("rx_dropped", 0)
             if rx_drop and bpf_mode != "goose":
                 nic_notes.append(
-                    f"rx_dropped +{rx_drop} (compteur interface, pas libpcap)"
+                    f"rx_dropped +{rx_drop} (interface counter, not the capture)"
                 )
-            elif rx_drop and bpf_mode == "goose" and not pcap_ok:
+            elif rx_drop and bpf_mode == "goose" and not capture_ok:
                 nic_notes.append(
-                    f"rx_dropped +{rx_drop} (bus chargé + pertes libpcap)"
+                    f"rx_dropped +{rx_drop} (busy bus + capture drops)"
                 )
 
         reliable = not reasons if track_deltas else True
 
         return {
             "reliable": reliable,
-            "backend": stats.get("backend", "pcapy"),
             "drops_total": int(stats.get("drops", 0)),
             "drops_since_analysis_start": drops_delta,
             "packets": int(stats.get("packets", 0)),
             "queue_size": queue_size,
             "queue_warn": self.CAPTURE_QUEUE_WARN,
-            "pcap_drop_delta": pcap_drop_delta,
-            "pcap_ifdrop_delta": pcap_ifdrop_delta,
+            "kernel_drop_delta": kernel_drop_delta,
             "processbus": mux,
             "nic": nic_now,
             "nic_delta_since_analysis_start": nic_delta,
@@ -1968,7 +1956,6 @@ class GooseListenerManager:
         rel = self._capture_reliability(analysis_running=self._mode == "analyze")
         mux = self._mux_stats()
         return {
-            "backend": rel["backend"],
             "queue_size": rel["queue_size"],
             "drops": rel["drops_total"],
             "drops_since_analysis_start": rel["drops_since_analysis_start"],
@@ -1978,8 +1965,7 @@ class GooseListenerManager:
             "nic": rel["nic"],
             "nic_delta_since_analysis_start": rel["nic_delta_since_analysis_start"],
             "nic_advisory": rel["nic_advisory"],
-            "pcap_drop_delta": rel["pcap_drop_delta"],
-            "pcap_ifdrop_delta": rel["pcap_ifdrop_delta"],
+            "kernel_drop_delta": rel["kernel_drop_delta"],
             "processbus": mux,
             "processbus_active": bool(mux.get("running")),
         }

@@ -3,7 +3,7 @@
 
 """Characterization tests for the GOOSE Listener timing logic and PCAP dumps.
 
-The trip delay is measured from libpcap receive timestamps, so these tests
+The trip delay is measured from kernel receive timestamps, so these tests
 pin the reference-time arithmetic and the timestamp precision of the dumps.
 """
 

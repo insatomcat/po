@@ -43,21 +43,11 @@ except ImportError:
     HAS_UVICORN_MIDDLEWARE = False
 
 try:
-    import pcapy
-except ImportError:
-    print("pcapy requis: pip install pcapy", file=sys.stderr)
-    sys.exit(1)
-
-try:
     from flask import Flask, jsonify, request, render_template
     HAS_FLASK = True
 except ImportError:
     HAS_FLASK = False
 
-PCAP_SNAPLEN = 65535
-PCAP_READ_TIMEOUT_MS = 50
-PCAP_BUFFER_BYTES = 4 * 1024 * 1024
-SV_BPF = "ether proto 0x88ba or (vlan and ether proto 0x88ba)"
 I_SCALE = 1000
 V_SCALE = 100
 SMP_PER_CYCLE = 96  # 4800/50 Hz
@@ -346,7 +336,7 @@ def _reset_stats_for_new_svid(stats: dict, stats_lock: threading.Lock) -> None:
 
 
 class CaptureManager:
-    """Démarre/arrête le thread pcapy à la demande (piloté par l'UI)."""
+    """Starts and stops the SV subscription on demand (driven by the UI)."""
 
     def __init__(
         self,
@@ -404,8 +394,7 @@ class CaptureManager:
         return {"running": False, "stopped": True}
 
     def _run(self) -> None:
-        # Socket pcapy dédiée SV : ne pas partager le multiplexeur GOOSE (saturation/BPF).
-        capture_loop(
+        capture_loop_multiplexed(
             self.interface,
             self.samples,
             self.samples_lock,
@@ -439,7 +428,7 @@ def create_flask_app(
             svids = sorted(seen_svids)
         with stats_lock:
             debug = {
-                "capture_mode": stats.get("capture_mode", "dedicated"),
+                "capture_mode": stats.get("capture_mode", "shared"),
                 "capture_running": bool(stats.get("capture_running")),
                 "capture_heartbeat": stats.get("capture_heartbeat"),
                 "capture_packets": int(stats.get("capture_packets", 0)),
@@ -684,93 +673,6 @@ def capture_loop_multiplexed(
             stats["capture_running"] = False
 
 
-def capture_loop(iface: str, samples: list, samples_lock: threading.Lock,
-                 stats: dict, stats_lock: threading.Lock, config: dict,
-                 seen_svids: set, seen_svids_lock: threading.Lock,
-                 stop_event: threading.Event) -> None:
-    with stats_lock:
-        stats["capture_running"] = True
-        stats["capture_mode"] = "dedicated"
-    cap = None
-    try:
-        while not stop_event.is_set():
-            if cap is None:
-                try:
-                    cap = pcapy.open_live(iface, PCAP_SNAPLEN, 1, PCAP_READ_TIMEOUT_MS)
-                except Exception as e:
-                    err = f"{type(e).__name__}: {e}"
-                    with stats_lock:
-                        stats["capture_loop_errors"] += 1
-                        stats["last_error"] = f"open_live: {err}"
-                        stats["last_error_at"] = time.time()
-                    print(f"[capture] open_live impossible sur {iface}: {err}; nouvelle tentative dans 1s", file=sys.stderr)
-                    if stop_event.wait(1):
-                        break
-                    continue
-
-                try:
-                    cap.setbuff(PCAP_BUFFER_BYTES)
-                except Exception:
-                    pass
-                try:
-                    cap.setfilter(SV_BPF)
-                except Exception as e:
-                    print(f"[capture] setfilter: {e}", file=sys.stderr)
-
-                with stats_lock:
-                    stats["last_error"] = None
-                    stats["last_error_at"] = None
-                print(
-                    f"[capture] SV socket dédiée sur {iface} ({SV_BPF})"
-                    + (f", svID={config.get('svid')}" if config.get("svid") else ""),
-                    flush=True,
-                )
-
-            try:
-                if stop_event.is_set():
-                    break
-                header, raw = cap.next()
-                if not header:
-                    continue
-                if stop_event.is_set():
-                    break
-                with stats_lock:
-                    stats["capture_packets"] += 1
-                    stats["capture_heartbeat"] = time.time()
-
-                ts = header.getts()
-                ts_sec = ts[0] + ts[1] / 1e6
-                process_sv_frame(
-                    raw,
-                    ts_sec,
-                    samples,
-                    samples_lock,
-                    stats,
-                    stats_lock,
-                    config,
-                    seen_svids,
-                    seen_svids_lock,
-                )
-            except Exception as e:
-                err = f"{type(e).__name__}: {e}"
-                with stats_lock:
-                    stats["parse_errors"] += 1
-                    stats["capture_loop_errors"] += 1
-                    stats["last_error"] = err
-                    stats["last_error_at"] = time.time()
-                print(f"[capture] erreur loop ({iface}): {err}", file=sys.stderr)
-                print(traceback.format_exc(), file=sys.stderr)
-                cap = None
-                if stop_event.wait(0.2):
-                    break
-                continue
-    except KeyboardInterrupt:
-        pass
-    finally:
-        with stats_lock:
-            stats["capture_running"] = False
-
-
 def create_svview_app(
     interface: str,
     *,
@@ -813,7 +715,7 @@ def create_svview_app(
         "misses_events": deque(maxlen=50000),  # (ts_sec, gap)
         "last_smpcnt": None,
         "capture_running": False,
-        "capture_mode": "dedicated",
+        "capture_mode": "shared",
         "capture_heartbeat": None,
         "capture_packets": 0,
         "sv_packets": 0,

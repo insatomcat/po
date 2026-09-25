@@ -18,9 +18,9 @@ Software platform for **MMS** (reports), **GOOSE** and **Sampled Values (SV)** f
 
 - **Python 3.10+**
 - For MMS: stdlib only (no `pip install`)
-- For GOOSE: **pcapy** (capture) + **scapy** (publication) through `goose61850.transport`
+- For GOOSE: **scapy** (publication) through `goose61850.transport`; capture uses `iec61850.capture` (AF_PACKET, Linux, root)
 - For SV Generator: see [svgenerator/requirements.txt](svgenerator/requirements.txt) (FastAPI, Pydantic, etc.)
-- For SV Listener View: `pcapy`, Flask (see [svlistener_view/](svlistener_view/README.md))
+- For SV Listener View: Flask (see [svlistener_view/](svlistener_view/README.md))
 
 ## Quick start - unified service
 
@@ -85,7 +85,7 @@ python3 -m pip install pytest
 python3 -m pytest
 ```
 
-The suite runs without network access, scapy or pcapy. The `rt_sender` checks need Linux and a C compiler.
+The suite runs without network access or scapy. The `rt_sender` checks need Linux and a C compiler.
 
 ## Licence and constraints
 

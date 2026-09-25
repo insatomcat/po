@@ -20,5 +20,5 @@ class GooseFrame:
     ethertype: int
     raw_payload: bytes
     pdu: Optional[GoosePDU] = None
-    ts_rx: Optional[float] = None  # libpcap receive timestamp
+    ts_rx: Optional[float] = None  # kernel receive timestamp
 

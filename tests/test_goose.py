@@ -13,7 +13,7 @@ import pytest
 
 from goose61850 import service as goose_service
 from goose61850.codec import decode_goose_pdu, encode_goose_pdu
-from goose61850.transport import _build_frame, goose_bpf_filter, parse_ethernet_goose
+from goose61850.transport import _build_frame, parse_ethernet_goose
 from goose61850.types import GoosePDU
 from iec61850.data import encode_utc_time
 from iec_data import BitStringData, BoolData, FloatData, IntData, RawData, TimestampData, UIntData
@@ -116,14 +116,6 @@ def test_parse_ethernet_rejects_other_ethertypes() -> None:
     frame = bytearray(_ethernet(bytes.fromhex(GOLDEN_APDU), vlan=False))
     frame[12:14] = bytes.fromhex("88ba")
     assert parse_ethernet_goose(bytes(frame)) is None
-
-
-def test_bpf_filter() -> None:
-    assert goose_bpf_filter() == "(ether proto 0x88b8) or (vlan and ether proto 0x88b8)"
-    assert goose_bpf_filter(0x100) == (
-        "(ether proto 0x88b8 and ether[14:2]=0x0100) or "
-        "(vlan and ether proto 0x88b8 and ether[18:2]=0x0100)"
-    )
 
 
 # --- stream service ---------------------------------------------------------

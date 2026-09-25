@@ -14,7 +14,7 @@ Générateur de flux **Sampled Values (SV)** conforme à l’IEC 61869-9 (ex. 6I
 ## Prérequis
 
 - **Python 3.10+**
-- Dépendances : voir `requirements.txt` (FastAPI, uvicorn, pydantic, requests ; pcapy et Flask pour d’autres outils du dossier)
+- Dépendances : voir `requirements.txt` (FastAPI, uvicorn, pydantic, requests ; Flask pour d’autres outils du dossier)
 - **rt_sender** : binaire compilé depuis `rt_sender.c` (C temps-réel), à placer dans le répertoire du service ou dans le PATH
 
 ## Installation
@@ -23,7 +23,7 @@ Générateur de flux **Sampled Values (SV)** conforme à l’IEC 61869-9 (ex. 6I
 pip install -r requirements.txt
 ```
 
-Pour le service seul (sans pcapy/Flask) : `fastapi`, `uvicorn`, `pydantic`, `requests` suffisent.
+Pour le service seul (sans Flask) : `fastapi`, `uvicorn`, `pydantic`, `requests` suffisent.
 
 Compilation de l’émetteur temps-réel (exemple Linux) :
 

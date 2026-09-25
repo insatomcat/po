@@ -217,7 +217,7 @@ def write_dump_meta(
         },
         "wireshark_hint": (
             "Colonne Time : View > Time Display Format > "
-            "Date and Time of Day (horodatage absolu libpcap)."
+            "Date and Time of Day (horodatage absolu du noyau)."
         ),
     }
     path.parent.mkdir(parents=True, exist_ok=True)

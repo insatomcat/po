@@ -4,7 +4,7 @@ Application de **capture** et **visualisation** des paquets **Sampled Values (SV
 
 ## Rôle
 
-- Capturer les paquets SV sur une interface réseau (pcapy).
+- Recevoir les paquets SV d’une interface réseau par la capture partagée (`processbus_capture`).
 - Parser les ASDUs (smpCnt, courants et tensions).
 - Afficher en terminal : résumé ASCII des phasors (optionnel).
 - Servir une **Web UI** (Flask) : cercles U/I, stats, délais inter-paquets.
@@ -13,7 +13,7 @@ Application de **capture** et **visualisation** des paquets **Sampled Values (SV
 ## Prérequis
 
 - **Python 3.10+**
-- **pcapy** : `pip install pcapy` (capture réseau ; sous Linux, droits root ou capabilities pour écouter sur une interface)
+- **Linux**, droits root ou CAP_NET_RAW (capture AF_PACKET)
 - **Flask** : `pip install flask` (interface web)
 
 ## Utilisation
@@ -57,7 +57,7 @@ sudo python3 svlistener_view/sv_listener_view.py -i eth0 --web 8080
 
 | Fichier | Rôle |
 |---------|------|
-| `sv_listener_view.py` | Point d’entrée : capture pcapy, parsing SV (6I3U / 4I4U), calcul phasors, serveur Flask, templates |
+| `sv_listener_view.py` | Point d’entrée : abonnement SV à la capture partagée, parsing SV (6I3U / 4I4U), calcul phasors, serveur Flask, templates |
 | `templates/` | Templates HTML/Jinja2 pour la partie web |
 
 Le script gère notamment :

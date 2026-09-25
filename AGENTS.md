@@ -64,9 +64,9 @@ The command-line MMS client is `tools/mms_client.py` (see Captures).
 | `po_service.py` | Unified `http.server` on port 7050. Routes `/api/{mms,goose,sv,svview,gooselistener,stress}/*`, serves `unified_ui.html`. Starts the SV Listener Flask app on a side port and proxies `/api/svview` to it. |
 | `unified_ui.html` | Single-file UI (~5.7k lines, vanilla JS), one tab per module. |
 | `iec_data.py` | Adapter over `iec61850.data` (historical names) plus the JSON mapping of the HTTP APIs. |
-| `processbus_capture.py` | One capture per interface, shared by GOOSE and SV consumers (`ProcessbusCapture.get(iface)`), adaptive filter, per-protocol queues and workers. Backend `pcapy` (default) or `afpacket` (`PO_CAPTURE_BACKEND=afpacket`). |
+| `processbus_capture.py` | One capture per interface, shared by GOOSE and SV consumers (`ProcessbusCapture.get(iface)`), adaptive kernel filter (GOOSE, SV or both, following the subscribers), per-protocol queues and workers, on `iec61850.capture`. |
 | `mms/` | MMS client stack and service (see below). Stdlib only. |
-| `goose/goose61850/` | GOOSE transport (scapy send, pcapy receive) and streaming service over `iec61850.goose`. Has its own `pyproject.toml`. |
+| `goose/goose61850/` | GOOSE transport (scapy send, receive through `processbus_capture`, `PacketCapture` as fallback) and streaming service over `iec61850.goose`. Has its own `pyproject.toml`. |
 | `goose_listener/` | Trip-delay measurement: GOOSE trigger (stNum++, sqNum 0) vs the SV fault start of a linked flow, problem detection, PCAP ring dumps. Documented in its README. |
 | `svgenerator/` | SV generation. `rt_sender.c` (Linux, AF_PACKET, CLOCK_REALTIME, 4800 smp/s, 2 ASDU per frame, fixed 6I3U dataset) launched as a subprocess by `sv_service.py` (FastAPI models + process management, pidfiles in `svgenerator/pids/`, flows survive service restarts). `sv_api.py` adapts it to the unified server. `receiver.py`, `sv_counter3.py`, `sv_receiver_delay.py`, `parse_ref_pkt.py` are standalone diagnostic scripts, each with its own BER parser. |
 | `svlistener_view/` | SV capture + phasor display (Flask). Uses svID/smpCnt/seqData (quality ignored), 6I3U or 4I4U, 96-sample DFT at 50 Hz. |
@@ -183,18 +183,15 @@ only by sqNum.
   TrgOps `020c`); set `dchg,qchg,...` to get reports on change.
 - `iec_data_from_json` turns strings with control chars into `RawData(0x83)`
   (legacy goose_cli compatibility).
-- pcapy is unmaintained upstream. `iec61850.capture` replaces it in
-  `processbus_capture` (opt-in for now). Checked side by side on a real
-  process bus, each backend in its own process, 10 s: the same 152,633 frames
+- Capture is Linux only (AF_PACKET) and needs root or CAP_NET_RAW. It
+  replaced pcapy (unmaintained upstream) after a side-by-side check on a
+  real process bus, each in its own process, 10 s: the same 152,633 frames
   byte for byte (tags included), timestamps within 1.2 us, no drops; CPU
-  2.1 us/frame against 1.4 us for pcapy (`tools/capture_compare.py`). A first
-  version with one `recvmsg` per frame cost 30 us/frame: keep the ring.
-  Still on pcapy: `goose61850.transport.GooseSubscriber`, the SV listener's
-  dedicated mode, the `svgenerator/` scripts.
-- libpcap's `vlan` keyword shifts the offsets of every later test, across
-  `or` too. `PROCESSBUS_BPF` used to be `(A) or (vlan and A) or (B) or (vlan
-  and B)` and, with a NIC that strips tags, let through only the SV streams
-  sent by the host itself (their tag stays inline); `vlan` now appears once, last. A test guards it.
+  2.1 us/frame against 1.4 us for pcapy. A first version with one
+  `recvmsg` per frame cost 30 us/frame: keep the ring. With libpcap, the
+  `vlan` keyword shifted the offsets of every later test (across `or` too)
+  and let only the host's own SV streams through on a NIC that strips tags;
+  the ethertype filter of `iec61850.capture` checks both positions instead.
 - SV: rate, ASDU count and dataset are compile-time constants in
   `rt_sender.c`; quality is always 0; no smpMod/refrTm/gmIdentity. Listeners
   assume 4800 smp/s and 50 Hz.
@@ -217,7 +214,7 @@ a fake IED on a socketpair for the MMS client, and a byte-for-byte check of
 Mac run it with `docker run --rm -v "$PWD":/src:ro -w /src python:3.10-slim`
 plus `apt-get install gcc libc6-dev` and `pip install pytest`).
 `tests/conftest.py` sets up the `sys.path` of `po_service.py` and stubs scapy
-and pcapy when absent.
+when absent.
 
 `tests/test_lib_*.py` are unit tests of `iec61850/`, including a check that
 the library imports without scapy, pcapy, FastAPI or Flask.
@@ -241,7 +238,7 @@ of git (`*.pcap`, `*.pcapng` ignored); only the few bytes a test needs go to
 
 ## Working here
 
-- Python 3.10+ (dev machine has 3.14). macOS dev box has no scapy/pcapy,
+- Python 3.10+ (dev machine has 3.14). macOS dev box has no scapy,
   Docker is available for Linux-only checks (`rt_sender`, raw sockets on `lo`;
   on `lo` an AF_PACKET socket sees each frame twice, skip `PACKET_OUTGOING`).
 - Quick checks: `python3 -m py_compile <file>`; codec round trips with

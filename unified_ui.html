@@ -1613,7 +1613,7 @@ SPDX-License-Identifier: Apache-2.0
         "gl.mode.scan": "scan",
         "gl.mode.analyze": "analyse",
         "gl.status.drops": " · {n} drop(s) GOOSE",
-        "gl.status.pcapDrop": " · libpcap drop +{n}",
+        "gl.status.kernelDrop": " · capture drop +{n}",
         "gl.status.dropsTotal": " · {n} drop(s) total",
         "gl.status.iface": " · iface: {note}",
         "gl.status.queue": "file {n}",
@@ -1982,7 +1982,7 @@ SPDX-License-Identifier: Apache-2.0
         "gl.mode.scan": "scan",
         "gl.mode.analyze": "analysis",
         "gl.status.drops": " · {n} GOOSE drop(s)",
-        "gl.status.pcapDrop": " · libpcap drop +{n}",
+        "gl.status.kernelDrop": " · capture drop +{n}",
         "gl.status.dropsTotal": " · {n} drop(s) total",
         "gl.status.iface": " · iface: {note}",
         "gl.status.queue": "queue {n}",
@@ -4632,7 +4632,6 @@ SPDX-License-Identifier: Apache-2.0
       const cap = data.capture_running ? t('gl.cap.active') : t('gl.cap.stopped');
       const mode = data.mode || 'idle';
       const c = data.capture || {};
-      const backend = c.backend || 'pcapy';
       const pb = c.processbus || {};
       const bpf = pb.bpf_mode ? ` · BPF ${pb.bpf_mode}` : '';
       const pbLabel = c.processbus_active
@@ -4641,12 +4640,12 @@ SPDX-License-Identifier: Apache-2.0
       const q = c.queue_size ?? 0;
       const drops = c.drops ?? 0;
       const dropsRun = c.drops_since_analysis_start ?? 0;
-      const pcapDrop = c.pcap_drop_delta ?? 0;
+      const kernelDrop = c.kernel_drop_delta ?? 0;
       const reliable = c.reliable !== false;
       const modeLabel = ({ idle: t('gl.mode.idle'), scan: t('gl.mode.scan'), analyze: t('gl.mode.analyze') })[mode] || mode;
-      let msg = `${iface} · ${cap} · ${backend}${pbLabel}${bpf} · ${t('gl.status.mode', { mode: modeLabel })} · ${t('gl.status.queue', { n: q })}`;
+      let msg = `${iface} · ${cap}${pbLabel}${bpf} · ${t('gl.status.mode', { mode: modeLabel })} · ${t('gl.status.queue', { n: q })}`;
       if (dropsRun > 0) msg += t('gl.status.drops', { n: dropsRun });
-      if (pcapDrop > 0) msg += t('gl.status.pcapDrop', { n: pcapDrop });
+      if (kernelDrop > 0) msg += t('gl.status.kernelDrop', { n: kernelDrop });
       if (!reliable && c.invalid_reason) msg += ` · ${c.invalid_reason}`;
       const analysisOn = (data.analysis && data.analysis.running) || mode === 'analyze' || mode === 'scan';
       if (analysisOn && c.nic_advisory) msg += t('gl.status.iface', { note: c.nic_advisory });

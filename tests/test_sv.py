@@ -16,7 +16,7 @@ import pytest
 
 import sv_listener_view as svl
 from parse_ref_pkt import REF
-from processbus_capture import GOOSE_BPF, PROCESSBUS_BPF, SV_BPF, bpf_for_modes, frame_ethertype
+from processbus_capture import ethertypes_for_modes, frame_ethertype
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -146,24 +146,14 @@ def test_phasor_of_a_50hz_sine() -> None:
     assert phase == pytest.approx(0.5 - math.pi / 2, abs=1e-9)
 
 
-def test_vlan_comes_last_in_bpf_filters() -> None:
-    # libpcap's "vlan" shifts every later offset, even across "or": it must open
-    # the last group of the expression, and appear once.
-    for bpf in (GOOSE_BPF, SV_BPF, PROCESSBUS_BPF):
-        assert bpf.count("vlan") == 1
-        group = bpf[bpf.rindex("(", 0, bpf.index("vlan")):]
-        depth = [group[: i + 1].count("(") - group[: i + 1].count(")") for i in range(len(group))]
-        assert 0 not in depth[:-1] and depth[-1] == 0  # the group closes at the very end
-
-
-def test_frame_ethertype_and_bpf_modes() -> None:
+def test_frame_ethertype_and_filter_modes() -> None:
     assert frame_ethertype(bytes(12) + bytes.fromhex("88ba")) == 0x88BA
     assert frame_ethertype(bytes(12) + bytes.fromhex("8100806488b8")) == 0x88B8
     assert frame_ethertype(bytes(10)) is None
-    assert bpf_for_modes(goose=True, sv=False) == (GOOSE_BPF, "goose")
-    assert bpf_for_modes(goose=False, sv=True) == (SV_BPF, "sv")
-    assert bpf_for_modes(goose=True, sv=True) == (PROCESSBUS_BPF, "goose+sv")
-    assert bpf_for_modes(goose=False, sv=False) == (GOOSE_BPF, "idle")
+    assert ethertypes_for_modes(goose=True, sv=False) == ((0x88B8,), "goose")
+    assert ethertypes_for_modes(goose=False, sv=True) == ((0x88BA,), "sv")
+    assert ethertypes_for_modes(goose=True, sv=True) == ((0x88B8, 0x88BA), "goose+sv")
+    assert ethertypes_for_modes(goose=False, sv=False) == ((0x88B8,), "idle")
 
 
 # --- rt_sender.c (Linux only) ----------------------------------------------
