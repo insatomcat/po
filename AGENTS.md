@@ -94,15 +94,12 @@ pipeline byte for byte), `reporting.format_report` feeds the SSE logs when
 debug is on. Stopping a stream disables its RCBs. Reconnect backoff 5 s to
 60 s as before.
 
-## Legacy MMS stack (`mms/`, no longer used by po)
+## MMS on the wire
 
-Kept with its characterization tests until it is removed; po only still
-uses `scl_parser.py` (label fallback) and `victoriametrics_push.py` (batched
-POST of the lines `reporting` builds).
-
-Layers: `tpkt.py` (RFC 1006) -> `cotp.py` (class 0, CR/CC, DT with fixed
-`02 F0 80`) -> `asn1_codec.py` (everything above COTP) -> `mms_reports_client.py`
-(blocking socket client).
+The historical stack (`mms/tpkt.py`, `cotp.py`, `asn1_codec.py`,
+`mms_reports_client.py`) is gone; `iec61850.mms` replaced it. Of the old
+`mms/` modules, po still uses `scl_parser.py` (label fallback) and
+`victoriametrics_push.py` (batched POST of the lines `reporting` builds).
 
 Every confirmed request is built as:
 
@@ -116,23 +113,16 @@ Every confirmed request is built as:
             a4|a5|a1 ...    read | write | getNameList
 ```
 
-The code comments call `02 01 03` "MMS version"; it is the presentation
-context id. There is no real Session/Presentation/ACSE layer: the association
-(`encode_mms_initiate`) is a hex replay of one capture and the Initiate
+There is no real Session/Presentation/ACSE layer: the association
+(`INITIATE_REQUEST`) is a hex replay of one capture and the Initiate
 response is not decoded.
-
-Reports: `decode_mms_pdu` walks `unconfirmed-PDU / informationReport`, decodes
-`listOfAccessResult` with `iec_data`, then assumes a fixed header layout
-(0 RptID, 1 OptFlds, 2 SeqNum, 3 TimeOfEntry, 4 DatSet, 5 BufOvfl, 6 EntryID,
-7 Inclusion, 8+ values then reason codes).
 
 GetNameList follows ISO 9506 and matches IEDscout byte for byte (checked on
 a capture): `a1 { a0 { 80 01 <class> } a1 { 80 00 | 81 <domain> } [82 <continueAfter>] }`.
 Names come in pages followed with continueAfter (the VMC7 answers 100
 names per page); only `<LN>$BR|RP$<name>` are blocks (68 RCBs on the VMC7,
-1088 names if attributes are counted).
-`cotp_recv_data` joins DT TPDUs until the EOT bit: responses above ~1 KB
-arrive in several segments.
+1088 names if attributes are counted). Responses above ~1 KB arrive in
+several COTP DT segments, joined until the EOT bit.
 
 What the VMC7 capture taught (IEDscout, 2026-09-24):
 - IEDscout pipelines requests (several outstanding), so a real client must
@@ -163,10 +153,13 @@ in `tests/data/iedscout_reports_control.json`):
   response in ~2 ms, then a CommandTermination (informationReport on
   `...$CO$Pos$Oper` echoing the Oper) 60 to 90 ms later. po's second
   "step3" Oper for closing is not needed.
+- Checked with `iec61850.mms.control` on a simulated breaker: open then
+  close, CommandTermination after 65 and 86 ms, position and quality
+  updated as expected.
 
-RCB activation (`enable_reporting`): one GetRCBValues, then eight separate
-writes (ResvTms, IntgPd, TrgOps=`020c`, OptFlds=`067b00`, PurgeBuf,
-EntryID=0, RptEna, GI). Write responses are not checked.
+po's historical RCB activation, which `rcb.enable` keeps in the same
+order with checked writes: ResvTms, IntgPd, TrgOps, OptFlds=`067b00`,
+PurgeBuf, EntryID=0, RptEna, GI.
 
 Controls used to replay an IEDscout Oper template (`mms_commands_codec.py`,
 removed): the code took ctlVal for ctlNum and Check for ctlVal, sent orCat 3,
@@ -186,17 +179,8 @@ only by sqNum.
 
 ## Known weak points (verified 2026-09-24)
 
-- InvokeID is a module global shared by every client thread; responses are
-  never matched by invokeID, `_recv_until_response` takes the next non-report
-  PDU. `is_read_response_success` searches for byte `a4` anywhere.
-- Report header decoding ignores OptFlds and the inclusion bitstring; it only
-  works with the OptFlds the code itself writes and without segmentation.
-- Legacy RCB settings: `DEFAULT_TRG_OPS = 020c` is integrity + GI only (the
-  comment claims data-change and quality-change). The service keeps it as
-  the default `triggers` (`integrity,gi`); set `dchg,qchg,...` to get
-  reports on change.
-- RCB writes: `_encode_mms_value_unsigned` uses tag `0x85` (integer) below 256
-  and `0x86` (unsigned) above, so `IntgPd` < 256 ms would go out as an integer.
+- The service's default `triggers` are `integrity,gi` (po's historical
+  TrgOps `020c`); set `dchg,qchg,...` to get reports on change.
 - `iec_data_from_json` turns strings with control chars into `RawData(0x83)`
   (legacy goose_cli compatibility).
 - pcapy is unmaintained upstream. `iec61850.capture` replaces it in
@@ -218,7 +202,7 @@ only by sqNum.
   naming) but never as the standard `<ied><ld>/LLN0$DS`. SDOs (`A.phsA`)
   are not resolved to components. The service reads labels from the IED
   and uses these only as a fallback.
-- The legacy MMS stack and the `svgenerator/` diagnostic scripts still carry their own BER readers.
+- The `svgenerator/` diagnostic scripts still carry their own BER readers.
 - No `logging` (prints, plus a stdout tee for SSE).
 - Three HTTP stacks coexist: `http.server` (unified, MMS, GOOSE), FastAPI
   (SV standalone, models reused by the unified API), Flask (SV listener).

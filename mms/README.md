@@ -1,6 +1,6 @@
 # MMS – Client reports IEC 61850
 
-Client MMS en Python pour **s’abonner aux reports** IEC 61850 et recevoir les données en push. Implémentation **sans bibliothèque GPL** : TPKT/COTP et encodage/décodage MMS en BER (ASN.1) dans le projet.
+Client MMS en Python pour **s’abonner aux reports** IEC 61850 et recevoir les données en push. Implémentation **sans bibliothèque GPL** : le protocole est dans la librairie `iec61850.mms` du projet.
 
 ## Composants
 
@@ -92,10 +92,6 @@ Le service s'appuie sur le client `iec61850.mms` de la librairie :
 
 | Fichier | Rôle |
 |---------|------|
-| `tpkt.py` | TPKT RFC 1006 (send/recv) |
-| `cotp.py` | COTP classe 0 (connexion, send_data, recv_data) |
-| `asn1_codec.py` | Ancien encodage BER MMS (Initiate, GetRCBValues, SetRCBValues), décodage des reports |
-| `mms_reports_client.py` | Ancien client bloquant (TCP/COTP/MMS), encore couvert par des tests de caractérisation |
 | `scl_parser.py` | Parse SCL/ICD → mapping Data set → libellés FCDA (repli du service) |
 | `reporting.py` | Plan d'abonnement, lignes VictoriaMetrics et texte des reports |
 | `mms_service.py` | Service HTTP, gestion des flux (threads), persistance |
