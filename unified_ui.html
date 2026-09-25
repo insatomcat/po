@@ -891,6 +891,8 @@ SPDX-License-Identifier: Apache-2.0
     .svview-health-badge.ok { background: rgba(158,206,106,0.2); color: var(--success); border: 1px solid var(--success); }
     .svview-health-badge.err { background: rgba(247,118,142,0.15); color: var(--danger); border: 1px solid var(--danger); }
     .svview-health-details { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.75rem 0; }
+    .svview-counts { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.75rem 0; }
+    .svview-counts.bad { color: var(--danger); }
     .svview-svids-list { list-style: none; padding: 0; margin: 0; }
     .svview-svids-list li { padding: 6px 0; border-bottom: 1px solid var(--surface); cursor: pointer; }
     .svview-svids-list li:hover { background: rgba(255,255,255,0.05); }
@@ -1461,6 +1463,8 @@ SPDX-License-Identifier: Apache-2.0
         "svview.captureOk": "Capture: OK",
         "svview.captureKo": "Capture: KO",
         "svview.lastError": "Dernière erreur: {msg}",
+        "svview.counts": "Trames SV reçues : {n} · illisibles : {e}",
+        "svview.countsTitle": "Trames 0x88ba que le décodeur SV rejette depuis le démarrage de la capture (détail dans la dernière erreur)",
         "svview.svidsSeen": "svIDs vus",
         "svview.clickSvid": "Cliquez sur un svID pour l'afficher.",
         "svview.noSvidYet": "Aucun svID pour l'instant.",
@@ -1830,6 +1834,8 @@ SPDX-License-Identifier: Apache-2.0
         "svview.captureOk": "Capture: OK",
         "svview.captureKo": "Capture: KO",
         "svview.lastError": "Last error: {msg}",
+        "svview.counts": "SV frames received: {n} · unreadable: {e}",
+        "svview.countsTitle": "0x88ba frames the SV decoder rejected since the capture started (details in the last error)",
         "svview.svidsSeen": "Seen svIDs",
         "svview.clickSvid": "Click an svID to display it.",
         "svview.noSvidYet": "No svID yet.",
@@ -3463,7 +3469,20 @@ SPDX-License-Identifier: Apache-2.0
       if (svg) { svg.innerHTML = parts.join(''); svg.setAttribute('viewBox', `0 0 ${w} ${h}`); }
     }
 
+    function svviewCounts(data) {
+      const d = data.debug || {};
+      const e = d.parse_errors ?? 0;
+      return { text: t('svview.counts', { n: d.capture_packets ?? 0, e }), cls: 'svview-counts' + (e > 0 ? ' bad' : '') };
+    }
+
+    function svviewCountsHtml(data) {
+      const c = svviewCounts(data);
+      return `<p class="${c.cls}" id="svview-counts" title="${escapeHtml(t('svview.countsTitle'))}">${escapeHtml(c.text)}</p>`;
+    }
+
     function svviewUpdateDataValues(data) {
+      const counts = document.getElementById('svview-counts');
+      if (counts) { const c = svviewCounts(data); counts.className = c.cls; counts.textContent = c.text; }
       const badge = document.getElementById('svview-svid-badge');
       if (badge) badge.textContent = 'svID: ' + (data.svid || '');
       const health = document.getElementById('svview-health-badge');
@@ -3519,6 +3538,7 @@ SPDX-License-Identifier: Apache-2.0
           <div class="svview-card">
             <div class="svview-health-badge ${healthClass}">${healthLabel}</div>
             ${healthError}
+            ${svviewCountsHtml(data)}
             <h2>${t('svview.svidsSeen')}</h2>
             ${data.svids && data.svids.length ? `
               <ul class="svview-svids-list" id="svview-svids-list">
@@ -3558,6 +3578,7 @@ SPDX-License-Identifier: Apache-2.0
           <button type="button" class="btn" id="svview-btn-stop" title="${t('svview.backToList')}">${t('common.stop')}</button>
         </div>
         <p class="svview-health-details" id="svview-health-details">${(data.debug && data.debug.last_error) ? t('svview.lastError', { msg: escapeHtml(data.debug.last_error) }) : ''}</p>
+        ${svviewCountsHtml(data)}
         <div class="svview-layout" id="svview-data-container">
           <div>
             <div class="svview-card">

@@ -370,6 +370,11 @@ class CaptureManager:
             if self.is_running():
                 return {"running": True, "started": False}
             self._stop_event.clear()
+            with self.stats_lock:
+                for counter in ("capture_packets", "sv_packets", "asdu_seen", "parse_errors", "capture_loop_errors"):
+                    self.stats[counter] = 0
+                self.stats["last_error"] = None
+                self.stats["last_error_at"] = None
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
             return {"running": True, "started": True}
