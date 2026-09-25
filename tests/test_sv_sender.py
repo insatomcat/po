@@ -39,3 +39,23 @@ def test_rt_sender_on_request(monkeypatch: pytest.MonkeyPatch, tmp_path: object)
     cmd = sv_service.build_rt_sender_cmd(_flow(fault=False, vlan_id=None))
     assert cmd[0].endswith("rt_sender.c") and "--fault" not in cmd and "--vlan-id" not in cmd
     assert cmd[-4:] == ["eth1", "02:00:00:00:0f:01", "01:0c:cd:04:0f:01", "IED01_TEST_SV1"]
+
+
+def test_start_flow_process_launches_and_writes_the_pidfile(monkeypatch: pytest.MonkeyPatch, tmp_path: object) -> None:
+    launched: list[list[str]] = []
+
+    class FakePopen:
+        pid = 4242
+
+        def __init__(self, cmd: list[str], **_kwargs: object) -> None:
+            launched.append(cmd)
+
+    monkeypatch.setattr(sv_service, "Popen", FakePopen)
+    monkeypatch.setattr(sv_service, "PIDS_DIR", tmp_path)
+    monkeypatch.setattr(sv_service, "_SEAPATH_ALLOC_AVAILABLE", True)
+    monkeypatch.setattr(sv_service, "_SEAPATH_RUN", "/usr/bin/seapath-run")
+    monkeypatch.setattr(sv_service, "SV_SENDER", "open61850")
+    sv_service.start_flow_process(_flow())
+    assert launched[0][:6] == ["/usr/bin/seapath-run", "sv-sender-f1", "exclusive_logical", "FIFO", "80", "--"]
+    assert launched[0][6:9] == [sys.executable, "-m", "open61850.sv_publisher"]
+    assert (tmp_path / "f1.pid").read_text() == "4242"  # type: ignore[operator]

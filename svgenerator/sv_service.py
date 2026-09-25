@@ -473,11 +473,11 @@ def start_flow_process(cfg: FlowConfig) -> Popen:
     log_path = PIDS_DIR / f"{cfg.name}.log"
     log.info(f"[sv] start: {' '.join(cmd)}")
     # start_new_session=True: the process survives a restart of the po service.
-    with log_path.open("a") as log:
+    with log_path.open("a") as out:
         proc = Popen(
             cmd,
-            stdout=log,
-            stderr=log,
+            stdout=out,
+            stderr=out,
             start_new_session=True,
         )
     _write_pidfile(cfg.name, proc.pid)
