@@ -24,7 +24,8 @@ first, kept simple; the package lives in this repo for now.
 | `goose.py` | `GoosePDU` (with `time_quality`), PDU and frame encode/decode, `GooseDecodeError` on missing mandatory fields. |
 | `sv.py` | `SvPDU` / `SvAsdu` with every 9-2 / 61869-9 field (datSet, refrTm, smpRate, smpMod, gmIdentity), PDU and frame codec, INT32+quality sample helpers. |
 | `mms/transport.py` | TPKT + COTP class 0: `IsoConnection` (CR/CC with the same CR bytes po always sent, segmentation on send, EOT reassembly on receive, DR = closed). |
-| `mms/pdu.py` | Session/presentation envelope (`wrap`/`unwrap`), `ObjectName`, Read / Write / GetNameList / GetNamedVariableListAttributes requests and responses, confirmed-Error, Reject, informationReport. Requests match IEDscout captures. The association is still the replayed `INITIATE_REQUEST`. |
+| `mms/pdu.py` | Session/presentation envelope (`wrap`/`unwrap`), `ObjectName`, Read / Write / GetNameList / GetNamedVariableListAttributes requests and responses, confirmed-Error, Reject, informationReport. Requests match IEDscout captures. |
+| `mms/association.py` | Association request built from `AssociationParameters` (Session CONNECT, Presentation CP-type, ACSE AARQ, MMS initiate-RequestPDU; the defaults give the bytes po used to replay, a test pins them) and `decode_association_response` (ACCEPT/CPA/AARE/initiate-ResponsePDU to an `Association`; refusal at any layer raises `AssociationError`). `MmsClient.association` keeps it, and the client holds requests back to the negotiated `max_outstanding_calling`. |
 | `mms/client.py` | `MmsClient`: one receive thread, responses matched by invokeID (several requests in flight, from any thread), informationReports to a callback on the receive thread, typed errors (`DataAccessError`, `ServiceError`, `MmsReject`, `MmsTimeout`, `MmsConnectionError`). |
 | `mms/report.py` | IEC 61850 report decoding driven by the report's own OptFlds and inclusion bitstring (data references, ConfRev, segmentation, reason codes); `OptFlds` / `TrgOps` / `ReasonCode` flag classes. |
 | `mms/types.py` | GetVariableAccessAttributes type descriptions (`StructureType`, `ArrayType`, `PrimitiveType`) and `label()`, which names every leaf of a value after its type (`cVal.mag.f`). |
@@ -113,9 +114,12 @@ Every confirmed request is built as:
             a4|a5|a1 ...    read | write | getNameList
 ```
 
-There is no real Session/Presentation/ACSE layer: the association
-(`INITIATE_REQUEST`) is a hex replay of one capture and the Initiate
-response is not decoded.
+Only the association uses the full Session, Presentation and ACSE layers
+(`mms/association.py`); afterwards each PDU goes in the fixed envelope
+above. Answers to the default request (`tests/data/association_responses.json`):
+a VMC7 accepts 5 outstanding requests and nesting level 7, an ABB SSC600
+only 1 outstanding request and nesting level 5, so a client that pipelines
+must honour the negotiated value.
 
 GetNameList follows ISO 9506 and matches IEDscout byte for byte (checked on
 a capture): `a1 { a0 { 80 01 <class> } a1 { 80 00 | 81 <domain> } [82 <continueAfter>] }`.
@@ -129,7 +133,7 @@ What the VMC7 capture taught (IEDscout, 2026-09-24):
   match responses by invokeID.
 - A confirmed-ErrorPDU carries its invokeID as `80 ..` ([0] IMPLICIT), where
   requests and responses use `02 ..`.
-- IEDscout's own Initiate is 204 bytes (po replays a 180-byte one); both
+- IEDscout's own Initiate is 204 bytes (po's default request is 180); both
   are accepted.
 
 VMC7 reservations: a BRCB reserved with ResvTms = 5 stays reserved, with

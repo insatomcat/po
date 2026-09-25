@@ -1,82 +1,126 @@
 # PO - IEC 61850 Platform
 
-Software platform for **MMS** (reports), **GOOSE** and **Sampled Values (SV)** following the IEC 61850 standards. Python implementations, with no GPL dependency for the MMS core (TPKT/COTP/MMS in BER).
+Test and diagnostic platform for IEC 61850 on a digital substation process bus. PO speaks **MMS** (reports, controls), **GOOSE** (publish, subscribe, trip delay measurement) and **Sampled Values** (generation, phasor view), behind one HTTP service with a web UI.
 
-## Overview
+The protocol code lives in [`iec61850/`](iec61850/), a pure-stdlib Python library under the Apache 2.0 licence, meant to become a reusable alternative to the GPL libiec61850.
+
+## The `iec61850` library
+
+No dependency outside the standard library, and no I/O except in the capture and MMS transport modules.
+
+| Module | Content |
+|--------|---------|
+| `ber` | ASN.1 BER primitives (tags, lengths, INTEGER, OBJECT IDENTIFIER, ...) |
+| `data` | MMS `Data` values, encoding and decoding, UtcTime |
+| `quality` | Quality and TimeQuality in readable form |
+| `display` | Readable text for MMS values |
+| `ethernet` | Ethernet II / 802.1Q frames with an APPID header |
+| `goose` | GOOSE PDUs and frames |
+| `sv` | Sampled Values PDUs and frames (IEC 61850-9-2 / 61869-9) |
+| `capture` | Linux frame capture on an AF_PACKET ring (no libpcap), kernel timestamps |
+| `scl` | SCL (CID/SCD) reader: IEDs, logical devices, data sets, report control blocks |
+| `mms.transport` | TPKT and COTP over TCP |
+| `mms.association` | Association request (Session, Presentation, ACSE, MMS Initiate) and the negotiated limits of the response |
+| `mms.client` | `MmsClient`: requests matched by invokeID, reports delivered to callbacks, typed errors |
+| `mms.report` | IEC 61850 report decoding driven by OptFlds and the inclusion bit string |
+| `mms.rcb` | Report control blocks: status, reservation, enabling, release |
+| `mms.control` | Controls: direct and select-before-operate, normal and enhanced security |
+| `mms.types` | Type descriptions (GetVariableAccessAttributes) and value labels |
+
+```python
+from iec61850.mms import MmsClient, ObjectName, OBJECT_CLASS_DOMAIN
+
+with MmsClient.connect("192.0.2.10") as client:
+    print(client.association.max_outstanding_calling)
+    for domain in client.get_name_list(OBJECT_CLASS_DOMAIN):
+        print(domain)
+    print(client.read(ObjectName("LLN0$ST$Mod$stVal", "IED01_LD0")))
+```
+
+`tools/mms_client.py` puts the MMS client on the command line:
+
+```bash
+python3 tools/mms_client.py 192.0.2.10 association   # what the IED accepted
+python3 tools/mms_client.py 192.0.2.10 domains
+python3 tools/mms_client.py 192.0.2.10 rcbs --status
+python3 tools/mms_client.py 192.0.2.10 read 'IED01_LD0/LLN0$DC$NamPlt'
+python3 tools/mms_client.py 192.0.2.10 subscribe 'IED01_LD0/LLN0$BR$CB_LDPHAS1'
+python3 tools/mms_client.py 192.0.2.10 operate 'IED01_BayLD/CBCSWI1$CO$Pos' open
+```
+
+## Applications
 
 | Component | Role | Directory |
 |-----------|------|-----------|
-| **Unified service** | HTTP on a single port (7050): Web UI, MMS/GOOSE/SV API, SV Listener proxy, GOOSE Listener | Root (`po_service.py`, `unified_ui.html`) |
-| **MMS** | IEC 61850 report client, HTTP service, API, CLI | [mms/](mms/README.md) |
-| **GOOSE** | GOOSE send/receive, HTTP service, API, CLI, library | [goose/](goose/README.md) |
-| **GOOSE Listener** | Bus capture, trip Δ measurement to the second stage, alerts (delays, missing frames) | [goose_listener/](goose_listener/README.md) |
-| **Stress** | SSH/`stress-ng` stress test of the nodes (housekeeping, cores outside the VM) | [stress/](stress/README.md) |
-| **SV Generator** | SV stream generator (IEC 61869-9), FastAPI service, API, CLI | [svgenerator/](svgenerator/README.md) |
-| **SV Listener View** | SV capture and visualisation (U/I phasors), web interface | [svlistener_view/](svlistener_view/README.md) |
+| **Unified service** | HTTP on one port (7050): web UI and every API below | `po_service.py`, `unified_ui.html` |
+| **MMS** | Report subscriptions (blocks found on the IED or in its SCL file), VictoriaMetrics push, controls | [mms/](mms/README.md) |
+| **GOOSE** | GOOSE publication (streams, state changes, retransmission) and reception | [goose/](goose/README.md) |
+| **GOOSE Listener** | Trip delay measurement against the linked SV stream, problem detection, PCAP dumps | [goose_listener/](goose_listener/README.md) |
+| **SV Generator** | SV streams from a real-time C sender (4800 samples/s) | [svgenerator/](svgenerator/README.md) |
+| **SV Listener View** | SV reception and U/I phasor display | [svlistener_view/](svlistener_view/README.md) |
+| **Stress** | `stress-ng` load on host cores over SSH, CPU topology | [stress/](stress/README.md) |
+
+GOOSE and SV reception share one capture per interface (`processbus_capture.py`): its kernel filter lets SV frames through only while an SV consumer is active.
 
 ## Requirements
 
 - **Python 3.10+**
-- For MMS: stdlib only (no `pip install`)
-- For GOOSE: **scapy** (publication) through `goose61850.transport`; capture uses `iec61850.capture` (AF_PACKET, Linux, root)
-- For SV Generator: see [svgenerator/requirements.txt](svgenerator/requirements.txt) (FastAPI, Pydantic, etc.)
-- For SV Listener View: Flask (see [svlistener_view/](svlistener_view/README.md))
+- Library and MMS: standard library only
+- Capture (GOOSE Listener, SV Listener View): **Linux**, root or `CAP_NET_RAW`
+- GOOSE publication: **scapy**
+- SV Generator: FastAPI and friends, see [svgenerator/requirements.txt](svgenerator/requirements.txt), and a C compiler for `rt_sender`
+- SV Listener View: Flask
 
-## Quick start - unified service
-
-Start everything on port **7050** (Web UI + APIs):
-
-```bash
-python3 po_service.py --port 7050
-```
-
-Then open **http://localhost:7050**: an interface with the MMS | GOOSE | SV | SV Listener | GOOSE Listener | Stress tabs.
-
-Useful options:
-
-- `--victoriametrics-url http://localhost:8428`: push MMS reports to VictoriaMetrics (Grafana)
-- `--svview-interface eth0`: enables the proxy to the SV Listener (SV capture on `eth0`), the **SV Listener** tab, and the **GOOSE Listener** (GOOSE capture on the same interface)
-
-Example on a process bus:
+## Quick start
 
 ```bash
-python3 po_service.py --svview-interface processbus --port 7050
+python3 po_service.py --listen-port 7050
 ```
 
-Without `--svview-interface`, the SV Listener and GOOSE Listener tabs show "not configured" (API **503**).
+Then open **http://localhost:7050** (tabs MMS, GOOSE, SV, SV Listener, GOOSE Listener, Stress).
+
+Options:
+
+- `--listen-host`, `--listen-port`: where the service listens (default port 7050)
+- `--victoriametrics-url http://victoriametrics:8428`: push MMS report values to VictoriaMetrics (Grafana)
+- `--vm-batch-ms`: VictoriaMetrics batching interval
+- `--svview-interface eth1`: the process bus interface; enables the SV Listener and GOOSE Listener tabs (API **503** without it)
+
+`po-service.service` is a systemd unit for the service; site settings (`SVVIEW_INTERFACE`, `PO_VICTORIAMETRICS_URL`) go in a drop-in (`systemctl edit po-service`).
 
 ### Main endpoints
 
 | Path | Description |
 |------|-------------|
-| `/` | Unified Web UI |
+| `/` | Unified web UI |
 | `/healthz` | Health check |
-| `/api/mms/*` | MMS API (subscriptions, recents, SSE logs) |
-| `/api/goose/*` | GOOSE API (streams, recent, restart) |
-| `/api/sv/*` | SV API (streams, recents) |
-| `/api/svview/*` | Proxy to the SV Listener (if `--svview-interface` is configured) |
-| `/api/gooselistener/*` | GOOSE Listener: scan, analysis, events, problems (if `--svview-interface` is configured) |
-| `/api/stress/*` | Node stress test: SSH, CPU map, `stress-ng` |
-
-The GOOSE Listener Web UI poll calls `GET /api/gooselistener/status` every **2 s** during a scan or an analysis. Network capture (GOOSE BPF, dedicated queue) stays independent from the UI refresh. See [goose_listener/README.md](goose_listener/README.md) for the Δ measurement, the alerts and the `capture.drops` diagnostic.
+| `/api/mms/*` | MMS subscriptions, recent reports, SSE logs, commands |
+| `/api/goose/*` | GOOSE streams |
+| `/api/sv/*` | SV streams |
+| `/api/svview/*` | SV Listener (with `--svview-interface`) |
+| `/api/gooselistener/*` | GOOSE Listener: scan, analysis, events, problems (with `--svview-interface`) |
+| `/api/stress/*` | Node stress test |
 
 ## Repository layout
 
 ```
 po/
-├── README.md              # This file
-├── po_service.py          # Unified HTTP service (port 7050)
-├── unified_ui.html        # Web interface (MMS/GOOSE/SV/SV Listener/GOOSE Listener/Stress tabs)
-├── iec_data.py            # Shared IEC 61850 types (IECData, BoolData, IntData, TimestampData, …)
-├── mms/                   # MMS client, service, API, CLI -> mms/README.md
-├── goose/                 # GOOSE service, lib, CLI -> goose/README.md
-├── goose_listener/        # GOOSE listener (Δ measurement, problems) -> goose_listener/README.md
-├── stress/                # Node stress test (SSH + stress-ng) -> stress/README.md
-├── svgenerator/           # SV generator, API, CLI -> svgenerator/README.md
-└── svlistener_view/       # SV listener + view -> svlistener_view/README.md
+├── iec61850/              # The IEC 61850 library (Apache 2.0, stdlib only)
+├── po_service.py          # Unified HTTP service
+├── unified_ui.html        # Web UI
+├── processbus_capture.py  # Shared GOOSE/SV capture per interface
+├── iec_data.py            # JSON mapping of MMS values for the HTTP APIs
+├── mms/                   # MMS subscription service, API, CLI
+├── goose/                 # GOOSE service and goose61850 package
+├── goose_listener/        # GOOSE trip delay measurement
+├── svgenerator/           # SV generator (rt_sender.c) and diagnostics
+├── svlistener_view/       # SV phasor view
+├── stress/                # Node stress test
+├── tools/                 # mms_client.py, pcap_mms.py, bench_sv_decode.py
+└── tests/                 # pytest suite
 ```
 
-Each subdirectory has its own **README** (applications, services, CLI clients, API).
+Maintainer notes (architecture, what the IED captures taught, known weak points) are in [AGENTS.md](AGENTS.md).
 
 ## Tests
 
@@ -85,12 +129,7 @@ python3 -m pip install pytest
 python3 -m pytest
 ```
 
-The suite runs without network access or scapy. The `rt_sender` checks need Linux and a C compiler.
-
-## Licence and constraints
-
-- MMS core: in-house TPKT/COTP/MMS implementation in BER, **without any GPL library**.
-- Other components: see the source files and the READMEs of the subdirectories.
+The suite needs no network access and no scapy. The capture and `rt_sender` checks run on Linux only.
 
 ## License
 
