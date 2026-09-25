@@ -3,17 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-IEC 61850-9-2 / 61869-9 SV receiver (BER) en mode service web uniquement.
+IEC 61850-9-2 / 61869-9 SV receiver (BER), as a web service only.
 
-- Écoute soit :
-  - sur une interface Ethernet brute (ethertype 0x88ba), ou
-  - sur un port UDP,
-  selon les variables d'environnement :
-    SVRECV_INTERFACE=<iface>    (ex: processbus)
-    SVRECV_UDP_PORT=<port>      (ex: 5000)
-  Si les deux sont définis, l'interface Ethernet est prioritaire.
+- Listens either on a raw Ethernet interface (ethertype 0x88ba) or on a UDP
+  port, from the environment:
+    SVRECV_INTERFACE=<iface>    (e.g. eth1)
+    SVRECV_UDP_PORT=<port>      (e.g. 5000)
+  The Ethernet interface wins when both are set.
 
-- Expose une API FastAPI pour consulter les derniers paquets et statistiques.
+- Serves a FastAPI API with the last frames and statistics.
 """
 
 from __future__ import annotations
@@ -171,7 +169,7 @@ def _receiver_loop(interface: Optional[str], udp_port: Optional[int]) -> None:
         sock.bind(("0.0.0.0", udp_port))
         source_desc = f"udp:{udp_port}"
     else:
-        # Pas de configuration : on ne démarre pas de boucle.
+        # Nothing configured: no receive loop.
         return
 
     while True:

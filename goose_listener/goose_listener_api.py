@@ -1,7 +1,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""API GOOSE Listener pour intégration dans po_service."""
+"""GOOSE Listener API, served by po_service."""
 from __future__ import annotations
 
 import json
@@ -27,7 +27,7 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
     mgr = get_goose_listener()
     if mgr is None:
         return HTTPStatus.SERVICE_UNAVAILABLE, {
-            "error": "GOOSE Listener non configuré (--svview-interface)",
+            "error": "GOOSE Listener not configured (--svview-interface)",
         }
 
     path = (path or "/").rstrip("/") or "/"
@@ -37,7 +37,7 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
             raw = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
             data = raw if isinstance(raw, dict) else {}
         except json.JSONDecodeError:
-            return HTTPStatus.BAD_REQUEST, {"error": "JSON invalide"}
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid JSON"}
 
     if path == "/status" and method == "GET":
         return HTTPStatus.OK, mgr.status()
@@ -55,7 +55,7 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
     if path == "/analysis/start" and method == "POST":
         targets = _targets_from_payload(data.get("targets") or [])
         event_filter = _normalize_event_filter(
-            str(data.get("event_filter") or "declenchements_only").strip()
+            str(data.get("event_filter") or "trips_only").strip()
         )
         err = mgr.start_analysis(targets, event_filter=event_filter)
         if err:
@@ -127,7 +127,7 @@ def handle_goose_listener(path: str, method: str, body: bytes | None) -> GooseLi
             return HTTPStatus.NOT_FOUND, {"error": "Dump introuvable"}
         return HTTPStatus.OK, data, "application/vnd.tcpdump.pcap"
 
-    return HTTPStatus.NOT_FOUND, {"error": "Route inconnue"}
+    return HTTPStatus.NOT_FOUND, {"error": "unknown route"}
 
 
 def configure_goose_listener(iface: Optional[str]) -> None:
@@ -140,7 +140,7 @@ def configure_sv_flows_getter(fn) -> None:
 
 
 def restore_goose_listener_analysis() -> None:
-    """Relance l'analyse persistée une fois le service prêt (après init SV/GOOSE)."""
+    """Restart the saved analysis once the service is ready (after SV/GOOSE init)."""
     mgr = get_goose_listener()
     if mgr is not None:
         mgr.restore_analysis_if_needed()

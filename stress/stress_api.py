@@ -1,7 +1,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""API Stress-test pour intégration dans po_service."""
+"""Stress test API, served by po_service."""
 from __future__ import annotations
 
 import json
@@ -20,7 +20,7 @@ def handle_stress(path: str, method: str, body: bytes | None) -> tuple[int, Any]
             raw = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
             data = raw if isinstance(raw, dict) else {}
         except json.JSONDecodeError:
-            return HTTPStatus.BAD_REQUEST, {"error": "JSON invalide"}
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid JSON"}
 
     if path == "/status" and method == "GET":
         key = str(data.get("key") or "").strip() or None
@@ -32,7 +32,7 @@ def handle_stress(path: str, method: str, body: bytes | None) -> tuple[int, Any]
     if path == "/hosts" and method in ("PUT", "POST"):
         hosts = data.get("hosts")
         if not isinstance(hosts, list):
-            return HTTPStatus.BAD_REQUEST, {"error": "hosts doit être une liste"}
+            return HTTPStatus.BAD_REQUEST, {"error": "hosts must be a list"}
         return HTTPStatus.OK, {"hosts": mgr.save_hosts(hosts)}
 
     if path == "/connect" and method == "POST":
@@ -79,7 +79,7 @@ def handle_stress(path: str, method: str, body: bytes | None) -> tuple[int, Any]
     if path == "/select" and method == "POST":
         key = str(data.get("key") or "").strip()
         if not key:
-            return HTTPStatus.BAD_REQUEST, {"error": "key requise"}
+            return HTTPStatus.BAD_REQUEST, {"error": "key is required"}
         result = mgr.select(key)
         if result.get("error"):
             return HTTPStatus.NOT_FOUND, result

@@ -47,11 +47,11 @@ def test_lenient_trigger_accepts_first_frame_of_new_st_num_once() -> None:
     ("prev", "curr", "kind"),
     [
         (None, [BoolData(True)], "initial"),
-        ([BoolData(False)], [BoolData(True)], "declenchement"),
-        ([BoolData(True)], [BoolData(False)], "retombee"),
-        ([IntData(0)], [IntData(4)], "declenchement"),
-        ([StructureData([BoolData(True), BoolData(False)])], [StructureData([BoolData(False), BoolData(True)])], "mixte"),
-        ([BoolData(True)], [BoolData(True)], "inconnu"),
+        ([BoolData(False)], [BoolData(True)], "trip"),
+        ([BoolData(True)], [BoolData(False)], "reset"),
+        ([IntData(0)], [IntData(4)], "trip"),
+        ([StructureData([BoolData(True), BoolData(False)])], [StructureData([BoolData(False), BoolData(True)])], "mixed"),
+        ([BoolData(True)], [BoolData(True)], "unknown"),
     ],
 )
 def test_classify_trigger(prev: object, curr: object, kind: str) -> None:

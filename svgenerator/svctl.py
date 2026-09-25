@@ -13,12 +13,12 @@ DEFAULT_BASE_URL = "http://127.0.0.1:7050"
 
 
 def _int_auto_base(value: str) -> int:
-    """Parse un entier décimal ou hexadécimal (ex: 16480, 0x4060)."""
+    """Parse a decimal or hexadecimal integer (e.g. 16480, 0x4060)."""
     return int(value, 0)
 
 
 def _sv_api_path(base_url: str, path: str) -> str:
-    """Préfixe /api/sv si service unifié (port 7050)."""
+    """Add the /api/sv prefix for the unified service (port 7050)."""
     u = base_url.rstrip("/")
     if "/7050" in u or u.endswith(":7050"):
         return f"/api/sv{path}"
@@ -58,7 +58,7 @@ def cmd_list(args: argparse.Namespace) -> None:
             )
             continue
 
-        # Mode verbeux: afficher tous les champs connus, y compris VLAN et défaut.
+        # Verbose: every known field, VLAN and fault settings included.
         print(f"Flow {name}:")
         print(f"  iface         : {interface}")
         print(f"  src_mac       : {src_mac}")
@@ -249,8 +249,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("dst_mac", help="Destination MAC")
     p_create.add_argument("svid", help="svID")
     p_create.add_argument("--smp-synch", type=int, choices=[0, 1, 2])
-    p_create.add_argument("--appid", type=_int_auto_base, required=True, help="APPID obligatoire (decimal ou 0x....)")
-    p_create.add_argument("--conf-rev", type=_int_auto_base, required=True, help="confRev obligatoire (decimal ou 0x....)")
+    p_create.add_argument("--appid", type=_int_auto_base, required=True, help="APPID, required (decimal or 0x...)")
+    p_create.add_argument("--conf-rev", type=_int_auto_base, required=True, help="confRev, required (decimal or 0x...)")
     p_create.add_argument("--vlan-id", type=int)
     p_create.add_argument("--vlan-priority", type=int)
     p_create.add_argument("--freq", type=float)
@@ -261,13 +261,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("--fault-i-peak", type=float)
     p_create.add_argument("--fault-v-peak", type=float)
     p_create.add_argument("--fault-phase", type=float)
-    p_create.add_argument("--fault-cycle", type=int, help="Période entre débuts de défaut (s entières)")
-    p_create.add_argument("--fault-smpcnt", type=int, help="smpCnt du premier échantillon en défaut (0-4799)")
-    p_create.add_argument("--fault-offset", type=int, help="Décalage en secondes dans le cycle")
-    p_create.add_argument("--rt-priority", type=int, metavar="1-99", help="Priorité RT FIFO/RR (défaut: 80)")
-    p_create.add_argument("--rt-cpu", metavar="CORES", help="CPU(s) pour le fallback taskset, ex: '4' ou '4,5'")
-    p_create.add_argument("--rt-isolation", choices=["exclusive_logical", "exclusive_physical", "shared"], help="Mode d'isolation seapath-alloc")
-    p_create.add_argument("--rt-scheduler", choices=["FIFO", "RR", "OTHER"], help="Ordonnanceur RT (défaut: FIFO)")
+    p_create.add_argument("--fault-cycle", type=int, help="Period between fault starts (whole seconds)")
+    p_create.add_argument("--fault-smpcnt", type=int, help="smpCnt of the first fault sample (0-4799)")
+    p_create.add_argument("--fault-offset", type=int, help="Offset in seconds within the cycle")
+    p_create.add_argument("--rt-priority", type=int, metavar="1-99", help="FIFO/RR real-time priority (default 80)")
+    p_create.add_argument("--rt-cpu", metavar="CORES", help="CPU(s) for the taskset fallback, e.g. '4' or '4,5'")
+    p_create.add_argument("--rt-isolation", choices=["exclusive_logical", "exclusive_physical", "shared"], help="seapath-alloc isolation mode")
+    p_create.add_argument("--rt-scheduler", choices=["FIFO", "RR", "OTHER"], help="Real-time scheduler (default FIFO)")
     p_create.set_defaults(func=cmd_create)
 
     p_update = sub.add_parser("update", help="Update an existing flow")
@@ -277,8 +277,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("dst_mac", help="Destination MAC")
     p_update.add_argument("svid", help="svID")
     p_update.add_argument("--smp-synch", type=int, choices=[0, 1, 2])
-    p_update.add_argument("--appid", type=_int_auto_base, required=True, help="APPID obligatoire (decimal ou 0x....)")
-    p_update.add_argument("--conf-rev", type=_int_auto_base, required=True, help="confRev obligatoire (decimal ou 0x....)")
+    p_update.add_argument("--appid", type=_int_auto_base, required=True, help="APPID, required (decimal or 0x...)")
+    p_update.add_argument("--conf-rev", type=_int_auto_base, required=True, help="confRev, required (decimal or 0x...)")
     p_update.add_argument("--vlan-id", type=int)
     p_update.add_argument("--vlan-priority", type=int)
     p_update.add_argument("--freq", type=float)
@@ -289,13 +289,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--fault-i-peak", type=float)
     p_update.add_argument("--fault-v-peak", type=float)
     p_update.add_argument("--fault-phase", type=float)
-    p_update.add_argument("--fault-cycle", type=int, help="Période entre débuts de défaut (s entières)")
-    p_update.add_argument("--fault-smpcnt", type=int, help="smpCnt du premier échantillon en défaut (0-4799)")
-    p_update.add_argument("--fault-offset", type=int, help="Décalage en secondes dans le cycle")
-    p_update.add_argument("--rt-priority", type=int, metavar="1-99", help="Priorité RT FIFO/RR (défaut: 80)")
-    p_update.add_argument("--rt-cpu", metavar="CORES", help="CPU(s) pour le fallback taskset, ex: '4' ou '4,5'")
-    p_update.add_argument("--rt-isolation", choices=["exclusive_logical", "exclusive_physical", "shared"], help="Mode d'isolation seapath-alloc")
-    p_update.add_argument("--rt-scheduler", choices=["FIFO", "RR", "OTHER"], help="Ordonnanceur RT (défaut: FIFO)")
+    p_update.add_argument("--fault-cycle", type=int, help="Period between fault starts (whole seconds)")
+    p_update.add_argument("--fault-smpcnt", type=int, help="smpCnt of the first fault sample (0-4799)")
+    p_update.add_argument("--fault-offset", type=int, help="Offset in seconds within the cycle")
+    p_update.add_argument("--rt-priority", type=int, metavar="1-99", help="FIFO/RR real-time priority (default 80)")
+    p_update.add_argument("--rt-cpu", metavar="CORES", help="CPU(s) for the taskset fallback, e.g. '4' or '4,5'")
+    p_update.add_argument("--rt-isolation", choices=["exclusive_logical", "exclusive_physical", "shared"], help="seapath-alloc isolation mode")
+    p_update.add_argument("--rt-scheduler", choices=["FIFO", "RR", "OTHER"], help="Real-time scheduler (default FIFO)")
     p_update.set_defaults(func=cmd_update)
 
     p_delete = sub.add_parser("delete", help="Delete a flow")

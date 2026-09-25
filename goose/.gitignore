@@ -15,10 +15,10 @@ build/
 venv/
 env/
 
-# Captures réseau
+# Network captures
 *.pcap
 
-# Fichiers SCL/ICD (config IED, souvent spécifiques à l’installation)
+# SCL/ICD files (IED configurations, usually site-specific)
 *.cid
 *.scl
 *.icd
@@ -29,5 +29,5 @@ env/
 *.swp
 *.swo
 
-# Liste RCD
+# RCB list
 rcd_*.txt

@@ -2,7 +2,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Client CLI pour le service GOOSE : convertit les arguments en requêtes API."""
+"""Command line for the GOOSE service: turns arguments into API requests."""
 from __future__ import annotations
 
 import argparse
@@ -20,8 +20,8 @@ if str(ROOT) not in sys.path:
 
 def _unescape_string_literal(v: str) -> str:
     r"""
-    Permet d'écrire des séquences d'échappement style '\\x00' dans la ligne
-    de commande, qui seront ensuite converties en vrais octets (ici NUL).
+    Lets the command line carry escapes like '\\x00', turned into the real
+    bytes (NUL here).
     """
     if len(v) == 4 and v[0] == "\\" and v[1] == "x":
         try:
@@ -40,11 +40,11 @@ def _unescape_string_literal(v: str) -> str:
 
 
 def _parse_values(values: List[str]) -> List[Any]:
-    """Parse --value TYPE:VAL en liste all_data (Python + sérialisable JSON)."""
+    """Parse --value TYPE:VAL into an all_data list (Python, JSON serialisable)."""
     all_data: List[Any] = []
     for raw in values:
         if ":" not in raw:
-            raise ValueError(f"Valeur --value invalide : {raw!r}")
+            raise ValueError(f"invalid --value: {raw!r}")
         type_prefix, val = raw.split(":", 1)
         t = type_prefix.strip().lower()
         if t in ("b", "bool"):
@@ -55,16 +55,16 @@ def _parse_values(values: List[str]) -> List[Any]:
             all_data.append(_unescape_string_literal(val))
         elif t in ("r", "raw"):
             if ":" not in val:
-                raise ValueError(f"raw invalide (attendu TAG:HEX) : {val!r}")
+                raise ValueError(f"invalid raw value (expected TAG:HEX): {val!r}")
             tag_str, hex_str = val.split(":", 1)
             all_data.append(["raw", int(tag_str, 0), hex_str.strip()])
         else:
-            raise ValueError(f"Type inconnu : {t!r}")
+            raise ValueError(f"unknown type: {t!r}")
     return all_data
 
 
 def _serialize_all_data(all_data: List[Any]) -> List[Any]:
-    """Convertit pour JSON : tuples -> listes."""
+    """Make it JSON-ready: tuples become lists."""
     out: List[Any] = []
     for x in all_data:
         if isinstance(x, tuple) and len(x) == 3 and x[0] == "raw":
@@ -75,7 +75,7 @@ def _serialize_all_data(all_data: List[Any]) -> List[Any]:
 
 
 def build_stream_config(args: argparse.Namespace) -> dict:
-    """Construit le dict de configuration d'un flux pour l'API."""
+    """Build the stream configuration dict for the API."""
     values = getattr(args, "value", None) or []
     all_data = _parse_values(values) if values else []
     if getattr(args, "bool", None):
@@ -107,7 +107,7 @@ def build_stream_config(args: argparse.Namespace) -> dict:
 
 
 def _api_path(base_url: str, path: str) -> str:
-    """Retourne le chemin API: /api/goose/... si unifié (7050), /api/... si standalone (7053)."""
+    """API path: /api/goose/... for the unified service (7050), /api/... standalone (7053)."""
     u = base_url.rstrip("/")
     parsed = urlparse(u)
     port = parsed.port
@@ -137,7 +137,7 @@ def _api_request(base_url: str, method: str, path: str, body: dict | None = None
 def cmd_add(args: argparse.Namespace, base_url: str) -> None:
     config = build_stream_config(args)
     result = _api_request(base_url, "POST", "/streams", body=config)
-    print(f"Flux créé: {result['id']}")
+    print(f"Stream created: {result['id']}")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
@@ -155,30 +155,30 @@ def cmd_modify(args: argparse.Namespace, base_url: str) -> None:
     if getattr(args, "go_id", None):
         body["go_id"] = args.go_id
     if not body:
-        print("Aucune modification spécifiée.", file=sys.stderr)
+        print("Nothing to change.", file=sys.stderr)
         sys.exit(1)
     result = _api_request(base_url, "PATCH", f"/streams/{stream_id}", body=body)
-    print(f"Flux modifié: {stream_id}")
+    print(f"Stream changed: {stream_id}")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def cmd_delete(args: argparse.Namespace, base_url: str) -> None:
     _api_request(base_url, "DELETE", f"/streams/{args.stream_id}")
-    print(f"Flux supprimé: {args.stream_id}")
+    print(f"Stream deleted: {args.stream_id}")
 
 
 def cmd_list(args: argparse.Namespace, base_url: str) -> None:
     result = _api_request(base_url, "GET", "/streams")
     streams = result.get("streams", [])
     if not streams:
-        print("Aucun flux configuré.")
+        print("No stream configured.")
         return
     for s in streams:
         print(f"{s['id']}  gocbRef={s['gocb_ref']}  goID={s['go_id']}  stNum={s['st_num']}  sqNum={s['sq_num']}")
 
 
 def _value_to_spec(v: Any) -> str:
-    """Convertit un élément all_data en spécification --value TYPE:VALEUR."""
+    """Turn one all_data item into a --value TYPE:VALUE argument."""
     # Forme brute: ["raw", tag, hex]
     if isinstance(v, list) and len(v) == 3 and v[0] == "raw":
         tag = int(v[1])
@@ -193,16 +193,16 @@ def _value_to_spec(v: Any) -> str:
     # str
     if isinstance(v, str):
         if v == "\x00":
-            # Cas fréquent: octet nul
+            # Common case: a NUL byte
             return "s:'\\\\x00'"
-        # On laisse la responsabilité du quoting à l'utilisateur pour les cas exotiques.
+        # Quoting of unusual values is left to the user.
         return f"s:{v}"
     # fallback: repr
     return f"s:{repr(v)}"
 
 
 def cmd_update_cmd(args: argparse.Namespace, base_url: str) -> None:
-    """Affiche une commande 'modify' pré-remplie pour un flux donné."""
+    """Print a prefilled 'modify' command for one stream."""
     stream_id = args.stream_id
     s = _api_request(base_url, "GET", f"/streams/{stream_id}")
     all_data = s.get("all_data", [])
@@ -211,12 +211,12 @@ def cmd_update_cmd(args: argparse.Namespace, base_url: str) -> None:
     prog = sys.argv[0] if sys.argv and sys.argv[0] else "goose_cli.py"
     cmd_lines.append(f"python3 {prog} modify {stream_id} \\")
 
-    # On propose les valeurs actuelles de all_data sous forme de --value ...
+    # Offer the current all_data values as --value arguments
     for v in all_data:
         spec = _value_to_spec(v)
         cmd_lines.append(f"  --value {spec} \\")
 
-    # On ajoute en commentaire les autres champs modifiables éventuels.
+    # List the other editable fields as comments.
     cmd_lines.append("  # --ttl {ttl} --gocb-ref '{gocb_ref}' --dat-set '{dat_set}' --go-id '{go_id}'".format(
         ttl=s.get("ttl", 5000),
         gocb_ref=s.get("gocb_ref", ""),
@@ -224,7 +224,7 @@ def cmd_update_cmd(args: argparse.Namespace, base_url: str) -> None:
         go_id=s.get("go_id", ""),
     ))
 
-    # On retire le dernier antislash si besoin.
+    # Drop the trailing backslash.
     if cmd_lines[-2].endswith(" \\"):
         cmd_lines[-2] = cmd_lines[-2].rstrip(" \\")
 
@@ -232,10 +232,10 @@ def cmd_update_cmd(args: argparse.Namespace, base_url: str) -> None:
 
 
 def _add_parser(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser("add", help="Ajouter un flux GOOSE")
-    p.add_argument("iface", help="Interface réseau")
-    p.add_argument("src_mac", help="MAC source")
-    p.add_argument("dst_mac", help="MAC destination")
+    p = sub.add_parser("add", help="Add a GOOSE stream")
+    p.add_argument("iface", help="Network interface")
+    p.add_argument("src_mac", help="Source MAC")
+    p.add_argument("dst_mac", help="Destination MAC")
     p.add_argument("--appid", type=lambda x: int(x, 0), required=True)
     p.add_argument("--vlan-id", type=int, default=None)
     p.add_argument("--vlan-priority", type=int, default=None)
@@ -246,7 +246,7 @@ def _add_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--conf-rev", type=int, default=1)
     p.add_argument("--sim", action="store_true")
     p.add_argument("--nds-com", action="store_true")
-    p.add_argument("--entries", type=int, default=None, help="(ignoré, conservé pour compat)")
+    p.add_argument("--entries", type=int, default=None, help="(ignored, kept for compatibility)")
     p.add_argument("--value", action="append", default=[])
     p.add_argument("--bool", action="append")
     p.add_argument("--int", action="append")
@@ -254,8 +254,8 @@ def _add_parser(sub: argparse._SubParsersAction) -> None:
 
 
 def _modify_parser(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser("modify", help="Modifier un flux")
-    p.add_argument("stream_id", help="ID du flux (retourné par add)")
+    p = sub.add_parser("modify", help="Change a stream")
+    p.add_argument("stream_id", help="Stream id (from add)")
     p.add_argument("--value", action="append", default=[])
     p.add_argument("--ttl", type=int)
     p.add_argument("--gocb-ref")
@@ -266,26 +266,26 @@ def _modify_parser(sub: argparse._SubParsersAction) -> None:
 def _update_cmd_parser(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "update-cmd",
-        help="Affiche une commande 'modify' pré-remplie pour un flux",
+        help="Print a prefilled 'modify' command for a stream",
     )
-    p.add_argument("stream_id", help="ID du flux (retourné par add ou list)")
+    p.add_argument("stream_id", help="Stream id (from add or list)")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Client CLI pour le service GOOSE. Convertit les commandes en requêtes API.",
+        description="Command line for the GOOSE service.",
     )
     parser.add_argument(
         "--service",
         default="http://localhost:7050",
-        help="URL du service (unifié: 7050, standalone: 7053)",
+        help="Service URL (unified: 7050, standalone: 7053)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     _add_parser(sub)
     _modify_parser(sub)
     _update_cmd_parser(sub)
-    sub.add_parser("list", help="Lister les flux")
-    d = sub.add_parser("delete", help="Supprimer un flux")
+    sub.add_parser("list", help="List the streams")
+    d = sub.add_parser("delete", help="Delete a stream")
     d.add_argument("stream_id")
     args = parser.parse_args()
     base_url = args.service.rstrip("/")
@@ -302,10 +302,10 @@ def main() -> None:
         elif args.command == "list":
             cmd_list(args, base_url)
     except urllib.error.URLError as e:
-        print(f"Erreur connexion au service: {e}", file=sys.stderr)
+        print(f"Cannot reach the service: {e}", file=sys.stderr)
         sys.exit(1)
     except json.JSONDecodeError as e:
-        print(f"Erreur réponse API: {e}", file=sys.stderr)
+        print(f"API error: {e}", file=sys.stderr)
         sys.exit(1)
 
 

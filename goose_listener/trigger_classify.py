@@ -1,7 +1,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Classification déclenchement GOOSE : déclenchement vs retombée via allData."""
+"""GOOSE state change classification from allData: trip or reset."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -77,11 +77,11 @@ def classify_trigger(
     curr_all_data: List[IECData],
 ) -> Tuple[str, str, str]:
     """
-    Retourne (kind, label_fr, detail).
-    kind: declenchement | retombee | initial | mixte | inconnu
+    Return (kind, label, detail).
+    kind: trip | reset | initial | mixed | unknown
     """
     if prev_all_data is None:
-        return "initial", "Premier", "pas de snapshot précédent"
+        return "initial", "First", "no previous snapshot"
 
     prev_flat = _flatten_iec_data(prev_all_data)
     curr_flat = _flatten_iec_data(curr_all_data)
@@ -121,13 +121,13 @@ def classify_trigger(
         detail += f" (+{len(details) - 4})"
 
     if rises and not falls:
-        return "declenchement", "Déclenchement", detail or f"bool↑ {', '.join(rises[:3])}"
+        return "trip", "Trip", detail or f"bool↑ {', '.join(rises[:3])}"
     if falls and not rises:
-        return "retombee", "Retombée", detail or f"bool↓ {', '.join(falls[:3])}"
+        return "reset", "Reset", detail or f"bool↓ {', '.join(falls[:3])}"
     if len(rises) > len(falls):
-        return "declenchement", "Déclenchement", detail or "transitions dominantes ↑"
+        return "trip", "Trip", detail or "mostly rising transitions ↑"
     if len(falls) > len(rises):
-        return "retombee", "Retombée", detail or "transitions dominantes ↓"
+        return "reset", "Reset", detail or "mostly falling transitions ↓"
     if rises or falls:
-        return "mixte", "Mixte", detail
-    return "inconnu", "Inconnu", detail or "aucun bool/int discriminant changé"
+        return "mixed", "Mixed", detail
+    return "unknown", "Unknown", detail or "no telling bool/int changed"

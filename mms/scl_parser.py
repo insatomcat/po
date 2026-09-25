@@ -1,13 +1,13 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Parse SCL/ICD (IEC 61850-6) pour extraire les DataSet et leurs membres (FCDA).
+"""Read the data sets and their members (FCDA) from an SCL/ICD file (IEC 61850-6).
 
-Utilisation :
+Usage:
     from scl_parser import parse_scl_data_set_members, parse_scl_data_set_members_with_components
-    labels = parse_scl_data_set_members("fichier.icd")
-    labels, components = parse_scl_data_set_members_with_components("fichier.icd")
-    # components[ds_key]["A.phsA"] = ["mag", "ang"]  (noms des composants depuis DataTypeTemplates)
+    labels = parse_scl_data_set_members("ied.icd")
+    labels, components = parse_scl_data_set_members_with_components("ied.icd")
+    # components[ds_key]["A.phsA"] = ["mag", "ang"]  (component names from DataTypeTemplates)
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 
 def _ns(tag: str) -> str:
-    """Retire le préfixe de namespace pour matcher {http://...}localName."""
+    """Strip the namespace prefix to match {http://...}localName."""
     if "}" in tag:
         return tag.split("}", 1)[1]
     return tag
@@ -29,7 +29,7 @@ def _tag(elem: ET.Element, local: str) -> bool:
 
 
 def _fcda_label(fcda: ET.Element) -> str:
-    """Libellé lisible pour un FCDA : doName ou doName.daName."""
+    """Readable label of an FCDA: doName or doName.daName."""
     do = fcda.get("doName") or fcda.get("do") or ""
     da = fcda.get("daName") or fcda.get("da") or ""
     if da:
@@ -38,7 +38,7 @@ def _fcda_label(fcda: ET.Element) -> str:
 
 
 def _fcda_do_da(fcda: ET.Element) -> Tuple[str, str]:
-    """Retourne (doName, daName) pour la résolution DataTypeTemplates. Si doName='A.phsA' sans daName, décompose en ('A', 'phsA')."""
+    """(doName, daName) for the DataTypeTemplates lookup; doName='A.phsA' without daName becomes ('A', 'phsA')."""
     do = fcda.get("doName") or fcda.get("do") or ""
     da = fcda.get("daName") or fcda.get("da") or ""
     if da:
@@ -50,7 +50,7 @@ def _fcda_do_da(fcda: ET.Element) -> Tuple[str, str]:
 
 
 def _find_ln_type_for_fcda(ied_elem: ET.Element, fcda: ET.Element) -> str:
-    """Retourne le lnType du LN référencé par le FCDA (ldInst, lnClass, lnInst) dans cet IED."""
+    """lnType of the LN the FCDA points to (ldInst, lnClass, lnInst) in this IED."""
     fcda_ld = fcda.get("ldInst") or ""
     fcda_lnclass = fcda.get("lnClass") or ""
     fcda_lninst = fcda.get("lnInst") or ""
@@ -83,11 +83,11 @@ def _parse_data_type_templates(
     Dict[str, Dict[int, str]],
 ]:
     """
-    Parse DataTypeTemplates :
+    Read DataTypeTemplates:
 
     - LNodeType id -> { DO name -> DOType id }
     - DOType id   -> { DA name -> (DA type id, bType) }
-    - DAType id   -> [BDA names] (pour les composants mag/ang, etc.)
+    - DAType id   -> [BDA names] (for the mag/ang components, etc.)
     - EnumType id -> { ordinal(int) -> label(str) }
     """
     lnodetypes: Dict[str, Dict[str, str]] = {}
@@ -165,7 +165,7 @@ def _resolve_fcda_components(
     dotypes: Dict[str, Dict[str, Tuple[str, str]]],
     datypes: Dict[str, List[str]],
 ) -> Optional[List[str]]:
-    """Pour un FCDA (doName, daName) et un lnType, retourne la liste des noms de composants (ex. [mag, ang]) ou None."""
+    """Component names (e.g. [mag, ang]) of an FCDA (doName, daName) under an lnType, or None."""
     do_map = lnodetypes.get(ln_type)
     if not do_map:
         return None
@@ -193,8 +193,8 @@ def _resolve_fcda_enum(
     enumtypes: Dict[str, Dict[int, str]],
 ) -> Optional[Dict[int, str]]:
     """
-    Pour un FCDA (doName, daName) et un lnType, retourne un mapping enum ordinal->label
-    si le type est un EnumType ou, à défaut, applique un mapping standard pour Dbpos.
+    Enum ordinal -> label mapping of an FCDA (doName, daName) under an lnType, when
+    its type is an EnumType; the standard Dbpos mapping otherwise, if it applies.
     """
     do_map = lnodetypes.get(ln_type)
     if not do_map:
@@ -210,12 +210,12 @@ def _resolve_fcda_enum(
         return None
     da_type, btype = da_info
 
-    # Cas 1 : DA.type référence directement un EnumType
+    # Case 1: DA.type names an EnumType
     mapping = enumtypes.get(da_type)
     if mapping:
         return mapping
 
-    # Cas 2 : bType standard Dbpos (double bit position) → mapping IEC 61850
+    # Case 2: standard Dbpos bType (double point position), IEC 61850 mapping
     if btype.lower() == "dbpos":
         return {
             0: "intermediate",
@@ -228,7 +228,7 @@ def _resolve_fcda_enum(
 
 
 def _data_set_keys(ied_name: str, ld_inst: str, ln_class: str, ln_inst: str, ds_name: str) -> List[str]:
-    """Construit les clés possibles pour matcher report.data_set_name (formats courants)."""
+    """Keys that may match report.data_set_name (the usual formats)."""
     keys = []
     ln_part = f"{ln_class}{ln_inst}" if ln_inst and ln_inst != "0" else ln_class
     ln_variants = [ln_part]
@@ -247,11 +247,11 @@ def parse_scl_data_set_members(
     path: str | Path,
 ) -> Dict[str, List[str]]:
     """
-    Parse un fichier SCL ou ICD et retourne un dictionnaire :
-      clé = identifiant du data set (pour matcher report.data_set_name),
-      valeur = liste des libellés des membres (FCDA) dans l'ordre.
+    Read an SCL or ICD file and return a dict:
+      key = data set reference (to match report.data_set_name),
+      value = the member (FCDA) labels in order.
 
-    Plusieurs clés peuvent pointer vers la même liste (formats de nom différents).
+    Several keys may point to the same list (different name formats).
     """
     tree = ET.parse(path)
     root = tree.getroot()
@@ -313,8 +313,8 @@ def parse_scl_data_set_members_with_components(
     Dict[str, Dict[str, Dict[int, str]]],
 ]:
     """
-    Comme parse_scl_data_set_members, et en plus retourne pour chaque data set
-    les noms des composants par membre (ex. A.phsA -> [mag, ang]) depuis DataTypeTemplates.
+    Like parse_scl_data_set_members, plus the component names of each member
+    (e.g. A.phsA -> [mag, ang]) from DataTypeTemplates, per data set.
     """
     tree = ET.parse(path)
     root = tree.getroot()

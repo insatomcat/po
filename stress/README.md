@@ -1,43 +1,43 @@
-# Stress-test des nœuds (SSH + stress-ng)
+# Node stress test (SSH + stress-ng)
 
-Onglet **Stress** de `unified_ui.html` : connecte PO à un nœud hôte (nom ou adresse), découvre la topologie CPU via `seapath-alloc` (housekeeping, isolated, free logical, acteurs VM/IRQ/RT), lance `stress-ng` sur les cœurs choisis, et affiche la charge en direct.
+The **Stress** tab of `unified_ui.html` connects PO to a host node (name or address), discovers its CPU topology with `seapath-alloc` (housekeeping, isolated, free logical cores, VM/IRQ/RT actors), runs `stress-ng` on the chosen cores and shows the load live.
 
-Le but est de vérifier que l'isolation des VM d'IED tient sous charge host, en regardant les latences dans l'onglet **GOOSE Listener**.
+The point is to check that the isolation of the IED virtual machines holds under host load, by watching the delays in the **GOOSE Listener** tab.
 
-## Principe
+## How it works
 
-1. PO se connecte en **SSH** (ou en local si le nœud est la machine qui exécute `po_service`).
-2. Un script Python distant exécute `seapath-alloc` (sinon `isolcpus` / libvirt) et lit `/proc/stat`.
-3. L'UI propose des presets : **housekeeping**, **isolés libres** (`Free logical`), **hors occupés** (HK + libres : exclut VM, IRQ, conteneurs et claims `seapath-alloc`).
-4. `stress-ng` pinne le housekeeping en un masque, et chaque cœur isolé tout seul (`isolcpus` ignore un masque mixte). `seapath-run` si le cpuset SSH n'autorise pas le CPU.
-5. La carte CPU et la courbe (stressés vs housekeeping vs VM) se mettent à jour chaque seconde.
-6. L'utilisateur bascule sur **GOOSE Listener** pour voir si des Δ apparaissent.
+1. PO connects over **SSH**, or locally when the node is the machine running `po_service`.
+2. A Python script on the node runs `seapath-alloc` (or falls back on `isolcpus` and libvirt) and reads `/proc/stat`.
+3. The UI offers presets: **housekeeping**, **free isolated** (`Free logical`), **except occupied** (housekeeping plus free isolated: leaves out VMs, IRQs, containers and `seapath-alloc` claims).
+4. `stress-ng` pins the housekeeping cores with one mask and each isolated core on its own (`isolcpus` ignores a mixed mask). `seapath-run` is used when the SSH cpuset does not allow the CPU.
+5. The CPU map and the load chart (stressed, housekeeping, VM) refresh every second.
+6. Switch to **GOOSE Listener** to see whether delays appear.
 
-Le stress continue si on change d'onglet. **Arrêter** (ou l'arrêt de `po_service`) tue `stress-ng`.
+The stress keeps running when you change tabs. **Stop** (or stopping `po_service`) kills `stress-ng`.
 
-## Prérequis sur la cible
+## Requirements on the node
 
 - `python3`
-- `seapath-alloc` (recommandé, pour isolated / free / acteurs)
-- `seapath-run` (si le cpuset SSH n'inclut pas les cœurs isolés)
+- `seapath-alloc` (recommended, for isolated and free cores and the actors)
+- `seapath-run` (when the SSH cpuset does not include the isolated cores)
 - `stress-ng` (`apt install stress-ng` / `dnf install stress-ng`)
-- Accès SSH clé (recommandé) ou mot de passe
-- `virsh` si les VM sont gérées par libvirt (SEAPATH)
+- SSH access with a key (recommended) or a password
+- `virsh` when libvirt manages the VMs (SEAPATH)
 
-Quand le nœud visé est la machine qui fait tourner PO, la connexion est **locale** (pas de SSH). Cocher « Forcer SSH » si besoin.
+When the node is the machine running PO, the connection is **local** (no SSH); tick "Force SSH" to use SSH anyway.
 
 ## API (`/api/stress`)
 
-| Méthode | Chemin | Rôle |
-|---------|--------|------|
-| GET | `/status` | Session courante, charge, historique |
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/status` | Current session, load, history |
 | POST | `/connect` | `{host, port, user, identity, password, name, force_ssh}` |
 | POST | `/start` | `{cpus, workloads, cpu_load, timeout_s, key}` |
 | POST | `/stop` | `{key}` |
-| POST | `/disconnect` | `{key, stop_stress}` (défaut : le stress continue) |
-| GET/PUT | `/hosts` | Nœuds mémorisés (`stress/hosts.json`) |
+| POST | `/disconnect` | `{key, stop_stress}` (by default the stress goes on) |
+| GET/PUT | `/hosts` | Saved nodes (`stress/hosts.json`) |
 
-Workloads (le **quoi**) : `cpu` (défaut, boucles de calcul, curseur %), `cache` (L1/L2/L3), `vm` (64 Mo / worker, bande passante RAM), `switch` (changements de contexte). Tous sont pinés sur les cœurs sélectionnés (le **où**). La courbe **Occupation CPU** lit `/proc/stat`. Une seconde courbe montre les débits : misses cache (PMU / `perf`), défauts de page (`/proc/vmstat`), commutations (`/proc/stat` ctxt). `linux-perf` est optionnel pour le cache.
+Workloads (the **what**): `cpu` (default, compute loops, load slider), `cache` (L1/L2/L3), `vm` (64 MB per worker, memory bandwidth), `switch` (context switches). All are pinned to the selected cores (the **where**). The **CPU usage** chart reads `/proc/stat`. A second chart shows rates: cache misses (PMU through `perf`), page faults (`/proc/vmstat`), context switches (`ctxt` in `/proc/stat`). `linux-perf` is optional, for the cache rate.
 
 ## License
 

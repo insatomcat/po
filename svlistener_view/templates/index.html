@@ -3,7 +3,7 @@
 Copyright 2026 Florent Carli
 SPDX-License-Identifier: Apache-2.0
 -->
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -93,9 +93,9 @@ SPDX-License-Identifier: Apache-2.0
   <h1>SV Listener – Phasors U & I</h1>
   <div id="modal" class="modal-overlay" style="display:none">
     <div class="modal">
-      <h2>Choisir un svID</h2>
+      <h2>Choose an svID</h2>
       <ul class="modal-svids" id="modal-svids"></ul>
-      <button class="modal-close" id="modal-close">Fermer</button>
+      <button class="modal-close" id="modal-close">Close</button>
     </div>
   </div>
   <div id="root">
@@ -230,9 +230,9 @@ SPDX-License-Identifier: Apache-2.0
       set('stat-misses-all', String(data.misses_all ?? 0));
       set('stat-misses-win', String(data.misses_win ?? 0));
       const n = data.samples_count ?? 0;
-      set('stat-samples', n >= 96 ? `${n} échantillons (DFT OK)` : `${n} échantillons (attente 96+)`);
+      set('stat-samples', n >= 96 ? `${n} samples (DFT OK)` : `${n} samples (waiting for 96)`);
       const w = data.window ?? 10;
-      ['label-delay-win', 'label-sync-win', 'label-misses-win'].forEach(id => set(id, `Dernières ${w}s`));
+      ['label-delay-win', 'label-sync-win', 'label-misses-win'].forEach(id => set(id, `Last ${w} s`));
     }
 
     function render(data) {
@@ -240,13 +240,13 @@ SPDX-License-Identifier: Apache-2.0
       if (!data.svid) {
         root.innerHTML = `
           <div class="panel">
-            <h2>svIDs vus</h2>
+            <h2>svIDs seen</h2>
             ${data.svids && data.svids.length ? `
               <ul class="svids-list" id="svids-list-clickable">
                 ${data.svids.map(s => '<li data-svid="' + s.replace(/"/g, '&quot;') + '">' + s + '</li>').join('')}
               </ul>
-              <p class="status">Cliquez sur un svID pour l'afficher.</p>
-            ` : '<p class="status waiting">Aucun svID pour l\'instant.</p>'}
+              <p class="status">Click an svID to show it.</p>
+            ` : '<p class="status waiting">No svID yet.</p>'}
           </div>
         `;
         document.querySelectorAll('#svids-list-clickable li[data-svid]').forEach(li => {
@@ -271,12 +271,12 @@ SPDX-License-Identifier: Apache-2.0
       const iArrows = hasPhasors ? data.i_arrows : [[0,0],[0,0],[0,0]];
       const w = data.window ?? 10;
       const nc = data.samples_count ?? 0;
-      const samplesStr = nc >= 96 ? nc + ' échantillons (DFT OK)' : nc + ' échantillons (attente 96+)';
+      const samplesStr = nc >= 96 ? nc + ' samples (DFT OK)' : nc + ' samples (waiting for 96)';
 
       let html = `
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <div class="svid-badge" id="svid-badge" title="Cliquer pour changer">svID: ${data.svid}</div>
-          <button type="button" class="btn-stop" id="btn-stop" title="Revenir à la liste des flux">Arrêter</button>
+          <div class="svid-badge" id="svid-badge" title="Click to change">svID: ${data.svid}</div>
+          <button type="button" class="btn-stop" id="btn-stop" title="Back to the stream list">Stop</button>
         </div>
         <div class="layout" id="data-container">
           <div class="phasors-section">
@@ -289,18 +289,18 @@ SPDX-License-Identifier: Apache-2.0
             </div>
             <div class="sinusoids-row">
               <div class="panel">
-                <h2>U (V) – sinusoïdes</h2>
+                <h2>U (V) waveforms</h2>
                 <svg id="svg-sinus-u" viewBox="0 0 280 130"></svg>
               </div>
               <div class="panel">
-                <h2>I (A) – sinusoïdes</h2>
+                <h2>I (A) waveforms</h2>
                 <svg id="svg-sinus-i" viewBox="0 0 280 130"></svg>
               </div>
             </div>
           </div>
           <div class="right-panels">
             <div class="panel">
-              <h2>Tensions & Courants</h2>
+              <h2>Voltages and currents</h2>
               <div class="stats-grid cols-first">
                 <div class="stat"><span class="stat-label">Va</span><span class="stat-value" id="stat-va">${(data.u_mags?.[0] ?? 0).toFixed(0)} V</span></div>
                 <div class="stat"><span class="stat-label">Vb</span><span class="stat-value" id="stat-vb">${(data.u_mags?.[1] ?? 0).toFixed(0)} V</span></div>
@@ -309,7 +309,7 @@ SPDX-License-Identifier: Apache-2.0
                 <div class="stat"><span class="stat-label">Ib</span><span class="stat-value" id="stat-ib">${(data.i_mags?.[1] ?? 0).toFixed(2)} A</span></div>
                 <div class="stat"><span class="stat-label">Ic</span><span class="stat-value" id="stat-ic">${(data.i_mags?.[2] ?? 0).toFixed(2)} A</span></div>
               </div>
-              <h2 style="margin-top:16px">Déphasage U/I</h2>
+              <h2 style="margin-top:16px">U/I phase shift</h2>
               <div class="stats-grid">
                 <div class="stat"><span class="stat-label">φa</span><span class="stat-value" id="stat-pha">${data.phase_shifts ? data.phase_shifts[0].toFixed(1) + '°' : '-'}</span></div>
                 <div class="stat"><span class="stat-label">φb</span><span class="stat-value" id="stat-phb">${data.phase_shifts ? data.phase_shifts[1].toFixed(1) + '°' : '-'}</span></div>
@@ -317,39 +317,39 @@ SPDX-License-Identifier: Apache-2.0
               </div>
             </div>
             <div class="panel">
-              <h2>Délai inter-paquets (µs)</h2>
+              <h2>Inter-frame delay (µs)</h2>
               <div class="stats-grid">
-                <div class="stat"><span class="stat-label">Depuis lancement</span><span class="stat-value" id="stat-delay-all">${data.delay_all ?? '-'}</span></div>
-                <div class="stat"><span class="stat-label" id="label-delay-win">Dernières ${w}s</span><span class="stat-value" id="stat-delay-win">${data.delay_win ?? '-'}</span></div>
+                <div class="stat"><span class="stat-label">Since start</span><span class="stat-value" id="stat-delay-all">${data.delay_all ?? '-'}</span></div>
+                <div class="stat"><span class="stat-label" id="label-delay-win">Last ${w} s</span><span class="stat-value" id="stat-delay-win">${data.delay_win ?? '-'}</span></div>
               </div>
-              <h2 style="margin-top:12px">Délai seconde pile → smpCnt0 (µs)</h2>
+              <h2 style="margin-top:12px">Delay from the second to smpCnt 0 (µs)</h2>
               <div class="stats-grid">
-                <div class="stat"><span class="stat-label">Depuis lancement</span><span class="stat-value" id="stat-sync-all">${data.sync_all ?? '-'}</span></div>
-                <div class="stat"><span class="stat-label" id="label-sync-win">Dernières ${w}s</span><span class="stat-value" id="stat-sync-win">${data.sync_win ?? '-'}</span></div>
+                <div class="stat"><span class="stat-label">Since start</span><span class="stat-value" id="stat-sync-all">${data.sync_all ?? '-'}</span></div>
+                <div class="stat"><span class="stat-label" id="label-sync-win">Last ${w} s</span><span class="stat-value" id="stat-sync-win">${data.sync_win ?? '-'}</span></div>
               </div>
               <h2 style="margin-top:12px">Misses</h2>
               <div class="stats-grid">
-                <div class="stat"><span class="stat-label">Depuis lancement</span><span class="stat-value" id="stat-misses-all">${data.misses_all ?? 0}</span></div>
-                <div class="stat"><span class="stat-label" id="label-misses-win">Dernières ${w}s</span><span class="stat-value" id="stat-misses-win">${data.misses_win ?? 0}</span></div>
+                <div class="stat"><span class="stat-label">Since start</span><span class="stat-value" id="stat-misses-all">${data.misses_all ?? 0}</span></div>
+                <div class="stat"><span class="stat-label" id="label-misses-win">Last ${w} s</span><span class="stat-value" id="stat-misses-win">${data.misses_win ?? 0}</span></div>
               </div>
             </div>
             <div class="panel">
-              <h2>Paramètres</h2>
+              <h2>Settings</h2>
               <form class="config-form" id="configForm">
                 <label>
-                  <span>Rafraîchissement (s)</span>
+                  <span>Refresh (s)</span>
                   <input type="number" name="interval" min="0.1" step="0.1" value="${configCache.interval ?? 1}">
                 </label>
                 <label>
-                  <span>Fenêtre stats (s)</span>
+                  <span>Statistics window (s)</span>
                   <input type="number" name="window" min="1" step="1" value="${configCache.window ?? 10}">
                 </label>
-                <button type="submit">Appliquer</button>
+                <button type="submit">Apply</button>
               </form>
             </div>
           </div>
         </div>
-        <p class="status ok" style="margin-top:12px"><span id="stat-samples" title="Nombre d'échantillons (ASDUs) en buffer pour le calcul DFT. 96+ requis pour les phasors.">${samplesStr}</span></p>
+        <p class="status ok" style="margin-top:12px"><span id="stat-samples" title="Samples (ASDUs) buffered for the DFT; the phasors need 96 or more.">${samplesStr}</span></p>
       `;
       root.innerHTML = html;
 
@@ -387,7 +387,7 @@ SPDX-License-Identifier: Apache-2.0
         const current = data.svid;
         list.innerHTML = svids.length ? svids.map(s =>
           `<li class="${s === current ? 'selected' : ''}" data-svid="${s.replace(/"/g, '&quot;')}">${s}</li>`
-        ).join('') : '<li style="cursor:default;color:var(--muted)">Aucun svID vu</li>';
+        ).join('') : '<li style="cursor:default;color:var(--muted)">No svID seen</li>';
         list.querySelectorAll('li[data-svid]').forEach(li => {
           li.addEventListener('click', async () => {
             const svid = li.getAttribute('data-svid');

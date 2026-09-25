@@ -3,17 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Service PO unifié : MMS, GOOSE, SV Generator, SV Listener sur un seul port 7050.
+Unified PO service: MMS, GOOSE, SV Generator, SV Listener on one port (7050).
 
 Routes:
   - /healthz           -> health check
-  - /                  -> Web UI unifiée (onglets MMS | GOOSE | SV | SV Listener)
-  - /api/mms/*         -> API MMS (subscriptions, recents, logs SSE)
-  - /api/goose/*       -> API GOOSE (streams, recent, restart)
-  - /api/sv/*          -> API SV (flows, recents)
-  - /api/svview/*      -> proxy vers SV Listener (si --svview-interface)
-  - /api/gooselistener/* -> GOOSE Listener (si --svview-interface)
-  - /api/stress/*      -> Stress-test nœuds (SSH + stress-ng)
+  - /                  -> unified web UI (MMS, GOOSE, SV, SV Listener, GOOSE Listener, Stress tabs)
+  - /api/mms/*         -> MMS API (subscriptions, recents, SSE log)
+  - /api/goose/*       -> GOOSE API (streams, recent, restart)
+  - /api/sv/*          -> SV API (flows, recents)
+  - /api/svview/*      -> proxy to the SV Listener (with --svview-interface)
+  - /api/gooselistener/* -> GOOSE Listener (with --svview-interface)
+  - /api/stress/*      -> node stress test (SSH + stress-ng)
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "goose"))
 sys.path.insert(0, str(ROOT / "svgenerator"))
 
-# Import après configuration du path
+# Imports once the path is set
 import po_logging
 from mms.mms_service import SubscriptionManager
 from mms.mms_api import handle_mms, serve_logs_sse
@@ -98,7 +98,7 @@ def _handle_gooselistener_response(handler: BaseHTTPRequestHandler, result: obje
             if status == HTTPStatus.OK:
                 _send_bytes(handler, status, body, content_type)
             else:
-                _send_json(handler, status, {"error": "Erreur binaire"})
+                _send_json(handler, status, {"error": "binary payload error"})
             return
         if isinstance(body, str):
             if status == HTTPStatus.OK:
@@ -116,12 +116,12 @@ class UnifiedHandler(BaseHTTPRequestHandler):
     svview_port: int | None = None
 
     def _proxy_to_svview(self, method: str, path: str, body: bytes | None) -> bool:
-        """Proxy vers le SV Listener Flask. Retourne True si la requête a été traitée."""
+        """Proxy to the SV Listener Flask app; True when the request was handled."""
         if not path.startswith("/api/svview"):
             return False
         port = getattr(UnifiedHandler, "svview_port", None)
         if port is None:
-            _send_json(self, HTTPStatus.SERVICE_UNAVAILABLE, {"error": "SV Listener non configuré (--svview-interface)"})
+            _send_json(self, HTTPStatus.SERVICE_UNAVAILABLE, {"error": "SV Listener not configured (--svview-interface)"})
             return True
         backend_path = path[len("/api/svview"):] or "/"
         url = f"http://127.0.0.1:{port}{backend_path}"
@@ -355,34 +355,34 @@ class UnifiedHandler(BaseHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Service PO unifié (MMS, GOOSE, SV) sur le port 7050."
+        description="Unified PO service (MMS, GOOSE, SV) on port 7050."
     )
     parser.add_argument(
         "--listen-host",
         default="0.0.0.0",
-        help="Adresse d'écoute (défaut: 0.0.0.0).",
+        help="Listen address (default 0.0.0.0).",
     )
     parser.add_argument(
         "--listen-port",
         type=int,
         default=7050,
-        help="Port d'écoute (défaut: 7050).",
+        help="Listen port (default 7050).",
     )
     parser.add_argument(
         "--victoriametrics-url",
         metavar="URL",
-        help="URL VictoriaMetrics pour MMS.",
+        help="VictoriaMetrics URL for MMS reports.",
     )
     parser.add_argument(
         "--vm-batch-ms",
         type=int,
         default=5000,
-        help="Intervalle batch VM en ms (défaut: 5000).",
+        help="VictoriaMetrics batch interval in ms (default 5000).",
     )
     parser.add_argument(
         "--svview-interface",
         metavar="IFACE",
-        help="Interface réseau pour SV Listener (capture 0x88ba, onglet phasors).",
+        help="Process bus interface for the SV and GOOSE listeners.",
     )
     parser.add_argument(
         "--log-level",
@@ -408,7 +408,7 @@ def main() -> int:
         def run_svview() -> None:
             from werkzeug.serving import make_server
             srv = make_server("127.0.0.1", svview_port, svview_app, threaded=True, fd=_svview_fd)
-            sock.close()  # werkzeug a dupliqué le fd via socket.fromfd()
+            sock.close()  # werkzeug duplicated the fd with socket.fromfd()
             srv.serve_forever()
 
         t = threading.Thread(target=run_svview, daemon=True)
@@ -424,7 +424,7 @@ def main() -> int:
     )
     UnifiedHandler.manager = manager
 
-    goose = GooseService(host="127.0.0.1", port=0)  # pas de serveur HTTP
+    goose = GooseService(host="127.0.0.1", port=0)  # no HTTP server of its own
     goose.start_sender_only()
     UnifiedHandler.goose_service = goose
 

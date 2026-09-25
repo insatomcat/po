@@ -1,179 +1,101 @@
-# GOOSE Listener – Mesure des délais de déclenchement
+# GOOSE Listener: trip delay measurement
 
-Module PO pour **écouter les GOOSE** sur le bus process, **détecter les déclenchements** (changement d’état relais), mesurer le **délai net Δ** entre la réception du GOOSE et l’instant d’émission du sample SV qui démarre le défaut, et signaler les **anomalies** (délai hors seuil, défauts manquants).
+Listens to the GOOSE messages of the process bus, detects **trips** (relay state changes), measures the **net delay Δ** between the reception of the GOOSE and the SV sample that starts the fault, and reports **anomalies** (delay above threshold, missing trips).
 
-Intégré dans **`po_service`** (onglet **GOOSE Listener** de `unified_ui.html`) et utilisable en **CLI** via `goose/examples/listen_goose.py`.
+It runs inside `po_service` (GOOSE Listener tab of `unified_ui.html`) and on the command line through `goose/examples/listen_goose.py`.
 
----
+## What it is for
 
-## Objectif métier
+On a protection relay such as an SSC600, each **fault** of the simulated SV stream makes it send a trip GOOSE some 24 ms after the SV sample where the fault starts. The listener checks that this delay stays within a margin (e.g. < 40 ms) and that the trips come at the **expected cycle** of the linked SV stream (e.g. every 4 s). It gathers capture, measurement and alerts for operational diagnosis; it does not replace a full network analysis.
 
-Sur un relais type SSC600, chaque **défaut** envoie un GOOSE de déclenchement vers ~**24 ms** après le sample SV de début de défaut. L’objectif est de vérifier que ce délai reste dans une marge (ex. **< 40 ms**) et que les défauts arrivent au **cycle attendu** du flux SV lié (ex. toutes les **4 s** sur LDPX_GSI_1).
+## Measurement
 
-Le listener ne remplace pas une analyse réseau complète : il agrège capture, mesure et alertes pour le diagnostic opérationnel.
+### Reference time
 
----
+Δ is computed from the **kernel receive timestamp** of the frame (AF_PACKET), taken before any queue, so a busy Python worker does not shift it.
 
-## Principe de mesure
+### Formula
 
-### Timestamp de référence
+Each analysed stream is **linked to an SV stream** (`svID`):
 
-Le Δ est calculé à partir du **timestamp noyau** de réception de la trame (AF_PACKET), **pas** à l’heure de traitement Python (évite une dérive artificielle si la file de capture sature).
+- **automatically** when exactly one svID carries the same `DEPn` token (exact digits: `DEP5`, `DEP6` and `DEP10` differ) as the `gocbRef` (or else the `goID`);
+- **by hand** otherwise (svID list), including when 0 or several SV streams share that `DEPn`.
 
-### Formule
-
-Chaque cible d’analyse est **liée à un flux SV** (`svID`). Le lien est :
-
-- **automatique** s’il existe exactement un `svID` dont le jeton `DEPn` (chiffres exacts, `DEP5` ≠ `DEP6` ≠ `DEP10`) apparaît aussi dans le `gocbRef` (sinon le `goID`)
-- **manuel** sinon (liste déroulante svID), y compris s’il y a 0 ou plusieurs SV pour le même `DEPn`
-
-Une fois le lien fait, le listener lit sur ce flux `fault_cycle_s`, `fault_smpcnt` et `fault_offset_s` **au lancement de l’analyse**, puis fige ces valeurs pour toute la session. Un changement côté générateur SV (cycle, smpCnt, offset, svID) n’est pris en compte qu’au prochain **Lancer l’analyse**.
+The listener reads `fault_cycle_s`, `fault_smpcnt` and `fault_offset_s` of that SV flow **when the analysis starts** and keeps them for the session; a change on the SV generator side applies at the next start.
 
 ```
 phase     = offset_s + smpCnt / 4800
-t_ref     = multiple de cycle le plus proche de ts_rx, décalé de phase
-Δ brut    = (ts_rx - t_ref) × 1000   (en ms)
-Δ net     = Δ brut - temporisation_ms
+t_ref     = the multiple of the cycle closest to ts_rx, shifted by phase
+raw Δ     = (ts_rx - t_ref) × 1000   (ms)
+net Δ     = raw Δ - delay_ms
 ```
 
-`smpCnt 0` reste aligné sur la seconde pile côté générateur. Sans lien SV, le Δ retombe sur la pile (`floor(ts_rx)`) et la détection de manquants est inactive.
+`smpCnt 0` is on the second boundary on the generator side. Without an SV link, Δ falls back to the second (`floor(ts_rx)`) and missing trips are not detected. `delay_ms` is set per analysed stream (protection time delay to subtract).
 
-La **temporisation** (ms) est configurable par flux analysé (protection / paramètre relais à soustraire).
+Typical values:
 
-### Exemple typique (LDPX_GSI_1)
+| Event | Fraction of the second | Net Δ (~) |
+|-------|------------------------|-----------|
+| Trip (sqNum=0) | `.023` | ~24 ms |
+| Reset | `.136` | ~136 ms (expected, not a trip anomaly) |
+| Retransmission sqNum=4 alone | `.131` | ~131 ms: sqNum ≠ 0, frames were lost by the capture |
 
-| Événement | Fraction dans la seconde | Δ net (~) |
-|-----------|--------------------------|-----------|
-| Défaut (sqNum=0) | `.023` | ~24 ms |
-| Fin défaut | `.136` | ~136 ms (normal, pas une anomalie de déclenchement) |
-| Retransmission sqNum=4 seule | `.131` | ~131 ms → **sqNum≠0**, indique des paquets ratés en capture |
+## Trip detection
 
----
+A GOOSE **trip** is detected when `stNum` increases and `sqNum == 0` (the first frame of the IEC 61850 burst).
 
-## Détection d’un déclenchement
+**Tolerant mode**: the capture sometimes loses sqNum=0 (the 0 to 3 burst lasts a few ms). The service and `--problem-diag` then take the **first frame seen** of a new stNum. The Problems panel shows the sqNum used: when it is not 0, the Δ cannot be trusted.
 
-Un **déclenchement GOOSE** est détecté quand :
+**Classification** (`trigger_classify.py`) compares `allData` with the previous snapshot of the same stream:
 
-1. **`stNum` augmente** (nouvel état sur le GCB)
-2. Et **`sqNum == 0`** (première trame de la rafale IEC 61850)
-
-### Mode tolérant (`lenient`)
-
-En capture, le **`sqNum=0`** est parfois perdu (rafale 0→3 en quelques ms). Le mode tolérant accepte alors le **premier cadre vu** d’un nouveau `stNum` comme déclenchement.
-
-- Utilisé par le **service** (`goose_listener_service`) et le CLI en `--problem-diag`
-- Le panneau **Problèmes** affiche le **`sqNum`** utilisé : si **≠ 0**, la mesure Δ n’est pas fiable (paquets manqués)
-
-### Classification Défaut / Fin défaut
-
-Via `trigger_classify.py`, comparaison du **`allData`** avec le snapshot précédent sur le même flux :
-
-| Transition `allData` | Type |
+| `allData` transition | Kind |
 |----------------------|------|
-| `bool` false → true (ou entier 0 → ≠0) | **Défaut** |
-| `bool` true → false (ou entier ≠0 → 0) | **Fin défaut** |
-| Premier événement | **Premier** |
-| Les deux sens | **Mixte** |
-| Rien de discriminant | **Inconnu** |
+| bool false → true (or integer 0 → non-zero) | `trip` |
+| bool true → false (or integer non-zero → 0) | `reset` |
+| First event | `initial` |
+| Both directions | `mixed` |
+| Nothing telling | `unknown` |
 
-Les alertes **Δ > seuil** et la détection de **manquants** ne portent que sur les événements **Défaut**.
+Δ > threshold alerts and missing-trip detection only concern `trip` events.
 
----
-
-## Architecture
+## Layout
 
 ```
 goose_listener/
-├── goose_listener_service.py   # Capture, scan, analyse, histogramme, problèmes
-├── goose_listener_api.py       # Routes REST pour po_service
-├── goose_ring_pcap.py          # Tampon glissant GOOSE + export PCAP
-├── trigger_classify.py         # Classification défaut / fin défaut
-├── dumps/                      # PCAP auto (4 s avant chaque problème, gitignored)
-├── analysis_state.json         # (généré) mappings + relance analyse au restart
-└── README.md                   # Ce fichier
-
-goose/goose61850/transport.py   # GooseSubscriber (capture partagée, file bytes bruts)
-goose/examples/listen_goose.py  # CLI diagnostic et écoute
-unified_ui.html                 # Onglet GOOSE Listener
+├── goose_listener_service.py   # scan, analysis, histogram, problems
+├── goose_listener_api.py       # REST routes for po_service
+├── goose_ring_pcap.py          # sliding GOOSE buffer and PCAP export
+├── trigger_classify.py         # trip / reset classification
+├── dumps/                      # automatic PCAPs (4 s before each problem, ignored by git)
+└── analysis_state.json         # (generated) mappings, analysis restarted after a service restart
 ```
 
-### Capture réseau
+GOOSE frames come from the shared capture (`processbus_capture.py`) through `goose61850.transport.GooseSubscriber`, as raw bytes in a queue decoded by a worker thread. During an analysis, the last 4 seconds of GOOSE traffic stay in memory; each new problem writes a PCAP-NG file to `goose_listener/dumps/`.
 
-- Interface : celle passée à `po_service` via **`--svview-interface`** (souvent `processbus`)
-- **Filtre kernel** : trames GOOSE uniquement (`0x88b8`, avec ou sans tag VLAN)
-- **Capture partagée** `processbus_capture` (anneau AF_PACKET TPACKET_V3) + **file d’attente** (`bytes` bruts, pas d’objet Scapy)
-- **Worker** dédié : décodage GOOSE hors thread de capture
-- **Fiabilité** : compteurs `drops`, file, NIC (`rx_missed_errors`) ; analyse marquée **non fiable** si perte depuis le début de session
-- **Tampon PCAP** : pendant l’analyse, les **4 dernières secondes** de trafic GOOSE sont conservées en mémoire ; à chaque **nouveau** problème détecté, un fichier `.pcap` est écrit dans `goose_listener/dumps/` (téléchargeable via le bouton **PCAP** ou `GET /api/gooselistener/analysis/dumps/{id}/pcap`)
-- Le timestamp de mesure est celui du noyau, pris avant la file d’attente
+| Manager mode | Behaviour |
+|--------------|-----------|
+| `idle` | No processing (the capture may stop) |
+| `scan` | Counts frames per `(gocbRef, goID)` for N seconds |
+| `analyze` | Measures Δ and detects problems on the selected streams |
 
-### Modes du gestionnaire
+## Running it
 
-| Mode | Comportement |
-|------|----------------|
-| `idle` | Pas de traitement (capture peut s’arrêter) |
-| `scan` | Compte les trames par `(gocbRef, goID)` pendant N secondes |
-| `analyze` | Mesure Δ et détecte problèmes sur les cibles sélectionnées |
-
----
-
-## Activation
-
-Le GOOSE Listener est activé automatiquement quand `po_service` est lancé avec une interface réseau :
+The listener is on when `po_service` gets a capture interface:
 
 ```bash
-python3 po_service.py --svview-interface processbus --port 7050
+sudo python3 po_service.py --svview-interface eth1
 ```
 
-Ou via le service systemd (`po-service.service`) avec `SVVIEW_INTERFACE=processbus`.
+(or `SVVIEW_INTERFACE` in the systemd unit). Without it the tab says "not configured" and the API answers 503.
 
-Sans `--svview-interface` : l’onglet affiche « non configuré » et l’API répond **503**.
+## Web UI (GOOSE Listener tab)
 
----
+- **Scan**: listens to every GOOSE for a while (5 s by default) and lists the streams; filter by gocbRef, goID or APPID; add the selection to the analysis.
+- **Analysis**: targets `(gocbRef, goID, svID, delay_ms)`, svID found through `DEPn` or chosen by hand; display filter **trips only** or **all events**; start / stop.
+- **Problems**: threshold Δ (ms, default 40; alert when the net Δ exceeds it). Kinds: `delay_exceeded` (sqNum column: 0 is fine, anything else means an incomplete capture) and `missing` (a gap in the trip cycle, with the GOOSE received between the two trips). The last 50 are shown; the session list is kept independently of the 10,000-event buffer. **Download (.txt)** exports all of them, **Clear** empties the list and its PCAPs (histogram and events stay), **Simulate a delay** injects a fake trip above the threshold on a random analysed stream, without sending anything on the bus.
+- **Histogram and last events**: the API returns the raw Δ per stream (`histogram_series`); the browser bins them by 1 ms. The last 50 events are shown; **Download (.txt)** exports the up to 10,000 in memory.
 
-## Interface web (onglet GOOSE Listener)
-
-### Découverte
-
-- **Scan** : écoute tous les GOOSE pendant une durée (défaut 5 s), liste les flux vus
-- Filtre de recherche (gocbRef, goID, APPID)
-- Bouton **Masquer / Afficher** pour replier le panneau
-- Sélection → **Ajouter la sélection** vers la liste d’analyse
-
-### Analyse
-
-- Cibles : `(gocbRef, goID, svID, temporisation_ms)` ; svID auto via DEPn, ou choisi a la main
-- Filtre d’affichage : **défauts seuls** ou **tous les événements**
-- **Lancer / Arrêter** l’analyse
-
-### Problèmes
-
-Paramètres :
-
-| Paramètre | Défaut | Rôle |
-|-----------|--------|------|
-| Seuil Δ (ms) | 40 | Alerte si Δ net > seuil (sur **sqNum=0** uniquement) |
-
-Le **cycle défaut** n’est plus global : il vient du flux SV lié à chaque cible.
-
-Types d’anomalies :
-
-- **`delay_exceeded`** : Δ net > seuil sur un défaut (colonne **sqNum** : 0 = OK, ≠0 = capture incomplète)
-- **`missing`** : trou dans le cycle défaut ; détail des GOOSE reçus entre les deux défauts
-
-Affichage : **50 derniers** problèmes, **~10 lignes visibles** avec défilement.  
-Les problèmes sont **accumulés dans une liste RAM dédiée** (`_problems_ram`) à la **réception de chaque déclenchement** (même chemin que l'histogramme), puis conservés pour toute la session - indépendamment de la rotation des 10 000 événements.  
-Bouton **Télécharger (.txt)** : export de **tous** les problèmes de la session.
-Bouton **Vider** : efface **uniquement** la liste des problèmes (et les PCAP associés). Histogramme et événements restent ; l’analyse continue.
-Bouton **Simuler un retard** : injecte un déclenchement fictif avec Δ > seuil sur un flux d'analyse tiré au sort, **sans envoyer de GOOSE** sur le process bus (démo du panneau, de l'événement et du PCAP des 4 dernières secondes de trafic réel).
-
-### Histogramme & derniers événements
-
-- L’API expose `histogram_series` : liste des **Δ bruts** par flux (`values[]`). L’**agrégation en barres** (pas 1 ms) est faite dans le navigateur (`glBuildHistogram` dans `unified_ui.html`), pas dans `po_service`.
-- **50 derniers** événements en mémoire affichés, **~10 lignes visibles** avec scroll
-- Bouton **Télécharger (.txt)** : export de **tous** les événements en RAM (jusqu’à 10 000)
-
-### Métriques de debug (API `/status`)
+### Capture health (`GET /status`)
 
 ```json
 "capture": {
@@ -183,232 +105,115 @@ Bouton **Simuler un retard** : injecte un déclenchement fictif avec Δ > seuil 
   "packets": 1234,
   "reliable": true,
   "invalid_reason": null,
+  "kernel_drop_delta": 0,
   "nic": { "rx_missed_errors": 0 },
   "nic_delta_since_analysis_start": {}
 }
 ```
 
-- `queue_size` > 100 → traitement en retard (mesure non fiable)
-- `drops_since_analysis_start` > 0 → paquets GOOSE perdus (file Python pleine)
-- `nic_delta_since_analysis_start.rx_missed_errors` > 0 → pertes noyau/NIC avant la socket de capture
-- `reliable: false` → problème `capture_unreliable` ; les Δ ne sont pas validables
-- Au démarrage (ou après restart de `po_service`), le suivi des pertes attend ~2 s que la socket de capture soit chaude, pour ne pas marquer la session non fiable à cause du burst d'ouverture
+- `queue_size` > 100: processing lags behind (measurement not reliable).
+- `drops_since_analysis_start` > 0: GOOSE frames lost (Python queue full).
+- `kernel_drop_delta` > 0: frames the capture socket could not take.
+- `nic_delta_since_analysis_start.rx_missed_errors` > 0: losses in the NIC or kernel, before the socket.
+- `reliable: false`: a `capture_unreliable` problem; the Δ values cannot be trusted.
+- After a (re)start, loss tracking waits ~2 s for the socket to warm up.
 
-Chaque événement expose aussi `processing_lag_ms` (écart traitement − réception noyau).
+Each event also carries `processing_lag_ms` (processing time minus kernel receive time).
 
----
+## Memory and persistence
 
-## Stockage en mémoire
+| Structure | Size | Kept |
+|-----------|------|------|
+| `_events` | 10,000 events (`deque`) | RAM; oldest dropped |
+| `_problems_ram` | session list, unbounded | RAM, filled on detection |
+| `_hist_*_buckets` | counters per Δ bin | whole session |
+| `analysis_state.json` | targets (with svID), filter, threshold | disk |
 
-| Structure | Capacité | Persistance |
-|-----------|----------|-------------|
-| `_events` | **10 000** événements max (`deque`) | RAM uniquement ; les plus anciens sont éjectés |
-| `_problems_ram` | Liste session (sans plafond) | Accumulation à la détection ; non liée à `_events` |
-| `_hist_*_buckets` | Compteurs par bin Δ | Session entière (comme les problèmes) |
-| Panneau UI | 50 derniers affichés | - |
-| Export `.txt` événements | Tout le contenu de `_events` | Téléchargement navigateur |
-| Export `.txt` problèmes | Tout `_problems_ram` | Téléchargement navigateur |
-| `analysis_state.json` | Config d'analyse (cibles dont svID, filtre, seuil) | Disque ; mappings restaurés au restart ; analyse relancée si elle tournait |
+- A **new analysis** clears events, histogram and problems.
+- **Stop** keeps the mappings, and the analysis does not restart with the service.
+- A **service restart** loses the history but restores the mappings, and restarts the analysis if it was running.
 
-- **Nouvelle analyse** : événements, histogramme et problèmes effacés
-- **Arrêt explicite** (bouton Arrêter) : l'analyse ne redémarre pas au prochain `po_service`, mais les mappings (gocbRef / goID / svID / temporisations) sont conservés
-- **Redémarrage `po_service`** : historique (trips, problèmes, histogramme) perdu ; les mappings du panneau Analyse sont restaurés ; si l'analyse était en cours, elle est relancée
+## REST API (`/api/gooselistener`)
 
----
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/status` | Scan, analysis and capture state |
+| POST / GET | `/scan` | Start a scan `{"duration_s": 5}` / its state |
+| POST | `/analysis/start` | Start the analysis (body below) |
+| POST | `/analysis/targets` | Save the mappings without starting |
+| POST | `/analysis/stop` | Stop |
+| POST | `/analysis/reset` | Clear events, histogram and problems (the analysis goes on) |
+| POST | `/analysis/problems/clear` | Clear only the problems and their PCAPs |
+| GET | `/analysis` | Events, histogram, problems |
+| POST | `/analysis/filter` | `{"event_filter": "trips_only" \| "all"}` |
+| POST | `/analysis/problems` | `{"threshold_ms": 40}` |
+| POST | `/analysis/demo-delay` | Inject a demo `delay_exceeded` (nothing sent on the bus) |
+| GET | `/analysis/events/export`, `/analysis/problems/export` | Text exports |
+| GET | `/analysis/dumps`, `/analysis/dumps/{id}/pcap` | Automatic PCAPs |
 
-## API REST
-
-Base : **`/api/gooselistener`**
-
-| Méthode | Chemin | Description |
-|---------|--------|-------------|
-| GET | `/status` | État global (scan + analyse + `capture.queue_size` / `drops`) |
-| POST | `/scan` | Démarre un scan `{ "duration_s": 5 }` |
-| GET | `/scan` | État du scan |
-| POST | `/analysis/start` | Démarre l’analyse (voir corps ci-dessous) |
-| POST | `/analysis/targets` | Persiste le tableau de mappings (sans lancer l’analyse) |
-| POST | `/analysis/stop` | Arrête l’analyse |
-| POST | `/analysis/reset` | Efface événements, histogramme et problèmes (l’analyse continue) |
-| POST | `/analysis/problems/clear` | Efface uniquement la liste des problèmes et les PCAP associés (l’analyse continue) |
-| GET | `/analysis` | État analyse (événements, histogramme, problèmes) |
-| POST | `/analysis/filter` | `{ "event_filter": "defauts_only" \| "all" }` |
-| POST | `/analysis/problems` | `{ "threshold_ms": 40 }` |
-| POST | `/analysis/demo-delay` | Injecte un `delay_exceeded` de démo (analyse en cours, pas d'émission GOOSE) |
-| GET | `/analysis/events/export` | Téléchargement texte de tous les événements en RAM |
-| GET | `/analysis/problems/export` | Téléchargement texte de tous les problèmes |
-| GET | `/analysis/dumps` | Liste des PCAP auto (ring buffer 4 s) |
-| GET | `/analysis/dumps/{id}/pcap` | Téléchargement binaire d’un dump PCAP |
-
-### Exemple : démarrer une analyse
+The older filter names `declenchements_only` and `defauts_only` are still accepted.
 
 ```bash
 curl -s -X POST http://127.0.0.1:7050/api/gooselistener/analysis/start \
   -H 'Content-Type: application/json' \
   -d '{
-    "event_filter": "defauts_only",
+    "event_filter": "trips_only",
     "targets": [
-      {
-        "gocb_ref": "IED01LD0/LLN0$GO$CB_LDPX_GSI_1",
-        "go_id": "LDPX_GSI_1",
-        "svid": "LDTM1_SVI_1",
-        "svid_manual": true,
-        "delay_ms": 0
-      }
+      {"gocb_ref": "IED01LD0/LLN0$GO$CB_LDPX_GSI_1", "go_id": "LDPX_GSI_1",
+       "svid": "IED01_SV1", "svid_manual": true, "delay_ms": 0}
     ]
   }'
 ```
 
-Configurer les problèmes au démarrage ou en cours :
+## Command line (`goose/examples/listen_goose.py`)
 
 ```bash
-curl -s -X POST http://127.0.0.1:7050/api/gooselistener/analysis/problems \
-  -H 'Content-Type: application/json' \
-  -d '{"threshold_ms": 40}'
-```
-
----
-
-## CLI `listen_goose.py`
-
-Chemin : `goose/examples/listen_goose.py`
-
-### Écoute simple (filtres affichage)
-
-```bash
-python3 goose/examples/listen_goose.py processbus \
-  --app-id 0x150A \
-  --go-id 'LDPX_GSI_1' \
-  --sqnum-zero --bool-true
-```
-
-`--sqnum-zero` et `--bool-true` filtrent l’**affichage** uniquement ; la capture traite toujours toutes les trames correspondant au BPF.
-
-### Mesure des délais
-
-```bash
-python3 goose/examples/listen_goose.py processbus \
-  --app-id 0x150A \
-  --gocb-ref 'IED01LD0/LLN0$GO$CB_LDPX_GSI_1' \
-  --go-id 'LDPX_GSI_1' \
-  --measure-delay --triggers-only
-```
-
-### Diagnostic anomalies (capture directe)
-
-```bash
-python3 goose/examples/listen_goose.py processbus \
-  --app-id 0x150A \
-  --gocb-ref 'IED01LD0/LLN0$GO$CB_LDPX_GSI_1' \
-  --go-id 'LDPX_GSI_1' \
+# Display filters only (--sqnum-zero, --bool-true)
+sudo python3 goose/examples/listen_goose.py eth1 --app-id 0x150A --go-id LDPX_GSI_1 --sqnum-zero --bool-true
+# Delays
+sudo python3 goose/examples/listen_goose.py eth1 --app-id 0x150A --go-id LDPX_GSI_1 --measure-delay --triggers-only
+# Silent diagnosis: short alert on Δ > threshold, detailed report on missing trips
+sudo python3 goose/examples/listen_goose.py eth1 --app-id 0x150A --go-id LDPX_GSI_1 \
   --problem-diag --problem-cycle 4 --problem-threshold 40
+# sqNum burst audit: is sqNum=0 received first for each stNum?
+sudo python3 goose/examples/listen_goose.py eth1 --app-id 0x150A --go-id LDPX_GSI_1 --measure-delay --audit-triggers
+# While the UI analysis runs: read its problems instead of capturing again
+python3 goose/examples/listen_goose.py eth1 --from-api http://127.0.0.1:7050 --problem-diag
 ```
 
-Silencieux si OK ; alertes compactes sur Δ > seuil ; rapport détaillé sur manquants.
+`--problem-cycle` is for the command line only; the service takes the cycle of the linked SV flow.
 
-### Audit des rafales sqNum
+## Capture: practice and troubleshooting
+
+`processbus_capture.py` opens **one AF_PACKET socket per interface** with a kernel filter that follows the subscribers:
+
+| Active subscribers | Kernel filter |
+|--------------------|---------------|
+| GOOSE only | `0x88b8` (the thousands of SV frames per second stay in the kernel) |
+| SV only | `0x88ba` |
+| GOOSE and SV | both |
+
+The session is marked unreliable on socket drops (`kernel_drop`) or Python queue drops, not on the interface `rx_dropped` counter (global to the bus, it can grow while the GOOSE capture is fine). Avoid a second capture next to the service (heavy `tcpdump`, a direct `listen_goose`); use `--from-api`.
+
+The PCAP-NG dumps have absolute epoch timestamps. Wireshark shows the time relative to the first frame by default: use View, Time Display Format, Date and Time of Day to match the problem time of the UI. Each file carries a comment (capture file properties) and a `{id}.meta.json` sidecar with `problem_time_local` and the capture window.
+
+**Frames lost in the burst (sqNum 0 to 3)**: only sqNum=4 shows (~131 ms), or whole cycles are missing. Compare with the kernel:
 
 ```bash
-python3 goose/examples/listen_goose.py processbus \
-  --app-id 0x150A --go-id 'LDPX_GSI_1' \
-  --measure-delay --audit-triggers
+tcpdump -i eth1 -nn -t 'ether proto 0x88b8 and ether[14:2]=0x150a'
 ```
 
-Vérifie pour chaque `stNum` si `sqNum=0` est bien reçu en premier.
+If `tcpdump` sees sqNum 0 to 4 and PO does not, look at PO (APPID filter, no double capture); if `tcpdump` also sees only sqNum=4, the interface or kernel buffers are overloaded.
 
-### Mode API (GUI déjà active)
+**Trip cycle and GOOSE interval**: a stream may send a GOOSE (trip then reset) every ~2 s while trips come every ~4 s; the cycle is that of the trips (`fault_cycle_s` of the SV flow).
 
-Quand `po_service` capture déjà `processbus`, **ne pas** lancer une deuxième capture CLI (deux captures en parallèle → trames perdues). Utiliser :
+**A Δ of ~130 ms** usually means the measurement used sqNum=4: check the sqNum column of the Problems panel.
 
-```bash
-python3 goose/examples/listen_goose.py processbus \
-  --from-api http://127.0.0.1:7050 --problem-diag
-```
+## Requirements
 
-Même source de problèmes que l’onglet GUI.
-
-### Options CLI utiles
-
-| Option | Description |
-|--------|-------------|
-| `--app-id 0x150A` | Filtre par APPID (fortement recommandé sur `processbus`) |
-| `--measure-delay` | Calcule Δ net sur déclenchements |
-| `--triggers-only` | N’affiche que les déclenchements (pas les retransmissions) |
-| `--problem-diag` | Mode diagnostic silencieux |
-| `--problem-cycle` | Cycle défaut attendu (s), CLI standalone uniquement (le service utilise le cycle du flux SV lié) |
-| `--problem-threshold` | Seuil Δ (ms) |
-| `--from-api URL` | Lit les problèmes via `po_service` |
-| `--sqnum-zero` / `--bool-true` | Filtres affichage |
-
----
-
-## Capture : bonnes pratiques et dépannage
-
-### Capture unique `processbus` (GOOSE + SV)
-
-`processbus_capture.py` : **une socket AF_PACKET** par interface, **filtre kernel adaptatif** :
-
-| Abonnés actifs | Filtre kernel |
-|----------------|---------------|
-| GOOSE seul | `0x88b8` uniquement - le trafic SV (~2400 pkt/s) n’est **pas** copié vers Python |
-| SV seul | `0x88ba` uniquement |
-| GOOSE + SV | les deux |
-
-**Fiabilité** : invalidation sur les pertes de la socket (`kernel_drop`) / file Python, pas sur `rx_dropped` interface (compteur global du bus, peut monter même si la capture GOOSE est saine).
-
-Éviter toutefois une **deuxième** capture externe (`tcpdump` lourd, CLI `listen_goose` direct en double). Préférer **`--from-api`** si l’analyse GUI tourne.
-
-Pendant l’analyse GOOSE, le multiplexeur conserve un **ring buffer** des 4 dernières secondes : équivalent à un `tcpdump` continu, mais sans processus séparé. Chaque problème (manquant, Δ hors seuil, capture non fiable…) déclenche un snapshot PCAP exploitable avec Wireshark / `tcpdump -r`.
-
-Les dumps sont au format **PCAP-NG** avec **timestamps epoch absolus** (microsecondes depuis 1970, comme libpcap). Wireshark affiche par défaut le temps **relatif au premier paquet** (0,000 s) : pour corréler avec l’heure du problème dans l’UI, passer la colonne Time en **View → Time Display Format → Date and Time of Day**. Le fichier embarque aussi un **commentaire** (propriétés du fichier) et un sidecar `{id}.meta.json` avec `problem_time_local` et la fenêtre de capture.
-
-### Perte de paquets dans la rafale (sqNum 0–3)
-
-Symptômes :
-
-- Seul **sqNum=4** visible (~131 ms)
-- Trous dans la séquence `stNum` (cycles entiers manquants)
-
-Vérification :
-
-```bash
-# Référence kernel (indépendante de Python)
-tcpdump -i processbus -nn -t \
-  'ether proto 0x88b8 and ether[14:2]=0x150a'
-```
-
-Si `tcpdump` voit sqNum 0–4 mais pas le CLI → optimiser la stack PO (BPF, `--app-id`, pas de double capture).  
-Si `tcpdump` aussi ne voit que sqNum=4 → surcharge interface / buffers kernel.
-
-### Cycle défaut vs intervalle GOOSE
-
-Le cycle défaut de chaque flux vient du générateur SV lié (`fault_cycle_s`). Sur LDPX, un **GOOSE** (défaut + fin défaut) peut arriver toutes les **~2 s**, mais un **défaut** seulement toutes les **~4 s**.
-
-### Faux Δ ~130 ms
-
-Souvent :
-
-- Mesure sur **sqNum=4** (paquets 0–3 perdus) → vérifier colonne **sqNum** dans Problèmes
-
----
-
-## Dépendances
-
-- **Linux**, root ou CAP_NET_RAW pour la capture (`iec61850.capture`) ; **scapy** reste utilisé pour la publication
-- **goose61850** (décodage PDU, dans `goose/`)
-- **iec_data.py** (types `allData`, racine du dépôt)
-- Même interface réseau que le SV Listener (`--svview-interface`)
-
----
-
-## Fichiers liés
-
-| Fichier | Rôle |
-|---------|------|
-| [po_service.py](../po_service.py) | Monte l’API `/api/gooselistener/*` |
-| [unified_ui.html](../unified_ui.html) | Onglet GOOSE Listener |
-| `analysis_state.json` | (généré) mappings Analyse + relance après restart de `po_service` |
-| [goose/examples/listen_goose.py](../goose/examples/listen_goose.py) | CLI |
-| [goose/goose61850/transport.py](../goose/goose61850/transport.py) | Capture (BPF, file, `run_until`) |
+- Linux, root or `CAP_NET_RAW` for the capture (`iec61850.capture`)
+- `goose61850` (in `goose/`) and `iec_data.py` (repository root)
+- The same interface as the SV Listener (`--svview-interface`)
 
 ## License
 

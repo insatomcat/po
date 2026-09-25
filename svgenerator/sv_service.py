@@ -35,82 +35,82 @@ SMP_PER_SEC = 4800
 
 class FlowConfig(BaseModel):
     """
-    Configuration persistée pour un flux SV.
+    Saved configuration of an SV flow.
     """
 
-    name: str = Field(..., description="Nom unique du flux")
-    interface: str = Field(..., description="Interface réseau (ex: eth0)")
-    src_mac: str = Field(..., description="Adresse MAC source aa:bb:cc:dd:ee:ff")
-    dst_mac: str = Field(..., description="Adresse MAC destination")
-    svid: str = Field(..., description="svID (nom logique du flux)")
-    appid: int = Field(..., ge=0, le=0xFFFF, description="APPID SV obligatoire 0-65535")
-    conf_rev: int = Field(..., ge=0, le=0xFFFFFFFF, description="confRev obligatoire 0-4294967295")
+    name: str = Field(..., description="Unique flow name")
+    interface: str = Field(..., description="Network interface (e.g. eth0)")
+    src_mac: str = Field(..., description="Source MAC address aa:bb:cc:dd:ee:ff")
+    dst_mac: str = Field(..., description="Destination MAC address")
+    svid: str = Field(..., description="svID (logical name of the stream)")
+    appid: int = Field(..., ge=0, le=0xFFFF, description="SV APPID, required, 0-65535")
+    conf_rev: int = Field(..., ge=0, le=0xFFFFFFFF, description="confRev, required, 0-4294967295")
 
-    # Paramètres temps-réel passés à rt_sender
+    # Real-time parameters passed to rt_sender
     smp_synch: int = Field(
-        0, description="smpSynch (0=None,1=Local,2=Global) pour --smp-synch"
+        0, description="smpSynch (0=None, 1=Local, 2=Global) for --smp-synch"
     )
     vlan_id: Optional[int] = Field(
-        None, description="VLAN ID 0-4095 pour --vlan-id (None = pas de VLAN)"
+        None, description="VLAN ID 0-4095 for --vlan-id (None = no VLAN)"
     )
     vlan_priority: int = Field(
-        0, description="Priorité VLAN 0-7 pour --vlan-priority"
+        0, description="VLAN priority 0-7 for --vlan-priority"
     )
-    freq_hz: float = Field(50.0, description="Fréquence en Hz pour --freq")
-    i_peak: float = Field(10.0, description="Courant crête en A pour --i-peak")
-    v_peak: float = Field(100.0, description="Tension crête en V pour --v-peak")
-    phase_deg: float = Field(0.0, description="Déphasage I/V en degrés pour --phase")
+    freq_hz: float = Field(50.0, description="Frequency in Hz for --freq")
+    i_peak: float = Field(10.0, description="Peak current in A for --i-peak")
+    v_peak: float = Field(100.0, description="Peak voltage in V for --v-peak")
+    phase_deg: float = Field(0.0, description="I/V phase shift in degrees for --phase")
 
     fault: bool = Field(
         False,
-        description="Active le mode défaut (--fault); autres paramètres facultatifs",
+        description="Enable the fault mode (--fault); the other parameters are optional",
     )
     fault_i_peak: Optional[float] = Field(
-        None, description="Courant crête en défaut pour --fault-i-peak"
+        None, description="Peak fault current for --fault-i-peak"
     )
     fault_v_peak: Optional[float] = Field(
-        None, description="Tension crête en défaut pour --fault-v-peak"
+        None, description="Peak fault voltage for --fault-v-peak"
     )
     fault_phase_deg: Optional[float] = Field(
-        None, description="Phase défaut en degrés pour --fault-phase"
+        None, description="Fault phase in degrees for --fault-phase"
     )
     fault_cycle_s: int = Field(
         2,
         ge=1,
-        description="Période entre débuts de défaut (secondes entières) pour --fault-cycle",
+        description="Period between fault starts (whole seconds) for --fault-cycle",
     )
     fault_smpcnt: int = Field(
         0,
         ge=0,
         le=SMP_PER_SEC - 1,
-        description="smpCnt du premier échantillon en défaut (0 = seconde pile)",
+        description="smpCnt of the first fault sample (0 = on the second)",
     )
     fault_offset_s: int = Field(
         0,
         ge=0,
-        description="Décalage en secondes du début de défaut dans le cycle (0 = même seconde que les autres flux de même cycle)",
+        description="Offset in seconds of the fault start within the cycle (0 = same second as the other flows with the same cycle)",
     )
 
-    # Allocation CPU temps réel (seapath-alloc ou fallback taskset/chrt)
+    # Real-time CPU allocation (seapath-alloc, or taskset/chrt as fallback)
     seapath_isolation: str = Field(
         "exclusive_logical",
         description="Mode d'isolation seapath-alloc : exclusive_logical, exclusive_physical, shared",
     )
     seapath_scheduler: str = Field(
-        "FIFO", description="Ordonnanceur RT pour seapath-alloc et chrt : FIFO, RR, OTHER"
+        "FIFO", description="RT scheduler for seapath-alloc and chrt: FIFO, RR, OTHER"
     )
     seapath_priority: int = Field(
-        80, ge=0, le=99, description="Priorité RT 0-99 (0 pour OTHER, 1-99 pour FIFO/RR)"
+        80, ge=0, le=99, description="RT priority 0-99 (0 for OTHER, 1-99 for FIFO/RR)"
     )
     seapath_cpu_cores: Optional[str] = Field(
         None,
-        description="Cores CPU pour le fallback taskset (ex. '7' ou '6,7') ; ignoré si seapath-alloc disponible",
+        description="CPU cores for the taskset fallback (e.g. '7' or '6,7'); ignored when seapath-alloc is available",
     )
 
 
 class FlowState(BaseModel):
     """
-    État courant exposé par l'API.
+    Current state exposed by the API.
     """
 
     name: str
@@ -143,9 +143,9 @@ class FlowState(BaseModel):
 
 class FlowRuntime:
     """
-    Conteneur interne: configuration + process rt_sender associé.
-    proc: handle du processus si lancé par nous; None si adopté (processus déjà vivant).
-    pid: PID pour les flux adoptés (proc=None) ou pour arrêter un flux lancé par nous.
+    Internal holder: configuration and its rt_sender process.
+    proc: process handle when we started it; None when adopted (process already alive).
+    pid: PID of an adopted flow (proc=None), or used to stop a flow we started.
     """
 
     def __init__(
@@ -191,7 +191,7 @@ def to_flow_state(cfg: FlowConfig, running: bool) -> FlowState:
 
 
 def migrate_flow_dict(item: dict) -> dict:
-    """Ancien fault_cycle_s = demi-période. Les nouveaux champs marquent le format actuel."""
+    """The old fault_cycle_s was a half period; the newer fields mark the current format."""
     raw = dict(item)
     new_format = "fault_smpcnt" in raw or "fault_offset_s" in raw
     if not new_format and "fault_cycle_s" in raw:
@@ -229,7 +229,7 @@ recents_lock = threading.Lock()
 
 
 def list_flows_for_listener() -> list[dict]:
-    """Flux SV du module chargé par l'API (même dict que /api/sv/flows)."""
+    """SV flows of the module loaded by the API (the dict behind /api/sv/flows)."""
     with flows_lock:
         return [
             {
@@ -245,7 +245,7 @@ def list_flows_for_listener() -> list[dict]:
 
 
 def _add_to_recents(cfg: FlowConfig) -> None:
-    """Ajoute un flux aux récents (10 uniques max, dédup par nom). Persisté sur disque."""
+    """Add a flow to the recent ones (10 at most, unique by name), saved on disk."""
     with recents_lock:
         recents.insert(0, cfg)
         seen: set[str] = set()
@@ -260,7 +260,7 @@ def _add_to_recents(cfg: FlowConfig) -> None:
 
 
 def _load_recents() -> None:
-    """Charge les récents depuis le fichier au démarrage."""
+    """Load the recent flows from their file at startup."""
     if not RECENTS_PATH.exists():
         return
     with RECENTS_PATH.open("r", encoding="utf-8") as f:
@@ -380,7 +380,7 @@ def _remove_pidfile(name: str) -> None:
 
 
 def _try_adopt_flow(cfg: FlowConfig) -> Optional[FlowRuntime]:
-    """Adopte un flux si son processus rt_sender est déjà vivant (survit au restart du service)."""
+    """Adopt a flow whose rt_sender process is still alive (it survives service restarts)."""
     pf = _pidfile_path(cfg.name)
     if not pf.exists():
         return None
@@ -409,7 +409,7 @@ def _parse_cpu_list(s: str) -> set[int]:
 
 
 def _find_free_isolated_cpu() -> Optional[int]:
-    """Retourne le premier CPU isolé non épinglé par un processus user, ou None."""
+    """First isolated CPU no user process is pinned to, or None."""
     try:
         isolated = _parse_cpu_list(
             pathlib.Path('/sys/devices/system/cpu/isolated').read_text()
@@ -428,7 +428,7 @@ def _find_free_isolated_cpu() -> Optional[int]:
         if not pid_dir.name.isdigit():
             continue
         try:
-            if not (pid_dir / 'cmdline').read_bytes():  # kthread : cmdline vide
+            if not (pid_dir / 'cmdline').read_bytes():  # kernel thread: empty cmdline
                 continue
             status = (pid_dir / 'status').read_text()
         except OSError:
@@ -436,7 +436,7 @@ def _find_free_isolated_cpu() -> Optional[int]:
         for line in status.splitlines():
             if line.startswith('Cpus_allowed_list:'):
                 allowed = _parse_cpu_list(line.split(':', 1)[1])
-                if allowed < online:  # sous-ensemble strict → processus épinglé
+                if allowed < online:  # strict subset: the process is pinned
                     busy |= allowed & isolated
                 break
 
@@ -463,7 +463,7 @@ def start_flow_process(cfg: FlowConfig) -> Popen:
     PIDS_DIR.mkdir(parents=True, exist_ok=True)
     log_path = PIDS_DIR / f"{cfg.name}.log"
     log.info(f"[sv] start: {' '.join(cmd)}")
-    # start_new_session=True: le processus survit au redémarrage du service po.
+    # start_new_session=True: the process survives a restart of the po service.
     with log_path.open("a") as log:
         proc = Popen(
             cmd,
@@ -513,8 +513,8 @@ def stop_flow_process(fr: FlowRuntime) -> None:
 
 
 def rebuild_from_config() -> None:
-    """Charge flows.json. Adopte les processus déjà vivants (PID) ou en démarre de nouveaux.
-    Les flux SV survivent au redémarrage du service po (start_new_session)."""
+    """Load flows.json. Adopt the processes still alive (PID) or start new ones.
+    SV flows survive a restart of the po service (start_new_session)."""
     cfgs = load_config()
     with flows_lock:
         flows.clear()
@@ -539,18 +539,18 @@ def on_startup() -> None:
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
-    # Ne pas arrêter les flux SV : ils survivent au service (start_new_session).
-    # L'utilisateur les arrête explicitement via l'API si besoin.
+    # Leave the SV flows running: they outlive the service (start_new_session).
+    # The user stops them through the API when needed.
     pass
 
 
 def _webui_html() -> str:
     return """<!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SV Generator – Flux</title>
+  <title>SV Generator - Flows</title>
   <style>
     :root {
       --bg: #1a1b26;
@@ -634,16 +634,16 @@ def _webui_html() -> str:
 <body>
   <h1>SV Generator</h1>
   <div class="toolbar">
-    <button type="button" id="refresh" class="btn">Actualiser</button>
-    <button type="button" id="deleteAll" class="btn btn--danger">Tout supprimer</button>
+    <button type="button" id="refresh" class="btn">Refresh</button>
+    <button type="button" id="deleteAll" class="btn btn--danger">Delete all</button>
   </div>
   <div id="msg"></div>
-  <h2 style="font-size:1rem; font-weight:600; margin:1.5rem 0 0.5rem 0; color:var(--muted);">Flux en cours</h2>
+  <h2 style="font-size:1rem; font-weight:600; margin:1.5rem 0 0.5rem 0; color:var(--muted);">Running flows</h2>
   <table>
     <thead>
       <tr>
         <th></th>
-        <th>Nom</th>
+        <th>Name</th>
         <th>Interface</th>
         <th>src_mac → dst_mac</th>
         <th>svID</th>
@@ -654,12 +654,12 @@ def _webui_html() -> str:
     <tbody id="tbody"></tbody>
   </table>
   <div class="recents-section">
-  <h2>Récents</h2>
+  <h2>Recent</h2>
   <table>
     <thead>
       <tr>
         <th></th>
-        <th>Nom</th>
+        <th>Name</th>
         <th>Interface</th>
         <th>src_mac → dst_mac</th>
         <th>svID</th>
@@ -715,19 +715,19 @@ def _webui_html() -> str:
         if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
         const flows = await r.json();
         tbody.innerHTML = flows.length === 0
-          ? '<tr><td colspan="7" class="empty">Aucun flux.</td></tr>'
+          ? '<tr><td colspan="7" class="empty">No flow.</td></tr>'
           : flows.flatMap(f => {
               const rowId = 'row-' + escapeHtml(f.name);
               const detailsId = 'details-' + escapeHtml(f.name);
               return [
                 '<tr id="' + rowId + '">' +
-                  '<td><button type="button" class="btn btn--small" data-target="' + detailsId + '" aria-label="Détails">Détails</button></td>' +
+                  '<td><button type="button" class="btn btn--small" data-target="' + detailsId + '" aria-label="Details">Details</button></td>' +
                   '<td>' + escapeHtml(f.name) + '</td>' +
                   '<td>' + escapeHtml(f.interface) + '</td>' +
                   '<td>' + escapeHtml(f.src_mac) + ' → ' + escapeHtml(f.dst_mac) + '</td>' +
                   '<td>' + escapeHtml(f.svid) + '</td>' +
                   '<td>' + (f.vlan_id != null ? f.vlan_id + (f.vlan_priority != null ? ' (prio ' + f.vlan_priority + ')' : '') : '–') + '</td>' +
-                  '<td><button type="button" class="btn btn--danger btn--small delete-one" data-name="' + escapeHtml(f.name) + '">Supprimer</button></td>' +
+                  '<td><button type="button" class="btn btn--danger btn--small delete-one" data-name="' + escapeHtml(f.name) + '">Delete</button></td>' +
                 '</tr>',
                 '<tr id="' + detailsId + '" class="details-row" style="display:none"><td colspan="7"><div class="details-grid">' + formatFlowDetails(f) + '</div></td></tr>'
               ];
@@ -737,7 +737,7 @@ def _webui_html() -> str:
             const el = document.getElementById(btn.dataset.target);
             const visible = el.style.display !== 'none';
             el.style.display = visible ? 'none' : 'table-row';
-            btn.textContent = visible ? 'Détails' : 'Réduire';
+            btn.textContent = visible ? 'Details' : 'Hide';
           });
         });
         tbody.querySelectorAll('.delete-one').forEach(btn => {
@@ -745,7 +745,7 @@ def _webui_html() -> str:
         });
         loadRecents(flows);
       } catch (e) {
-        setMsg('Erreur: ' + e.message, true);
+        setMsg('Error: ' + e.message, true);
       }
     }
     let lastRecents = [];
@@ -757,21 +757,21 @@ def _webui_html() -> str:
         lastRecents = recents;
         const runningNames = new Set((currentFlows || []).filter(f => f.running).map(f => f.name));
         recentsTbody.innerHTML = recents.length === 0
-          ? '<tr><td colspan="7" class="empty">Aucun flux récent.</td></tr>'
+          ? '<tr><td colspan="7" class="empty">No recent flow.</td></tr>'
           : recents.flatMap((cfg, i) => {
               const canRestart = !runningNames.has(cfg.name);
               const detailsId = 'recents-details-' + i;
               return [
                 '<tr>' +
-                  '<td><button type="button" class="btn btn--small" data-target="' + detailsId + '" aria-label="Détails">Détails</button></td>' +
+                  '<td><button type="button" class="btn btn--small" data-target="' + detailsId + '" aria-label="Details">Details</button></td>' +
                   '<td>' + escapeHtml(cfg.name) + '</td>' +
                   '<td>' + escapeHtml(cfg.interface) + '</td>' +
                   '<td>' + escapeHtml(cfg.src_mac) + ' → ' + escapeHtml(cfg.dst_mac) + '</td>' +
                   '<td>' + escapeHtml(cfg.svid) + '</td>' +
                   '<td>' + (cfg.vlan_id != null ? cfg.vlan_id + (cfg.vlan_priority != null ? ' (prio ' + cfg.vlan_priority + ')' : '') : '–') + '</td>' +
                   '<td>' + (canRestart
-                    ? '<button type="button" class="btn btn--accent btn--small restart-one" data-idx="' + i + '">Relancer</button>'
-                    : '<span class="status running">En cours</span>') + '</td>' +
+                    ? '<button type="button" class="btn btn--accent btn--small restart-one" data-idx="' + i + '">Restart</button>'
+                    : '<span class="status running">Running</span>') + '</td>' +
                 '</tr>',
                 '<tr id="' + detailsId + '" class="details-row" style="display:none"><td colspan="7"><div class="details-grid">' + formatFlowDetails(cfg) + '</div></td></tr>'
               ];
@@ -781,7 +781,7 @@ def _webui_html() -> str:
             const el = document.getElementById(btn.dataset.target);
             const visible = el.style.display !== 'none';
             el.style.display = visible ? 'none' : 'table-row';
-            btn.textContent = visible ? 'Détails' : 'Réduire';
+            btn.textContent = visible ? 'Details' : 'Hide';
           });
         });
         recentsTbody.querySelectorAll('.restart-one').forEach(btn => {
@@ -797,10 +797,10 @@ def _webui_html() -> str:
           body: JSON.stringify(cfg),
         });
         if (!r.ok) throw new Error(r.status + ' ' + (await r.text()));
-        setMsg('Flux "' + cfg.name + '" relancé.', false);
+        setMsg('Flow "' + cfg.name + '" restarted.', false);
         load();
       } catch (e) {
-        setMsg('Erreur: ' + e.message, true);
+        setMsg('Error: ' + e.message, true);
       }
     }
     function escapeHtml(s) {
@@ -810,25 +810,25 @@ def _webui_html() -> str:
       return d.innerHTML;
     }
     async function deleteFlow(name) {
-      if (!confirm('Supprimer le flux "' + name + '" ?')) return;
+      if (!confirm('Delete flow "' + name + '"?')) return;
       try {
         const r = await fetch('/api/flows/' + encodeURIComponent(name), { method: 'DELETE' });
         if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
-        setMsg('Flux "' + name + '" supprimé.', false);
+        setMsg('Flow "' + name + '" deleted.', false);
         load();
       } catch (e) {
-        setMsg('Erreur: ' + e.message, true);
+        setMsg('Error: ' + e.message, true);
       }
     }
     async function deleteAll() {
-      if (!confirm('Supprimer tous les flux ?')) return;
+      if (!confirm('Delete every flow?')) return;
       try {
         const r = await fetch('/api/flows', { method: 'DELETE' });
         if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
-        setMsg('Tous les flux ont été supprimés.', false);
+        setMsg('Every flow was deleted.', false);
         load();
       } catch (e) {
-        setMsg('Erreur: ' + e.message, true);
+        setMsg('Error: ' + e.message, true);
       }
     }
     document.getElementById('refresh').addEventListener('click', () => { setMsg('', false); load(); });
@@ -842,7 +842,7 @@ def _webui_html() -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def webui_index() -> HTMLResponse:
-    """Page web : liste des flux et boutons supprimer."""
+    """Web page: the flows and their delete buttons."""
     return HTMLResponse(content=_webui_html())
 
 
@@ -896,7 +896,7 @@ def update_flow(name: str, cfg: FlowConfig) -> FlowState:
 
 @api.get("/flows/recents")
 def list_recents() -> list[dict]:
-    """Liste des 10 derniers flux (uniques) pour relance."""
+    """The last 10 (unique) flows, to restart them."""
     with recents_lock:
         return [c.dict() for c in recents]
 

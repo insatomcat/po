@@ -2,21 +2,15 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Listener SV (IEC 61869-9 6I3U) – affichage ASCII des phasors U et I.
+"""SV listener: U and I phasors of one SV stream (6I3U or 4I4U).
 
-Capture les paquets SV sur une interface configurable, parse les valeurs
-Ia,Ib,Ic et Va,Vb,Vc, et dessine 2 cercles (un pour U, un pour I) avec
-des flèches aux angles 0°, -120°, -240° (cercle trigonométrique).
+A Flask app (served by po_service under /api/svview, or on its own) takes
+the SV frames of the shared process bus capture, lists the svIDs seen,
+and for the selected one computes phasors (96-sample DFT at 50 Hz),
+inter-frame delays and missing samples.
 
-Usage:
-  sudo python3 sv_listener_view.py -i <interface> [--interval 1] [--window 10] [--svid SVID] [--web 8080]
-
-  -i, --interface   Interface réseau (obligatoire)
-  --interval SEC    Intervalle de rafraîchissement en secondes (défaut: 1)
-  --window SEC      Fenêtre pour stats délai inter-paquets (défaut: 10)
-  --svid SVID       Filtrer sur le svID ; si absent, affiche la liste des svIDs vus
-  --web PORT        Serveur web pour visualisation graphique (ex: 8080)
+Standalone run: SVVIEW_INTERFACE=eth1 python3 svlistener_view/sv_listener_view.py
+(optional SVVIEW_PORT, SVVIEW_WINDOW, SVVIEW_SCALE, SVVIEW_ASPECT).
 """
 
 from __future__ import annotations
@@ -37,7 +31,7 @@ from iec61850 import sv as sv_codec  # noqa: E402
 log = logging.getLogger(__name__)
 
 try:
-    # Facultatif: permet de faire tourner Flask sous uvicorn via ASGI.
+    # Optional: run Flask under uvicorn through ASGI.
     from uvicorn.middleware.wsgi import WSGIMiddleware
 
     HAS_UVICORN_MIDDLEWARE = True
@@ -105,8 +99,8 @@ def compute_phasor_from_samples(
     samples: list[tuple[int, list[float]]], idx: int
 ) -> tuple[float, float]:
     """
-    Calcule le phasor (magnitude, phase_rad) pour le canal idx à partir
-    des échantillons sur un cycle (96 samples à 50 Hz). DFT au fondamental.
+    Phasor (magnitude, phase_rad) of channel idx over one cycle of samples
+    (96 samples at 50 Hz): DFT at the fundamental.
     """
     if len(samples) < SMP_PER_CYCLE:
         return 0.0, 0.0
@@ -125,10 +119,10 @@ def compute_phasor_from_samples(
 
 
 def draw_arrow(grid: list[list[str]], cx: int, cy: int, angle_rad: float, length: float, ch: str) -> None:
-    """Dessine une flèche du centre (cx,cy) dans la direction angle, longueur length (en unités grille)."""
+    """Draw an arrow from (cx, cy) towards angle, length in grid units."""
     if length < 0.3:
         return
-    # angle: 0 = droite, pi/2 = haut (y décroissant en ascii)
+    # angle: 0 = right, pi/2 = up (y decreases in ASCII)
     dx = length * math.cos(angle_rad)
     dy = -length * math.sin(angle_rad)
     ex = cx + dx
@@ -146,11 +140,11 @@ def draw_arrow(grid: list[list[str]], cx: int, cy: int, angle_rad: float, length
 
 
 def draw_ellipse(grid: list[list[str]], cx: int, cy: int, rx: int, ry: int) -> None:
-    """Dessine une ellipse ASCII de centre (cx,cy), rayon horizontal rx, vertical ry."""
+    """Draw an ASCII ellipse centred on (cx, cy), radii rx (horizontal) and ry (vertical)."""
     chars = ".-'`"
     for i in range(-ry, ry + 1):
         for j in range(-rx, rx + 1):
-            # (j/rx)^2 + (i/ry)^2 = 1 sur le bord
+            # (j/rx)^2 + (i/ry)^2 = 1 on the edge
             d = math.sqrt((j / rx) ** 2 + (i / ry) ** 2) if rx > 0 and ry > 0 else 0
             if 0.92 <= d <= 1.08:
                 y, x = cy + i, cx + j
@@ -168,10 +162,10 @@ def render_phasor_circle(
     scale_pct: float = 100.0, aspect: float = 24/10
 ) -> list[list[str]]:
     """
-    Grille ASCII: ellipse avec 3 flèches (magnitude, phase_rad).
-    phase: 0 = droite, cercle trigonométrique.
-    scale_pct: 100 = base, 200 = rayon doublé.
-    aspect: ratio h/l des caractères (1.78 pour cercle visuel VGA).
+    ASCII grid: an ellipse with 3 arrows (magnitude, phase_rad).
+    phase: 0 = right, trigonometric circle.
+    scale_pct: 100 = base, 200 = twice the radius.
+    aspect: height/width ratio of a character (1.78 for a round circle on VGA).
     """
     sf = max(0.25, scale_pct / 100.0)
     grid = [[" " for _ in range(width)] for _ in range(height)]
@@ -204,7 +198,7 @@ def render_phasor_display(
     u_mags: list[float], i_mags: list[float],
     scale_pct: float = 100.0, aspect: float = 24/10
 ) -> str:
-    """Affichage des 2 cercles avec phasors (mag, phase)."""
+    """The two circles with their phasors (mag, phase)."""
     sf = max(0.25, scale_pct / 100.0)
     w = int(55 * sf)
     h = int(21 * sf)
@@ -223,7 +217,7 @@ def render_display(
     u_scale: float = 0.01, i_scale: float = 0.002,
     scale_pct: float = 100.0, aspect: float = 24/10
 ) -> str:
-    """Affichage instantané: 3 flèches à 0°, -120°, -240° avec longueur = valeur."""
+    """Instant view: 3 arrows at 0°, -120°, -240°, length = value."""
     w, h = 55, 21
     u_arrows = [(abs(v), 0.0 if v >= 0 else math.pi) if i == 0 else
                 (abs(v), math.radians(-120) if v >= 0 else math.radians(60)) if i == 1 else
@@ -244,7 +238,7 @@ def compute_display_data(
     buf: list, stats: dict, stats_lock: threading.Lock,
     config: dict, svid: str | None
 ) -> dict:
-    """Calcule les données d'affichage (phasors, stats) pour console ou API."""
+    """Display data (phasors, statistics) for the console or the API."""
     out: dict = {"svid": svid, "samples_count": len(buf)}
     if svid and buf:
         with stats_lock:
@@ -323,7 +317,7 @@ def compute_display_data(
 
 
 def _reset_stats_for_new_svid(stats: dict, stats_lock: threading.Lock) -> None:
-    """Réinitialise les stats lors d'un changement de svID."""
+    """Reset the statistics when the svID changes."""
     with stats_lock:
         stats["min_delay_all"] = float("inf")
         stats["max_delay_all"] = 0.0
@@ -614,7 +608,7 @@ def capture_loop_multiplexed(
     seen_svids_lock: threading.Lock,
     stop_event: threading.Event,
 ) -> None:
-    """Capture SV via le multiplexeur processbus (socket partagée avec GOOSE)."""
+    """SV from the shared process bus capture (one socket with GOOSE)."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if root not in sys.path:
         sys.path.insert(0, root)
@@ -687,9 +681,9 @@ def create_svview_app(
     svid: str | None = None,
 ) -> "Flask":
     """
-    Construire l'app Flask (capture démarrée via POST /api/capture/start).
-    Peut être appelé depuis po_service (avec interface explicite) ou depuis
-    l'exécution directe/uvicorn (paramètres optionnels lus dans l'env).
+    Build the Flask app (the capture starts with POST /api/capture/start).
+    Called by po_service with an explicit interface, or for a standalone or
+    uvicorn run (optional settings read from the environment).
     """
     window = float(window or os.environ.get("SVVIEW_WINDOW", "10"))
     scale = float(scale if scale is not None else os.environ.get("SVVIEW_SCALE", "100"))
@@ -746,7 +740,7 @@ def create_svview_app(
     return app_flask
 
 
-# Application pour uvicorn / exécution directe (si SVVIEW_INTERFACE défini)
+# App for uvicorn or a direct run (when SVVIEW_INTERFACE is set)
 _flask_app: "Flask | None" = None
 if os.environ.get("SVVIEW_INTERFACE"):
     _flask_app = create_svview_app(os.environ["SVVIEW_INTERFACE"])
@@ -758,8 +752,8 @@ else:
 
 def main() -> None:
     """
-    Lancement direct (sans uvicorn), utile pour debug local.
-    SVVIEW_INTERFACE doit être défini.
+    Direct run (without uvicorn), handy for local debugging.
+    SVVIEW_INTERFACE must be set.
     """
     iface = os.environ.get("SVVIEW_INTERFACE")
     if not iface:

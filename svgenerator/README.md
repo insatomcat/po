@@ -1,121 +1,71 @@
-# SV Generator – Générateur de flux Sampled Values
+# SV Generator
 
-Générateur de flux **Sampled Values (SV)** conforme à l’IEC 61869-9 (ex. 6I3U). Envoi de paquets SV sur une interface Ethernet (VLAN optionnel), avec paramètres temps-réel (fréquence, courants/tensions crête, mode défaut). Un **service API** (FastAPI) gère les flux de manière persistante ; un **CLI** (`svctl`) pilote l’API.
+Generates **Sampled Values** streams (IEC 61850-9-2 / IEC 61869-9, 6I3U layout) on an Ethernet interface, optionally VLAN tagged, with real-time settings (frequency, peak currents and voltages, a periodic fault). A service keeps the flows (FastAPI models, also served by the unified service) and starts one `rt_sender` process per flow; `svctl` drives its API.
 
-## Composants
+## Components
 
-| Élément | Rôle |
-|--------|------|
-| **Service** | `sv_service.py` – application FastAPI (flux, démarrage/arrêt des émetteurs), port 7051 en standalone |
-| **API** | `sv_api.py` – handlers `/flows`, `/flows/recents`, `/flows/{name}` pour intégration au service unifié (préfixe `/api/sv`) |
-| **CLI** | `svctl.py` – list, create, update, delete, clear vers l’API (base-url 7050 unifié ou 7051 standalone) |
-| **Émetteur** | `rt_sender.c` compilé en binaire `rt_sender` – envoi temps-réel des paquets SV (appelé en sous-processus par le service) |
+| File | Role |
+|------|------|
+| `sv_service.py` | FastAPI app, `FlowConfig` / `FlowState` models, `rt_sender` process management, state files (port 7051 standalone) |
+| `sv_api.py` | The same API for the unified service (`/api/sv`) |
+| `svctl.py` | Command line for the API (`list`, `create`, `update`, `delete`, `clear`) |
+| `rt_sender.c` | Real-time sender (C, AF_PACKET, `CLOCK_REALTIME`, 4800 samples/s, 2 ASDUs per frame) |
+| `receiver.py`, `sv_receiver_delay.py`, `sv_counter3.py`, `parse_ref_pkt.py` | Diagnostic scripts (reception, delays, missing samples, reference frame dump) |
+| `svgenerator.service.example`, `svlistener_view.service.example` | Example systemd units |
 
-## Prérequis
-
-- **Python 3.10+**
-- Dépendances : voir `requirements.txt` (FastAPI, uvicorn, pydantic, requests ; Flask pour d’autres outils du dossier)
-- **rt_sender** : binaire compilé depuis `rt_sender.c` (C temps-réel), à placer dans le répertoire du service ou dans le PATH
+Rate, ASDU count and data set are compile-time constants of `rt_sender.c`; quality is always 0.
 
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+pip install -r svgenerator/requirements.txt
+gcc -O2 -o svgenerator/rt_sender svgenerator/rt_sender.c -lrt -lm
 ```
 
-Pour le service seul (sans Flask) : `fastapi`, `uvicorn`, `pydantic`, `requests` suffisent.
+`rt_sender` goes in `svgenerator/` or on the PATH. Flows are started with `seapath-alloc` real-time CPU allocation when it is available, `taskset` / `chrt` otherwise. They survive a restart of the service (their PIDs are kept in `svgenerator/pids/`).
 
-Compilation de l’émetteur temps-réel (exemple Linux) :
+## Running it
+
+Through the unified service, the API is under `/api/sv/` and the web UI has an SV tab. Standalone:
 
 ```bash
-gcc -o rt_sender rt_sender.c -lrt -lm
-# Placer rt_sender dans svgenerator/ ou dans le PATH
+cd svgenerator && uvicorn sv_service:app --host 0.0.0.0 --port 7051
 ```
 
-## Utilisation
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET/POST | `/flows` | List (with state), create |
+| GET/PUT/DELETE | `/flows/{name}` | Read, change (restarts the process), delete |
+| DELETE | `/flows` | Delete every flow |
+| GET | `/flows/recents` | Recently deleted flows |
 
-### 1. Service standalone (port 7051)
+Flows are saved in `svgenerator/flows.json`, the recent ones in `svgenerator/recents.json`.
+
+## svctl
 
 ```bash
-cd svgenerator
-uvicorn sv_service:app --host 0.0.0.0 --port 7051
+python3 svgenerator/svctl.py list -v
+python3 svgenerator/svctl.py create flow1 eth1 02:00:00:00:00:01 01:0c:cd:04:00:01 IED01_SV1 \
+  --appid 0x4000 --conf-rev 1 --freq 50 --i-peak 10 --v-peak 100 --vlan-id 100
+python3 svgenerator/svctl.py update flow1 eth1 02:00:00:00:00:01 01:0c:cd:04:00:01 IED01_SV1 \
+  --appid 0x4000 --conf-rev 2 --fault --fault-cycle 4
+python3 svgenerator/svctl.py delete flow1
+python3 svgenerator/svctl.py clear
 ```
 
-- **API** : `GET/POST /flows`, `GET/PUT/DELETE /flows/{name}`, `GET /flows/recents`
-- Config persistée dans `flows.json` (dans le répertoire du service)
+`--base-url` defaults to the unified service (`http://127.0.0.1:7050`); use port 7051 for the standalone one. `--appid` and `--conf-rev` are required. Other options: `--smp-synch`, `--vlan-id`, `--vlan-priority`, `--freq`, `--i-peak`, `--v-peak`, `--phase`, `--fault`, `--fault-i-peak`, `--fault-v-peak`, `--fault-phase`, `--fault-cycle`, `--fault-smpcnt`, `--fault-offset`, and the real-time ones (`--rt-priority`, `--rt-cpu`, `--rt-isolation`, `--rt-scheduler`).
 
-### 2. Via service unifié (port 7050)
+The fault cycle is aligned on the UNIX epoch: two flows with the same `fault_cycle_s` and `fault_offset_s=0` start their fault in the same second. `fault_smpcnt` moves the first fault sample within that second, `fault_offset_s` moves it by whole seconds within the cycle. The fault lasts half the period. Saved configurations from before this format (where `fault_cycle_s` was a half period) are converted when read.
 
-En lançant `po_service.py` à la racine du dépôt, l’API SV est exposée sous **/api/sv/** (flows, recents). La Web UI unifiée propose l’onglet SV. Il n’est pas nécessaire de lancer uvicorn pour le SV dans ce cas.
-
-### 3. CLI svctl
-
-Par défaut le CLI cible `http://127.0.0.1:7050` (service unifié). Pour un service SV standalone sur 7051 : `--base-url http://127.0.0.1:7051`.
+## rt_sender on its own
 
 ```bash
-# Lister les flux
-python3 svctl.py list
-python3 svctl.py list -v   # détail (VLAN, APPID, confRev, fault, etc.)
-
-# Créer un flux (appid et conf_rev obligatoires)
-python3 svctl.py create monflux eth0 01:0c:cd:04:00:01 01:0c:cd:04:00:02 "SV_1" \
-  --appid 0x4060 --conf-rev 10000 \
-  --freq 50 --i-peak 10 --v-peak 100 --vlan-id 100
-
-# Mettre à jour (appid et conf_rev obligatoires)
-python3 svctl.py update monflux eth0 01:0c:cd:04:00:01 01:0c:cd:04:00:02 "SV_1" \
-  --appid 0x4060 --conf-rev 10001 --fault
-
-# Supprimer un flux
-python3 svctl.py delete monflux
-
-# Supprimer tous les flux
-python3 svctl.py clear
+sudo ./rt_sender --appid 0x4000 --conf-rev 1 --smp-synch 2 --vlan-id 100 --vlan-priority 4 \
+  eth1 02:00:00:00:00:01 01:0c:cd:04:00:01 IED01_SV1
+./rt_sender --dump --appid 0x4000 --conf-rev 1 lo 02:00:00:00:00:01 01:0c:cd:04:00:01 IED01_SV1
 ```
 
-Paramètres obligatoires pour `create`/`update` : `--appid`, `--conf-rev`.
-
-Paramètres optionnels courants : `--smp-synch`, `--vlan-id`, `--vlan-priority`, `--freq`, `--i-peak`, `--v-peak`, `--phase`, `--fault`, `--fault-i-peak`, `--fault-v-peak`, `--fault-phase`, `--fault-cycle` (période entre débuts de défaut, secondes entières), `--fault-smpcnt` (0-4799), `--fault-offset` (secondes dans le cycle).
-
-Le cycle défaut est aligné sur l'époque UNIX. Deux flux avec le même `fault_cycle_s` et `fault_offset_s=0` démarrent le défaut à la même seconde. `fault_smpcnt` décale le premier échantillon en défaut dans cette seconde ; `fault_offset_s` décale d'un nombre entier de secondes dans le cycle. La durée du défaut est la moitié de la période (bascule au sample).
-
-Les configs persistées d'avant ce changement (où `fault_cycle_s` était un demi-cycle) sont converties à la lecture : l'ancienne valeur est multipliée par 2.
-
-### 4. Exécution directe du binaire `rt_sender`
-
-`rt_sender` exige aussi `--appid` et `--conf-rev` (pas de valeur par défaut) :
-
-```bash
-./rt_sender --appid 0x4060 --conf-rev 10000 \
-  --smp-synch 2 --vlan-id 100 --vlan-priority 4 \
-  eth0 01:0c:cd:04:00:01 01:0c:cd:04:00:02 SV_1
-```
-
-## API (résumé)
-
-- **GET /flows** – Liste des flux avec état (running, config)
-- **POST /flows** – Création (name, interface, src_mac, dst_mac, svid, appid, conf_rev, + options)
-- **GET /flows/recents** – Derniers événements (démarrage/arrêt, etc.)
-- **PUT /flows/{name}** – Mise à jour (ré démarre le processus avec la nouvelle config)
-- **DELETE /flows/{name}** – Suppression et arrêt du flux
-- **DELETE /flows** – Suppression de tous les flux (svctl clear)
-
-## Fichiers du dossier
-
-| Fichier | Rôle |
-|---------|------|
-| `sv_service.py` | FastAPI app, modèles FlowConfig/FlowState, gestion processus rt_sender, persistance |
-| `sv_api.py` | Handlers API (handle_sv, init_sv_api) pour service unifié |
-| `svctl.py` | CLI (list, create, update, delete, clear) |
-| `rt_sender.c` | Source C de l’émetteur SV temps-réel (compilé en `rt_sender`) |
-| `receiver.py` | Réception / test de paquets SV (outil associé) |
-| `sv_receiver_delay.py` | Mesure de délai / réception (outil associé) |
-| `sv_counter3.py` | Compteur / génération (outil associé) |
-| `parse_ref_pkt.py` | Parsing de paquets de référence (débogage) |
-| `flows.json` | (généré) configuration persistée des flux |
-| `recents.json` | (généré) derniers événements |
-| `svgenerator.service.example` | Exemple unit systemd pour le service |
-| `svlistener_view.service.example` | Exemple unit systemd pour SV Listener View |
+`--dump` builds one frame, prints it in hex and exits; the test suite compares it with a Python mirror of the layout.
 
 ## License
 

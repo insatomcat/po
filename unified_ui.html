@@ -3,7 +3,7 @@
 Copyright 2026 Florent Carli
 SPDX-License-Identifier: Apache-2.0
 -->
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <script>
@@ -241,7 +241,7 @@ SPDX-License-Identifier: Apache-2.0
     }
 
     @media (max-width: 640px) {
-      /* Empêche le body de s'étirer avec les tableaux sur iOS Safari */
+      /* Keeps the body from stretching with wide tables on iOS Safari */
       html, body { max-width: 100vw; overflow-x: hidden; }
 
       /* Wrappers scrollables */
@@ -254,24 +254,24 @@ SPDX-License-Identifier: Apache-2.0
         -webkit-overflow-scrolling: touch;
       }
 
-      /* MMS Flux en cours : masquer Domaine (3), IED (4), Debug (5) → reste : [] Id Actions */
+      /* MMS running subscriptions: hide Domain (3), IED (4), Debug (5); left: [] Id Actions */
       #mms-streams-table-wrap th:nth-child(3), #mms-streams-table-wrap td:nth-child(3),
       #mms-streams-table-wrap th:nth-child(4), #mms-streams-table-wrap td:nth-child(4),
       #mms-streams-table-wrap th:nth-child(5), #mms-streams-table-wrap td:nth-child(5) { display: none; }
 
-      /* MMS Commandes enregistrées : masquer Domaine (3), Objet (4) → reste : [] Nom Pos Actions */
+      /* MMS saved commands: hide Domain (3), Object (4); left: [] Name Pos Actions */
       #mms-recorded-table-wrap th:nth-child(3), #mms-recorded-table-wrap td:nth-child(3),
       #mms-recorded-table-wrap th:nth-child(4), #mms-recorded-table-wrap td:nth-child(4) { display: none; }
 
-      /* GOOSE Flux en cours : masquer gocbRef (3), src_mac (5), dst_mac (6) → reste : [] ID goID Actions */
+      /* GOOSE running streams: hide gocbRef (3), src_mac (5), dst_mac (6); left: [] ID goID Actions */
       #goose-streams-table-wrap th:nth-child(3), #goose-streams-table-wrap td:nth-child(3),
       #goose-streams-table-wrap th:nth-child(5), #goose-streams-table-wrap td:nth-child(5),
       #goose-streams-table-wrap th:nth-child(6), #goose-streams-table-wrap td:nth-child(6) { display: none; }
 
-      /* GOOSE Flux récents : masquer gocbRef (3) → reste : [] ID goID Actions */
+      /* GOOSE recent streams: hide gocbRef (3); left: [] ID goID Actions */
       #goose-recents-table-wrap th:nth-child(3), #goose-recents-table-wrap td:nth-child(3) { display: none; }
 
-      /* Tronquer les cellules texte qui peuvent être longues */
+      /* Truncate long text cells */
       #mms-streams-table-wrap td:nth-child(2),
       #mms-recorded-table-wrap td:nth-child(2),
       #goose-streams-table-wrap td:nth-child(2),
@@ -284,12 +284,12 @@ SPDX-License-Identifier: Apache-2.0
         white-space: nowrap;
       }
 
-      /* SV Flux en cours : masquer Interface (3) et src_mac→dst_mac (4) → reste : [] Nom svID Actions */
+      /* SV running flows: hide Interface (3) and src_mac→dst_mac (4); left: [] Name svID Actions */
       #sv-streams-table-wrap,
       #sv-recents-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
       #sv-streams-table-wrap th:nth-child(3), #sv-streams-table-wrap td:nth-child(3),
       #sv-streams-table-wrap th:nth-child(4), #sv-streams-table-wrap td:nth-child(4) { display: none; }
-      /* SV Récents : masquer Interface (3) → reste : [] Nom svID Actions */
+      /* SV recent flows: hide Interface (3); left: [] Name svID Actions */
       #sv-recents-table-wrap th:nth-child(3), #sv-recents-table-wrap td:nth-child(3) { display: none; }
 
       /* Boutons d'action : empiler verticalement */
@@ -317,49 +317,49 @@ SPDX-License-Identifier: Apache-2.0
         <button type="button" class="btn btn--small lang-btn" data-lang="fr">FR</button>
         <button type="button" class="btn btn--small lang-btn" data-lang="en">EN</button>
       </div>
-      <button type="button" class="btn btn--small" id="iframe-tabs-settings-btn" data-i18n="settings">Paramètres</button>
+      <button type="button" class="btn btn--small" id="iframe-tabs-settings-btn" data-i18n="settings">Settings</button>
     </div>
   </div>
 
   <div id="panel-mms" class="panel active">
-    <h1 data-i18n="mms.title">Flux MMS</h1>
+    <h1 data-i18n="mms.title">MMS streams</h1>
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0" data-i18n="mms.streams">Flux en cours</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-streams" data-i18n="common.show">Afficher</button>
+      <h2 style="margin:0" data-i18n="mms.streams">Active streams</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-streams" data-i18n="common.show">Show</button>
     </div>
     <div id="mms-streams-body" style="display:none">
       <div class="toolbar">
-        <button type="button" class="btn btn--accent" id="mms-refresh" data-i18n="common.refresh">Actualiser</button>
-        <button type="button" class="btn btn--danger" id="mms-purge" data-i18n="common.deleteAll">Tout supprimer</button>
+        <button type="button" class="btn btn--accent" id="mms-refresh" data-i18n="common.refresh">Refresh</button>
+        <button type="button" class="btn btn--danger" id="mms-purge" data-i18n="common.deleteAll">Delete all</button>
         <span id="mms-loading"></span>
       </div>
       <div id="mms-streams-table-wrap">
-        <table><thead><tr><th></th><th data-i18n="mms.col.id">Id</th><th data-i18n="mms.col.domain">Domaine</th><th data-i18n="mms.col.ied">IED</th><th data-i18n="mms.col.debug">Debug</th><th data-i18n="common.actions">Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
+        <table><thead><tr><th></th><th data-i18n="mms.col.id">Id</th><th data-i18n="mms.col.domain">Domain</th><th data-i18n="mms.col.ied">IED</th><th data-i18n="mms.col.debug">Debug</th><th data-i18n="common.actions">Actions</th></tr></thead><tbody id="mms-list"></tbody></table>
       </div>
     </div>
 
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0" data-i18n="mms.recents">Flux récents</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-recents-panel" data-i18n="common.show">Afficher</button>
+      <h2 style="margin:0" data-i18n="mms.recents">Recent streams</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-recents-panel" data-i18n="common.show">Show</button>
     </div>
     <section class="recents-section" id="mms-recents-section" style="display:none"><div id="mms-recents"></div></section>
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0" data-i18n="mms.newCmds">Nouvelle commandes MMS</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-new-cmds" data-i18n="common.show">Afficher</button>
+      <h2 style="margin:0" data-i18n="mms.newCmds">New MMS commands</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-new-cmds" data-i18n="common.show">Show</button>
     </div>
     <div id="mms-new-cmds-body" style="display:none">
       <form id="mms-cmd-form">
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0.75rem;align-items:end">
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span data-i18n="mms.field.name">Nom</span>
-            <input type="text" id="mms-cmd-name" name="name" placeholder="Ex: Ouverture TB1" data-i18n-placeholder="mms.ph.name" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+            <span data-i18n="mms.field.name">Name</span>
+            <input type="text" id="mms-cmd-name" name="name" placeholder="e.g. Open TB1" data-i18n-placeholder="mms.ph.name" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
             <span data-i18n="mms.field.position">Position</span>
             <select id="mms-cmd-position" name="position" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit">
-              <option value="closed" selected data-i18n="mms.field.close">Fermer</option>
-              <option value="open" data-i18n="mms.field.open">Ouvrir</option>
+              <option value="closed" selected data-i18n="mms.field.close">Close</option>
+              <option value="open" data-i18n="mms.field.open">Open</option>
             </select>
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
@@ -371,32 +371,32 @@ SPDX-License-Identifier: Apache-2.0
             <input type="number" id="mms-cmd-ied-port" name="ied_port" min="1" placeholder="102" style="background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span data-i18n="mms.field.domainLd">Domaine (LD)</span>
+            <span data-i18n="mms.field.domainLd">Domain (LD)</span>
             <input type="text" id="mms-cmd-domain" name="domain" placeholder="IED01_BayLD" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
-            <span data-i18n="mms.field.item">Objet MMS (ex: CBCSWI1$CO$Pos$Oper)</span>
+            <span data-i18n="mms.field.item">MMS object (e.g. CBCSWI1$CO$Pos$Oper)</span>
             <input type="text" id="mms-cmd-item" name="item" placeholder="CBCSWI1$CO$Pos$Oper" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
         </div>
         <div class="modal-actions" style="margin-top:0.9rem">
-          <button type="submit" class="btn btn--accent" data-i18n="common.save">Enregistrer</button>
-          <button type="button" class="btn btn--small btn--danger" id="mms-cmd-purge" data-i18n="common.deleteAll">Tout supprimer</button>
+          <button type="submit" class="btn btn--accent" data-i18n="common.save">Save</button>
+          <button type="button" class="btn btn--small btn--danger" id="mms-cmd-purge" data-i18n="common.deleteAll">Delete all</button>
           <span id="mms-cmd-loading"></span>
         </div>
       </form>
     </div>
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem;flex-wrap:wrap">
-      <h2 style="margin:0" data-i18n="mms.recordedCmds">Commandes MMS enregistrées</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-recorded-cmds" data-i18n="common.hide">Masquer</button>
-      <button type="button" id="mms-blackout-btn" style="display:none;padding:0.4rem 1.1rem;font-weight:700;font-size:0.95rem;background:#111;color:#fff;border:2px solid #fff;border-radius:6px;cursor:pointer;letter-spacing:0.08em;transition:background 0.15s,color 0.15s" title="Envoyer toutes les commandes &quot;Ouvrir&quot; enregistrées" data-i18n-title="mms.blackoutTitle">⚡ BLACKOUT</button>
+      <h2 style="margin:0" data-i18n="mms.recordedCmds">Saved MMS commands</h2>
+      <button type="button" class="btn btn--small" id="mms-toggle-recorded-cmds" data-i18n="common.hide">Hide</button>
+      <button type="button" id="mms-blackout-btn" style="display:none;padding:0.4rem 1.1rem;font-weight:700;font-size:0.95rem;background:#111;color:#fff;border:2px solid #fff;border-radius:6px;cursor:pointer;letter-spacing:0.08em;transition:background 0.15s,color 0.15s" title="Send all saved &quot;Open&quot; commands" data-i18n-title="mms.blackoutTitle">⚡ BLACKOUT</button>
       <span id="mms-blackout-status" style="font-size:0.82rem;color:var(--muted)"></span>
     </div>
     <div id="mms-recorded-cmds-body" style="display:block">
       <div id="mms-recorded-table-wrap">
         <table>
-          <thead><tr><th></th><th data-i18n="common.name">Nom</th><th data-i18n="mms.col.domain">Domaine</th><th data-i18n="mms.col.object">Objet</th><th data-i18n="mms.col.pos">Pos</th><th data-i18n="common.actions">Actions</th></tr></thead>
+          <thead><tr><th></th><th data-i18n="common.name">Name</th><th data-i18n="mms.col.domain">Domain</th><th data-i18n="mms.col.object">Object</th><th data-i18n="mms.col.pos">Pos</th><th data-i18n="common.actions">Actions</th></tr></thead>
           <tbody id="mms-cmd-list"></tbody>
         </table>
       </div>
@@ -405,7 +405,7 @@ SPDX-License-Identifier: Apache-2.0
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
       <h2 style="margin:0" data-i18n="mms.logs">Logs</h2>
-      <button type="button" class="btn btn--small" id="mms-toggle-logs-panel" data-i18n="common.show">Afficher</button>
+      <button type="button" class="btn btn--small" id="mms-toggle-logs-panel" data-i18n="common.show">Show</button>
     </div>
     <section class="logs-section" id="mms-logs-section" style="display:none">
       <div style="display:flex;align-items:center;gap:0.75rem">
@@ -416,14 +416,14 @@ SPDX-License-Identifier: Apache-2.0
   </div>
 
   <div id="panel-goose" class="panel">
-    <h1 data-i18n="goose.title">Flux GOOSE</h1>
+    <h1 data-i18n="goose.title">GOOSE streams</h1>
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0" data-i18n="goose.streams">Flux en cours</h2>
-      <button type="button" class="btn btn--small" id="goose-toggle-streams" data-i18n="common.hide">Masquer</button>
+      <h2 style="margin:0" data-i18n="goose.streams">Active streams</h2>
+      <button type="button" class="btn btn--small" id="goose-toggle-streams" data-i18n="common.hide">Hide</button>
     </div>
     <div id="goose-streams-body" style="display:block">
       <div class="toolbar">
-        <button type="button" class="btn btn--accent" id="goose-refresh" data-i18n="common.refresh">Actualiser</button>
+        <button type="button" class="btn btn--accent" id="goose-refresh" data-i18n="common.refresh">Refresh</button>
         <span id="goose-loading"></span>
       </div>
       <div id="goose-streams-table-wrap">
@@ -432,8 +432,8 @@ SPDX-License-Identifier: Apache-2.0
     </div>
 
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0" data-i18n="goose.recents">Flux récents</h2>
-      <button type="button" class="btn btn--small" id="goose-toggle-recents-panel" data-i18n="common.show">Afficher</button>
+      <h2 style="margin:0" data-i18n="goose.recents">Recent streams</h2>
+      <button type="button" class="btn btn--small" id="goose-toggle-recents-panel" data-i18n="common.show">Show</button>
     </div>
     <section class="recents-section" id="goose-recents-section" style="display:none">
       <div id="goose-recents-table-wrap">
@@ -443,7 +443,7 @@ SPDX-License-Identifier: Apache-2.0
 
     <div id="goose-edit-modal" class="modal" style="display:none">
       <div class="modal-content">
-        <h2 data-i18n="goose.editTitle">Modifier le flux GOOSE</h2>
+        <h2 data-i18n="goose.editTitle">Edit GOOSE stream</h2>
         <div class="modal-details" id="goose-edit-details"></div>
         <form id="goose-edit-form">
           <input type="hidden" id="goose-edit-id" name="id">
@@ -452,8 +452,8 @@ SPDX-License-Identifier: Apache-2.0
           <label data-i18n="goose.allData">allData (JSON)</label>
           <textarea id="goose-edit-alldata" name="all_data" rows="12" style="font-family:monospace;font-size:0.85rem"></textarea>
           <div class="modal-actions">
-            <button type="submit" class="btn btn--accent" data-i18n="common.save">Enregistrer</button>
-            <button type="button" class="btn goose-edit-cancel" data-i18n="common.cancel">Annuler</button>
+            <button type="submit" class="btn btn--accent" data-i18n="common.save">Save</button>
+            <button type="button" class="btn goose-edit-cancel" data-i18n="common.cancel">Cancel</button>
           </div>
         </form>
       </div>
@@ -463,37 +463,37 @@ SPDX-License-Identifier: Apache-2.0
   <div id="panel-sv" class="panel">
     <h1 data-i18n="sv.title">SV Generator</h1>
     <div style="margin-top:1.25rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0" data-i18n="sv.streams">Flux en cours</h2>
-      <button type="button" class="btn btn--small" id="sv-toggle-streams" data-i18n="common.hide">Masquer</button>
+      <h2 style="margin:0" data-i18n="sv.streams">Active streams</h2>
+      <button type="button" class="btn btn--small" id="sv-toggle-streams" data-i18n="common.hide">Hide</button>
     </div>
     <div id="sv-streams-body" style="display:block">
       <div class="toolbar">
-        <button type="button" class="btn btn--accent" id="sv-refresh" data-i18n="common.refresh">Actualiser</button>
-        <button type="button" class="btn btn--danger" id="sv-purge" data-i18n="common.deleteAll">Tout supprimer</button>
+        <button type="button" class="btn btn--accent" id="sv-refresh" data-i18n="common.refresh">Refresh</button>
+        <button type="button" class="btn btn--danger" id="sv-purge" data-i18n="common.deleteAll">Delete all</button>
         <span id="sv-msg"></span>
       </div>
       <div id="sv-streams-table-wrap">
-        <table><thead><tr><th></th><th data-i18n="common.name">Nom</th><th data-i18n="common.interface">Interface</th><th data-i18n="sv.col.macs">src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
+        <table><thead><tr><th></th><th data-i18n="common.name">Name</th><th data-i18n="common.interface">Interface</th><th data-i18n="sv.col.macs">src_mac → dst_mac</th><th>svID</th><th></th></tr></thead><tbody id="sv-list"></tbody></table>
       </div>
     </div>
     <div style="margin-top:2rem;display:flex;align-items:center;justify-content:flex-start;gap:0.75rem">
-      <h2 style="margin:0" data-i18n="sv.recents">Récents</h2>
-      <button type="button" class="btn btn--small" id="sv-toggle-recents-panel" data-i18n="common.show">Afficher</button>
+      <h2 style="margin:0" data-i18n="sv.recents">Recent</h2>
+      <button type="button" class="btn btn--small" id="sv-toggle-recents-panel" data-i18n="common.show">Show</button>
     </div>
     <section class="recents-section" id="sv-recents-section" style="display:none">
       <div id="sv-recents-table-wrap">
-        <table><thead><tr><th></th><th data-i18n="common.name">Nom</th><th data-i18n="common.interface">Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table>
+        <table><thead><tr><th></th><th data-i18n="common.name">Name</th><th data-i18n="common.interface">Interface</th><th>svID</th><th></th></tr></thead><tbody id="sv-recents"></tbody></table>
       </div>
     </section>
 
     <div id="sv-edit-modal" class="modal" style="display:none">
       <div class="modal-content modal-content--wide">
-        <h2 data-i18n="sv.editTitle">Modifier le flux SV</h2>
+        <h2 data-i18n="sv.editTitle">Edit SV stream</h2>
         <p class="modal-details" id="sv-edit-details"></p>
         <form id="sv-edit-form">
           <input type="hidden" id="sv-edit-name" name="name">
           <div class="sv-edit-grid">
-            <p class="sv-edit-section" data-i18n="sv.edit.network">Réseau</p>
+            <p class="sv-edit-section" data-i18n="sv.edit.network">Network</p>
             <label><span data-i18n="common.interface">Interface</span>
               <input type="text" id="sv-edit-interface" required autocomplete="off"></label>
             <label>src_mac
@@ -504,7 +504,7 @@ SPDX-License-Identifier: Apache-2.0
               <input type="number" id="sv-edit-vlan-id" min="0" max="4095" placeholder="-"></label>
             <label>VLAN prio
               <input type="number" id="sv-edit-vlan-prio" min="0" max="7" value="0"></label>
-            <p class="sv-edit-section" data-i18n="sv.edit.identity">Identité SV</p>
+            <p class="sv-edit-section" data-i18n="sv.edit.identity">SV identity</p>
             <label>svID
               <input type="text" id="sv-edit-svid" required autocomplete="off"></label>
             <label>appID
@@ -526,10 +526,10 @@ SPDX-License-Identifier: Apache-2.0
               <input type="number" id="sv-edit-v-peak" step="0.1"></label>
             <label>phase_deg
               <input type="number" id="sv-edit-phase" step="0.1"></label>
-            <p class="sv-edit-section" data-i18n="sv.edit.fault">Défaut</p>
+            <p class="sv-edit-section" data-i18n="sv.edit.fault">Fault</p>
             <label class="sv-edit-check" style="grid-column:1 / -1">
               <input type="checkbox" id="sv-edit-fault">
-              <span data-i18n="sv.edit.faultOn">Activer le mode défaut</span>
+              <span data-i18n="sv.edit.faultOn">Enable fault mode</span>
             </label>
             <div id="sv-edit-fault-fields" class="sv-edit-grid sv-edit-fault-fields" style="grid-column:1 / -1;gap:0 0.75rem">
               <label>fault_i_peak (A)
@@ -545,7 +545,7 @@ SPDX-License-Identifier: Apache-2.0
               <label>fault_offset_s
                 <input type="number" id="sv-edit-fault-offset" min="0" step="1"></label>
             </div>
-            <p class="sv-edit-section" data-i18n="sv.edit.rt">Temps réel</p>
+            <p class="sv-edit-section" data-i18n="sv.edit.rt">Realtime</p>
             <label>isolation
               <select id="sv-edit-isolation">
                 <option value="exclusive_logical">exclusive_logical</option>
@@ -564,8 +564,8 @@ SPDX-License-Identifier: Apache-2.0
               <input type="text" id="sv-edit-cpu-cores" placeholder="7 ou 6,7" autocomplete="off"></label>
           </div>
           <div class="modal-actions">
-            <button type="submit" class="btn btn--accent" id="sv-edit-save" data-i18n="common.save">Enregistrer</button>
-            <button type="button" class="btn sv-edit-cancel" data-i18n="common.cancel">Annuler</button>
+            <button type="submit" class="btn btn--accent" id="sv-edit-save" data-i18n="common.save">Save</button>
+            <button type="button" class="btn sv-edit-cancel" data-i18n="common.cancel">Cancel</button>
           </div>
         </form>
       </div>
@@ -573,96 +573,96 @@ SPDX-License-Identifier: Apache-2.0
   </div>
 
   <div id="panel-gooselistener" class="panel">
-    <h1 data-i18n="gl.title">GOOSE Listener – Délais de déclenchement</h1>
+    <h1 data-i18n="gl.title">GOOSE Listener – Trip delays</h1>
     <p class="status" id="gl-service-status">-</p>
     <div id="gl-unconfigured" class="gl-card" style="display:none;max-width:560px">
-      <p class="status" data-i18n-html="gl.unconfigured">GOOSE Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> (même interface que SV / sv_generator).</p>
+      <p class="status" data-i18n-html="gl.unconfigured">GOOSE Listener is not configured. Start the service with <code>--svview-interface &lt;interface&gt;</code> (same interface as SV / sv_generator).</p>
     </div>
     <div id="gl-root" style="display:none">
       <div class="gl-layout">
         <div class="gl-col">
           <div class="gl-card" id="gl-discovery-card">
             <div class="gl-panel-head">
-              <h2 data-i18n="gl.discovery">Découverte</h2>
-              <button type="button" class="btn btn--small" id="gl-discovery-toggle" aria-expanded="true" data-i18n="common.hide">Masquer</button>
+              <h2 data-i18n="gl.discovery">Discovery</h2>
+              <button type="button" class="btn btn--small" id="gl-discovery-toggle" aria-expanded="true" data-i18n="common.hide">Hide</button>
             </div>
             <div id="gl-discovery-body">
             <div class="toolbar" style="align-items:center;gap:0.75rem;flex-wrap:wrap">
               <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
-                <span data-i18n="gl.scanDuration">Durée scan (s)</span>
+                <span data-i18n="gl.scanDuration">Scan duration (s)</span>
                 <input type="number" id="gl-scan-duration" value="5" min="0.5" max="120" step="0.5" style="width:5rem">
               </label>
               <button type="button" class="btn btn--accent" id="gl-scan-btn" data-i18n="gl.scan">Scan</button>
               <span class="status" id="gl-scan-status"></span>
             </div>
             <label class="gl-scan-filter-label">
-              <span class="status" data-i18n="gl.search">Rechercher</span>
+              <span class="status" data-i18n="gl.search">Search</span>
               <input type="search" id="gl-scan-filter" placeholder="gocbRef, goID, APPID…" data-i18n-placeholder="gl.searchPh" autocomplete="off">
             </label>
             <div class="table-wrap gl-scan-scroll" id="gl-scan-table-wrap">
               <table class="gl-scan-table">
                 <thead><tr>
-                  <th></th><th>gocbRef</th><th>goID</th><th>APPID</th><th data-i18n="gl.col.frames">Trames</th>
+                  <th></th><th>gocbRef</th><th>goID</th><th>APPID</th><th data-i18n="gl.col.frames">Frames</th>
                 </tr></thead>
-                <tbody id="gl-scan-tbody"><tr><td colspan="5" class="status" data-i18n="gl.noScan">Aucun scan effectué.</td></tr></tbody>
+                <tbody id="gl-scan-tbody"><tr><td colspan="5" class="status" data-i18n="gl.noScan">No scan yet.</td></tr></tbody>
               </table>
             </div>
-            <button type="button" class="btn btn--small" id="gl-add-selected-btn" style="margin-top:0.5rem" data-i18n="gl.addSelected">Ajouter la sélection →</button>
+            <button type="button" class="btn btn--small" id="gl-add-selected-btn" style="margin-top:0.5rem" data-i18n="gl.addSelected">Add selection →</button>
             </div>
           </div>
           <div class="gl-card">
             <div class="gl-panel-head">
-              <h2 data-i18n="gl.analysis">Analyse</h2>
+              <h2 data-i18n="gl.analysis">Analysis</h2>
               <span id="gl-analysis-elapsed" class="gl-elapsed" hidden aria-live="polite"></span>
             </div>
-            <p class="status" id="gl-analysis-status" data-i18n="gl.analysisStopped">Analyse arrêtée.</p>
+            <p class="status" id="gl-analysis-status" data-i18n="gl.analysisStopped">Analysis stopped.</p>
             <div class="table-wrap" id="gl-targets-table-wrap">
               <table>
                 <thead><tr>
-                  <th></th><th>gocbRef</th><th>goID</th><th data-i18n="gl.col.svid">svID</th><th data-i18n="gl.col.delay">Temporisation (ms)</th>
+                  <th></th><th>gocbRef</th><th>goID</th><th data-i18n="gl.col.svid">svID</th><th data-i18n="gl.col.delay">Delay (ms)</th>
                 </tr></thead>
-                <tbody id="gl-targets-tbody"><tr><td colspan="5" class="status" data-i18n="gl.selectFromScan">Sélectionnez des flux depuis le scan.</td></tr></tbody>
+                <tbody id="gl-targets-tbody"><tr><td colspan="5" class="status" data-i18n="gl.selectFromScan">Select streams from the scan.</td></tr></tbody>
               </table>
             </div>
             <label class="gl-event-filter-label" style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;flex-wrap:wrap">
-              <span class="status" data-i18n="gl.show">Afficher</span>
+              <span class="status" data-i18n="gl.show">Show</span>
               <select id="gl-event-filter" style="min-width:12rem;padding:0.4rem 0.5rem;border-radius:6px;border:1px solid var(--surface);background:var(--bg);color:var(--text);font:inherit">
-                <option value="declenchements_only" selected data-i18n="gl.filter.triggers">Seulement les déclenchements</option>
-                <option value="all" data-i18n="gl.filter.all">Tous (déclenchements + retombées…)</option>
+                <option value="trips_only" selected data-i18n="gl.filter.triggers">Trips only</option>
+                <option value="all" data-i18n="gl.filter.all">All (trips + resets…)</option>
               </select>
             </label>
             <div class="toolbar" style="margin-top:0.75rem">
-              <button type="button" class="btn btn--accent" id="gl-start-btn" data-i18n="gl.startAnalysis">Lancer l'analyse</button>
-              <button type="button" class="btn btn--danger" id="gl-stop-btn" data-i18n="common.stop">Arrêter</button>
-              <button type="button" class="btn" id="gl-reset-btn" data-i18n="gl.reset" data-i18n-title="gl.resetTitle" title="Efface problèmes, histogramme et événements. L'analyse continue.">Réinitialiser</button>
+              <button type="button" class="btn btn--accent" id="gl-start-btn" data-i18n="gl.startAnalysis">Start analysis</button>
+              <button type="button" class="btn btn--danger" id="gl-stop-btn" data-i18n="common.stop">Stop</button>
+              <button type="button" class="btn" id="gl-reset-btn" data-i18n="gl.reset" data-i18n-title="gl.resetTitle" title="Clears problems, histogram and events. Analysis keeps running.">Reset</button>
             </div>
           </div>
           <div class="gl-card">
             <div class="gl-panel-head">
-              <h2 data-i18n="gl.problems">Problèmes</h2>
+              <h2 data-i18n="gl.problems">Problems</h2>
               <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
-                <button type="button" class="btn btn--small" id="gl-demo-delay-btn" data-i18n="gl.simulateDelay" disabled title="Injecte un déclenchement fictif au-delà du seuil, sans envoyer de GOOSE sur le bus">Simuler un retard</button>
-                <button type="button" class="btn btn--small" id="gl-problems-download" data-i18n="gl.downloadTxt">Télécharger (.txt)</button>
-                <button type="button" class="btn btn--small" id="gl-problems-clear" data-i18n="gl.clearProblems" data-i18n-title="gl.clearProblemsTitle" title="Efface uniquement la liste des problèmes. Histogramme et événements restent. L'analyse continue.">Vider</button>
+                <button type="button" class="btn btn--small" id="gl-demo-delay-btn" data-i18n="gl.simulateDelay" disabled title="Injects a fake trip above the threshold, without sending any GOOSE on the bus">Simulate a delay</button>
+                <button type="button" class="btn btn--small" id="gl-problems-download" data-i18n="gl.downloadTxt">Download (.txt)</button>
+                <button type="button" class="btn btn--small" id="gl-problems-clear" data-i18n="gl.clearProblems" data-i18n-title="gl.clearProblemsTitle" title="Clears the problems list only. Histogram and events stay. Analysis keeps running.">Clear</button>
               </div>
             </div>
             <div class="gl-problems-config" style="display:flex;flex-wrap:wrap;gap:0.75rem 1.25rem;margin-bottom:0.75rem">
               <label style="display:flex;align-items:center;gap:0.4rem;margin:0">
-                <span class="status" data-i18n="gl.threshold">Seuil Δ (ms)</span>
+                <span class="status" data-i18n="gl.threshold">Δ threshold (ms)</span>
                 <input type="number" id="gl-problem-threshold" value="40" min="0" max="5000" step="1" style="width:5rem">
               </label>
             </div>
             <p class="status" id="gl-problems-status">-</p>
             <p class="status" style="margin-top:0.25rem;font-size:0.82rem" data-i18n-html="gl.problemsHelp">
-              En cas de manquant, le détail liste les GOOSE reçus entre deux déclenchements (diagnostic).
-              À chaque nouveau problème, les <strong>4 dernières secondes</strong> de trafic GOOSE sont enregistrées (bouton PCAP).
+              Cycle and reference smpCnt come from the linked SV stream (auto via DEP, or manual). When a trip is missing, the details list GOOSE frames received between two trips.
+              Each new problem records the <strong>last 4 seconds</strong> of GOOSE traffic (PCAP button).
             </p>
             <div class="table-wrap gl-problems-scroll" id="gl-problems-table-wrap">
               <table class="gl-problems-table">
                 <thead><tr>
-                  <th data-i18n="gl.col.type">Type</th><th data-i18n="gl.col.time">Heure</th><th>goID</th><th>Δ (ms)</th><th>sqNum</th><th data-i18n="gl.col.detail">Détail</th>
+                  <th data-i18n="gl.col.type">Type</th><th data-i18n="gl.col.time">Time</th><th>goID</th><th>Δ (ms)</th><th>sqNum</th><th data-i18n="gl.col.detail">Detail</th>
                 </tr></thead>
-                <tbody id="gl-problems-tbody"><tr><td colspan="6" class="status" data-i18n="gl.noProblems">Aucun problème détecté.</td></tr></tbody>
+                <tbody id="gl-problems-tbody"><tr><td colspan="6" class="status" data-i18n="gl.noProblems">No problem detected.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -670,31 +670,31 @@ SPDX-License-Identifier: Apache-2.0
         <div class="gl-col">
           <div class="gl-card">
             <div class="gl-panel-head">
-              <h2 data-i18n="gl.histogram">Histogramme des délais</h2>
-              <button type="button" class="btn btn--small" id="gl-hist-log-y" aria-pressed="false" data-i18n="gl.yLog">Y logarithmique</button>
+              <h2 data-i18n="gl.histogram">Delay histogram</h2>
+              <button type="button" class="btn btn--small" id="gl-hist-log-y" aria-pressed="false" data-i18n="gl.yLog">Logarithmic Y</button>
             </div>
             <p class="status" id="gl-hist-meta">-</p>
             <div id="gl-histogram" class="gl-histogram"></div>
             <div id="gl-hist-tip" class="gl-hist-tip" hidden></div>
             <ul id="gl-legend" class="gl-legend"></ul>
-            <div id="gl-hist-color-picker" class="gl-hist-color-picker" hidden role="dialog" aria-label="Couleur de la série" data-i18n-aria="gl.seriesColor">
-              <p class="gl-hist-color-picker-title" data-i18n="gl.seriesColor">Couleur de la série</p>
+            <div id="gl-hist-color-picker" class="gl-hist-color-picker" hidden role="dialog" aria-label="Series color" data-i18n-aria="gl.seriesColor">
+              <p class="gl-hist-color-picker-title" data-i18n="gl.seriesColor">Series color</p>
               <div id="gl-hist-color-palette" class="gl-hist-color-palette"></div>
               <label class="gl-hist-color-custom">
-                <span data-i18n="gl.customColor">Personnalisée</span>
+                <span data-i18n="gl.customColor">Custom</span>
                 <input type="color" id="gl-hist-color-custom" value="#7aa2f7">
               </label>
             </div>
           </div>
           <div class="gl-card">
             <div class="gl-panel-head">
-              <h2 data-i18n="gl.recentEvents">Derniers événements</h2>
-              <button type="button" class="btn btn--small" id="gl-events-download" data-i18n="gl.downloadTxt">Télécharger (.txt)</button>
+              <h2 data-i18n="gl.recentEvents">Latest events</h2>
+              <button type="button" class="btn btn--small" id="gl-events-download" data-i18n="gl.downloadTxt">Download (.txt)</button>
             </div>
             <p class="status" id="gl-events-meta" style="margin:0 0 0.5rem">-</p>
             <div class="table-wrap gl-events-scroll" id="gl-events-table-wrap">
               <table class="gl-events-table">
-                <thead><tr><th data-i18n="gl.col.rx">Réception GOOSE</th><th data-i18n="gl.col.type">Type</th><th>gocbRef</th><th>goID</th><th>stNum</th><th>Δ net (ms)</th></tr></thead>
+                <thead><tr><th data-i18n="gl.col.rx">GOOSE reception</th><th data-i18n="gl.col.type">Type</th><th>gocbRef</th><th>goID</th><th>stNum</th><th>Δ net (ms)</th></tr></thead>
                 <tbody id="gl-events-tbody"><tr><td colspan="6" class="status">-</td></tr></tbody>
               </table>
             </div>
@@ -705,45 +705,45 @@ SPDX-License-Identifier: Apache-2.0
   </div>
 
   <div id="panel-svview" class="panel">
-    <h1 data-i18n="svview.title">SV Listener – Phasors U & I</h1>
+    <h1 data-i18n="svview.title">SV Listener – Phasors U &amp; I</h1>
     <div id="svview-unconfigured" class="svview-card" style="display:none;max-width:500px">
-      <p class="status" data-i18n-html="svview.unconfigured">SV Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> pour capturer les flux SV (0x88ba).</p>
+      <p class="status" data-i18n-html="svview.unconfigured">SV Listener is not configured. Start the service with <code>--svview-interface &lt;interface&gt;</code> to capture SV streams (0x88ba).</p>
     </div>
     <div id="svview-modal" class="modal" style="display:none">
       <div class="modal-content">
-        <h2 data-i18n="svview.chooseSvid">Choisir un svID</h2>
+        <h2 data-i18n="svview.chooseSvid">Choose an svID</h2>
         <ul class="svview-modal-svids" id="svview-modal-svids" style="list-style:none;padding:0;margin:0;max-height:300px;overflow-y:auto"></ul>
-        <button type="button" class="btn modal-close" id="svview-modal-close" data-i18n="common.close">Fermer</button>
+        <button type="button" class="btn modal-close" id="svview-modal-close" data-i18n="common.close">Close</button>
       </div>
     </div>
     <div id="svview-root">
-      <div class="svview-card"><p class="status" data-i18n="svview.loading">Chargement...</p></div>
+      <div class="svview-card"><p class="status" data-i18n="svview.loading">Loading...</p></div>
     </div>
   </div>
   <div id="panel-stress" class="panel">
     <div class="st-title-row">
-      <h1 data-i18n="st.title">Stress-test des noeuds</h1>
-      <span class="st-info" tabindex="0" data-i18n-title="st.lead" title="Stresse le housekeeping ou les coeurs non pines aux VM (SSH + stress-ng), puis observez les latences GOOSE dans l'onglet Listener.">i</span>
+      <h1 data-i18n="st.title">Node stress test</h1>
+      <span class="st-info" tabindex="0" data-i18n-title="st.lead" title="Stress housekeeping or cores not pinned to VMs (SSH + stress-ng), then watch GOOSE latencies in the Listener tab.">i</span>
     </div>
     <div id="st-running-banner" class="st-banner" hidden></div>
     <div class="gl-layout">
       <div class="gl-col">
         <div class="gl-card">
-          <h2 data-i18n="st.node">Noeud</h2>
+          <h2 data-i18n="st.node">Node</h2>
           <div id="st-host-presets" class="st-presets"></div>
           <div class="st-form">
-            <label><span data-i18n="st.name">Nom</span><input type="text" id="st-name" value="" autocomplete="off"></label>
-            <label><span data-i18n="st.address">Adresse</span><input type="text" id="st-host" value="" placeholder="hostname / 192.0.2.10" autocomplete="off"></label>
-            <label><span data-i18n="st.user">Utilisateur</span><input type="text" id="st-user" value="root" autocomplete="off"></label>
-            <label><span data-i18n="st.port">Port SSH</span><input type="number" id="st-port" value="22" min="1" max="65535"></label>
-            <label><span data-i18n="st.identity">Cle SSH (optionnel)</span><input type="text" id="st-identity" placeholder="/root/.ssh/id_ed25519" autocomplete="off"></label>
-            <label><span data-i18n="st.password">Mot de passe (optionnel)</span><input type="password" id="st-password" autocomplete="off"></label>
+            <label><span data-i18n="st.name">Name</span><input type="text" id="st-name" value="" autocomplete="off"></label>
+            <label><span data-i18n="st.address">Address</span><input type="text" id="st-host" value="" placeholder="hostname / 192.0.2.10" autocomplete="off"></label>
+            <label><span data-i18n="st.user">User</span><input type="text" id="st-user" value="root" autocomplete="off"></label>
+            <label><span data-i18n="st.port">SSH port</span><input type="number" id="st-port" value="22" min="1" max="65535"></label>
+            <label><span data-i18n="st.identity">SSH key (optional)</span><input type="text" id="st-identity" placeholder="/root/.ssh/id_ed25519" autocomplete="off"></label>
+            <label><span data-i18n="st.password">Password (optional)</span><input type="password" id="st-password" autocomplete="off"></label>
           </div>
-          <label class="st-check"><input type="checkbox" id="st-force-ssh"><span data-i18n="st.forceSsh">Forcer SSH meme si le noeud est local</span></label>
+          <label class="st-check"><input type="checkbox" id="st-force-ssh"><span data-i18n="st.forceSsh">Force SSH even if the node is local</span></label>
           <div class="toolbar" style="margin-top:0.75rem">
-            <button type="button" class="btn btn--accent" id="st-connect-btn" data-i18n="st.connect">Connecter</button>
-            <button type="button" class="btn" id="st-disconnect-btn" data-i18n="st.disconnect">Deconnecter</button>
-            <button type="button" class="btn btn--small" id="st-save-hosts-btn" data-i18n="st.saveHosts">Enregistrer les noeuds</button>
+            <button type="button" class="btn btn--accent" id="st-connect-btn" data-i18n="st.connect">Connect</button>
+            <button type="button" class="btn" id="st-disconnect-btn" data-i18n="st.disconnect">Disconnect</button>
+            <button type="button" class="btn btn--small" id="st-save-hosts-btn" data-i18n="st.saveHosts">Save nodes</button>
           </div>
           <p class="status" id="st-conn-status">-</p>
           <p class="status" id="st-iso-meta"></p>
@@ -751,61 +751,61 @@ SPDX-License-Identifier: Apache-2.0
         </div>
         <div class="gl-card">
           <h2 class="st-h">
-            <span data-i18n="st.workloads">Type de stress</span>
-            <span class="st-info" tabindex="0" data-i18n-title="st.workloadsHelp" title="Les cases choisissent quoi lancer. Les coeurs choisis (carte ou presets) choisissent ou pinner les workers.">i</span>
+            <span data-i18n="st.workloads">Stress type</span>
+            <span class="st-info" tabindex="0" data-i18n-title="st.workloadsHelp" title="Checkboxes choose what to run (stress-ng). Cores selected below (map or presets) choose where workers are pinned. Several types can be combined.">i</span>
           </h2>
           <div class="st-wl">
             <label class="st-check st-wl-item">
               <input type="checkbox" id="st-wl-cpu" checked>
               <span data-i18n="st.wl.cpu">CPU</span>
-              <span class="st-info" tabindex="0" data-i18n-title="st.wl.cpuHint" title="Boucles de calcul. Le curseur fixe le % cible.">i</span>
+              <span class="st-info" tabindex="0" data-i18n-title="st.wl.cpuHint" title="Compute loops. The slider sets the target %.">i</span>
             </label>
             <label class="st-check st-wl-item">
               <input type="checkbox" id="st-wl-cache">
               <span data-i18n="st.wl.cache">Cache</span>
-              <span class="st-info" tabindex="0" data-i18n-title="st.wl.cacheHint" title="Martele L1/L2/L3. Souvent ~100 % CPU aussi.">i</span>
+              <span class="st-info" tabindex="0" data-i18n-title="st.wl.cacheHint" title="Hammers L1/L2/L3. Often ~100% CPU as well.">i</span>
             </label>
             <label class="st-check st-wl-item">
               <input type="checkbox" id="st-wl-vm">
-              <span data-i18n="st.wl.mem">Memoire</span>
-              <span class="st-info" tabindex="0" data-i18n-title="st.wl.memHint" title="Alloue et touche 64 Mo par worker (bande passante RAM / TLB).">i</span>
+              <span data-i18n="st.wl.mem">Memory</span>
+              <span class="st-info" tabindex="0" data-i18n-title="st.wl.memHint" title="Allocates and touches 64 MB per worker (RAM bandwidth / TLB).">i</span>
             </label>
             <label class="st-check st-wl-item">
               <input type="checkbox" id="st-wl-switch">
-              <span data-i18n="st.wl.switch">Chgmt. contexte</span>
-              <span class="st-info" tabindex="0" data-i18n-title="st.wl.switchHint" title="Force des yield / switches. Charge le scheduler, souvent peu visible en %CPU.">i</span>
+              <span data-i18n="st.wl.switch">Context switch</span>
+              <span class="st-info" tabindex="0" data-i18n-title="st.wl.switchHint" title="Forces yields / switches. Loads the scheduler; often barely visible as %CPU.">i</span>
             </label>
           </div>
           <div class="st-form st-form--compact">
             <label id="st-cpu-load-wrap">
               <span class="st-label-row">
-                <span data-i18n="st.cpuLoad">Cible CPU (%)</span>
-                <span class="st-info" tabindex="0" data-i18n-title="st.cpuLoadHint" title="Uniquement si CPU est coche. Sans effet sur cache, memoire ou switch.">i</span>
+                <span data-i18n="st.cpuLoad">CPU target (%)</span>
+                <span class="st-info" tabindex="0" data-i18n-title="st.cpuLoadHint" title="Only if CPU is checked. No effect on cache, memory, or switch.">i</span>
               </span>
               <input type="range" id="st-cpu-load" min="10" max="100" step="10" value="100">
               <span id="st-cpu-load-val">100 %</span>
             </label>
             <label>
-              <span data-i18n="st.duration">Duree (s, 0 = jusqu'a Arreter)</span>
+              <span data-i18n="st.duration">Duration (s, 0 = until Stop)</span>
               <input type="number" id="st-timeout" min="0" max="86400" step="10" value="0">
             </label>
           </div>
           <h3 class="st-subhead">
-            <span data-i18n="st.where">Coeurs cibles</span>
-            <span class="st-info" tabindex="0" data-i18n-title="st.whereHelp" title="Cliquez la carte ou un preset. Tous les types coches tournent uniquement sur cette selection.">i</span>
+            <span data-i18n="st.where">Target cores</span>
+            <span class="st-info" tabindex="0" data-i18n-title="st.whereHelp" title="Click the map or a preset. Every checked stressor runs only on that selection.">i</span>
           </h3>
           <div class="st-presets">
             <button type="button" class="btn btn--small" data-st-preset="hk" data-i18n="st.presetHk">Housekeeping</button>
-            <button type="button" class="btn btn--small" data-st-preset="free" data-i18n="st.presetFree">Isoles libres</button>
-            <button type="button" class="btn btn--small" data-st-preset="available" data-i18n="st.presetAvailable" data-i18n-title="st.presetAvailableHint" title="Housekeeping et isoles libres. Exclut VM, IRQ, conteneurs et claims.">Hors occupes</button>
-            <button type="button" class="btn btn--small" data-st-preset="clear" data-i18n="st.clearSel">Effacer</button>
+            <button type="button" class="btn btn--small" data-st-preset="free" data-i18n="st.presetFree">Free isolated</button>
+            <button type="button" class="btn btn--small" data-st-preset="available" data-i18n="st.presetAvailable" data-i18n-title="st.presetAvailableHint" title="Housekeeping plus free isolated. Excludes VMs, IRQs, containers and seapath-alloc claims.">Except occupied</button>
+            <button type="button" class="btn btn--small" data-st-preset="clear" data-i18n="st.clearSel">Clear</button>
           </div>
           <p class="status" id="st-sel-meta">-</p>
-          <p class="status error-msg" id="st-vm-warn" hidden data-i18n="st.warnOccupied">Des coeurs isoles occupes sont selectionnes (VM, IRQ, conteneur, claim) : le trafic ou les outils pines peuvent etre perturbes.</p>
+          <p class="status error-msg" id="st-vm-warn" hidden data-i18n="st.warnOccupied">Occupied isolated cores are selected (VM, IRQ, container, claim): pinned traffic or tools may be disturbed.</p>
           <div class="toolbar" style="margin-top:0.75rem">
-            <button type="button" class="btn btn--accent" id="st-start-btn" data-i18n="st.start">Demarrer le stress</button>
-            <button type="button" class="btn btn--danger" id="st-stop-btn" data-i18n="st.stop">Arreter</button>
-            <a class="btn" id="st-goto-gl-btn" href="#gooselistener" target="_blank" rel="noopener" data-i18n="st.observeGl">Voir GOOSE Listener</a>
+            <button type="button" class="btn btn--accent" id="st-start-btn" data-i18n="st.start">Start stress</button>
+            <button type="button" class="btn btn--danger" id="st-stop-btn" data-i18n="st.stop">Stop</button>
+            <a class="btn" id="st-goto-gl-btn" href="#gooselistener" target="_blank" rel="noopener" data-i18n="st.observeGl">Open GOOSE Listener</a>
           </div>
           <p class="status" id="st-run-status">-</p>
         </div>
@@ -813,22 +813,22 @@ SPDX-License-Identifier: Apache-2.0
       <div class="gl-col">
         <div class="gl-card">
           <div class="gl-panel-head">
-            <h2 data-i18n="st.cpuMap">Carte CPU</h2>
+            <h2 data-i18n="st.cpuMap">CPU map</h2>
             <div class="st-legend">
               <span class="st-leg st-leg--hk" data-i18n="st.legendHk">Housekeeping</span>
-              <span class="st-leg st-leg--isol" data-i18n="st.legendIsol">Isole libre</span>
+              <span class="st-leg st-leg--isol" data-i18n="st.legendIsol">Free isolated</span>
               <span class="st-leg st-leg--vm" data-i18n="st.legendVm">VM</span>
-              <span class="st-leg st-leg--stress" data-i18n="st.legendStress">Stresse</span>
+              <span class="st-leg st-leg--stress" data-i18n="st.legendStress">Stressed</span>
             </div>
           </div>
-          <div id="st-cpu-root" class="st-cpu-root"><p class="status" data-i18n="st.noTopology">Connectez un noeud pour afficher les coeurs.</p></div>
+          <div id="st-cpu-root" class="st-cpu-root"><p class="status" data-i18n="st.noTopology">Connect a node to display cores.</p></div>
         </div>
         <div class="gl-card">
           <div class="gl-panel-head">
-            <h2 data-i18n="st.live">Occupation CPU</h2>
-            <span class="st-info" tabindex="0" data-i18n-title="st.liveHelp" title="Pourcentage busy /proc/stat des coeurs (ALU).">i</span>
+            <h2 data-i18n="st.live">CPU occupancy</h2>
+            <span class="st-info" tabindex="0" data-i18n-title="st.liveHelp" title="Busy % from /proc/stat (ALU). Cache, memory and context have their own chart below.">i</span>
             <div class="st-legend">
-              <span class="st-leg st-leg--stress" data-i18n="st.chartStressed">Coeurs stresses</span>
+              <span class="st-leg st-leg--stress" data-i18n="st.chartStressed">Stressed cores</span>
               <span class="st-leg st-leg--hk" data-i18n="st.chartHk">Housekeeping</span>
               <span class="st-leg st-leg--vm" data-i18n="st.chartVm">VM</span>
             </div>
@@ -838,12 +838,12 @@ SPDX-License-Identifier: Apache-2.0
         </div>
         <div class="gl-card">
           <div class="gl-panel-head">
-            <h2 data-i18n="st.resTitle">Cache / memoire / contexte</h2>
-            <span class="st-info" tabindex="0" data-i18n-title="st.resHelp" title="Debits sur le noeud. Chaque courbe a son propre max. Cache : misses PMU. Memoire : page faults /s. Contexte : commutations /s.">i</span>
+            <h2 data-i18n="st.resTitle">Cache / memory / context</h2>
+            <span class="st-info" tabindex="0" data-i18n-title="st.resHelp" title="Node rates. Each series uses its own max (window). Cache: PMU misses. Memory: page faults /s. Context: switches /s.">i</span>
             <div class="st-legend">
               <span class="st-leg st-leg--cache" data-i18n="st.chartCache">Cache misses</span>
-              <span class="st-leg st-leg--mem" data-i18n="st.chartMem">Defauts de page</span>
-              <span class="st-leg st-leg--ctxt" data-i18n="st.chartCtxt">Chgmt. contexte</span>
+              <span class="st-leg st-leg--mem" data-i18n="st.chartMem">Page faults</span>
+              <span class="st-leg st-leg--ctxt" data-i18n="st.chartCtxt">Context switches</span>
             </div>
           </div>
           <canvas id="st-res-chart" width="720" height="120" aria-label="Debits cache memoire contexte"></canvas>
@@ -857,16 +857,16 @@ SPDX-License-Identifier: Apache-2.0
 
   <div id="iframe-tabs-settings-modal" class="modal" style="display:none">
     <div class="modal-content">
-      <h2 data-i18n="iframe.title">Paramètres des onglets supplémentaires</h2>
-      <p class="modal-details" data-i18n="iframe.details">Ajoutez ou supprimez les onglets iframe (MMS, GOOSE, SV, SV Listener, GOOSE Listener, Stress restent fixes).</p>
+      <h2 data-i18n="iframe.title">Extra tabs settings</h2>
+      <p class="modal-details" data-i18n="iframe.details">Add or remove iframe tabs (MMS, GOOSE, SV, SV Listener, GOOSE Listener, Stress stay fixed).</p>
       <form id="iframe-tab-form">
-        <label for="iframe-tab-name" data-i18n="iframe.tabName">Nom de l'onglet</label>
-        <input id="iframe-tab-name" name="name" type="text" placeholder="Ex: Grafana dep6" data-i18n-placeholder="iframe.phName" required>
-        <label for="iframe-tab-url" data-i18n="iframe.tabUrl">URL de l'iframe</label>
+        <label for="iframe-tab-name" data-i18n="iframe.tabName">Tab name</label>
+        <input id="iframe-tab-name" name="name" type="text" placeholder="e.g. Grafana dep6" data-i18n-placeholder="iframe.phName" required>
+        <label for="iframe-tab-url" data-i18n="iframe.tabUrl">Iframe URL</label>
         <input id="iframe-tab-url" name="url" type="url" placeholder="https://..." required>
         <div class="modal-actions">
-          <button type="submit" class="btn btn--accent" data-i18n="common.add">Ajouter</button>
-          <button type="button" class="btn" id="iframe-tabs-settings-close" data-i18n="common.close">Fermer</button>
+          <button type="submit" class="btn btn--accent" data-i18n="common.add">Add</button>
+          <button type="button" class="btn" id="iframe-tabs-settings-close" data-i18n="common.close">Close</button>
         </div>
       </form>
       <div class="iframe-settings-list" id="iframe-settings-list"></div>
@@ -1218,11 +1218,11 @@ SPDX-License-Identifier: Apache-2.0
       vertical-align: middle;
     }
     .gl-event-kind { font-weight: 600; white-space: nowrap; }
-    .gl-event-kind.declenchement { color: var(--danger); }
-    .gl-event-kind.retombee { color: var(--success); }
+    .gl-event-kind.trip { color: var(--danger); }
+    .gl-event-kind.reset { color: var(--success); }
     .gl-event-kind.initial { color: var(--muted); }
-    .gl-event-kind.mixte { color: var(--accent); }
-    .gl-event-kind.inconnu { color: var(--muted); }
+    .gl-event-kind.mixed { color: var(--accent); }
+    .gl-event-kind.unknown { color: var(--muted); }
     .gl-problems-scroll {
       max-height: calc(var(--gl-table-row-h) * 11);
       overflow-y: auto;
@@ -2086,15 +2086,13 @@ SPDX-License-Identifier: Apache-2.0
     applyStaticI18n();
     document.documentElement.classList.remove('i18n-pending');
 
-    // URLs relatives : le navigateur les résout par rapport à l'URL de la page (ex. /po/ → /po/api/...).
+    // Relative URLs: the browser resolves them against the page URL (e.g. /po/ → /po/api/...).
     const API = { mms: 'api/mms', goose: 'api/goose', sv: 'api/sv', svview: 'api/svview', gooselistener: 'api/gooselistener', stress: 'api/stress' };
     const SVVIEW_API = API.svview + '/api';
     const FIXED_TABS = ['mms', 'goose', 'sv', 'svview', 'gooselistener', 'stress'];
     const IF_TAB_STORAGE_KEY = 'unified-ui-iframe-tabs-v1';
-    const DEFAULT_IFRAME_TABS = [
-      { id: 'grafana-dep2', name: 'Grafana dep2', url: 'https://grafana.example/public-dashboards/dep2' },
-      { id: 'grafana-dep5', name: 'Grafana dep5', url: 'https://grafana.example/public-dashboards/dep5' }
-    ];
+    // No default tabs: each viewer adds the dashboards of their own site.
+    const DEFAULT_IFRAME_TABS = [];
     let mmsRecentsCache = [];
     let svLastRecents = [];
     let svLastFlows = [];
@@ -2123,7 +2121,7 @@ SPDX-License-Identifier: Apache-2.0
       '#cfc9c2','#565f89','#2ac3de','#fab387','#a6e3a1','#f38ba8','#89b4fa','#cba6f7',
       '#94e2d5','#eba0ac','#ffd700','#ff4500','#00ced1','#9370db','#32cd32','#dc143c',
     ];
-    /** Défauts par préfixe (dernière ligne palette : vert #32cd32, rouge #dc143c). */
+    /** Default colour per name prefix (last palette row: green #32cd32, red #dc143c). */
     const GL_HIST_SERIES_DEFAULTS = [
       { prefix: 'VMC7', color: GL_HIST_PALETTE[22] },
       { prefix: 'SSC600', color: GL_HIST_PALETTE[23] },
@@ -2349,15 +2347,6 @@ SPDX-License-Identifier: Apache-2.0
         raw = JSON.parse(localStorage.getItem(IF_TAB_STORAGE_KEY) || 'null');
       } catch {
         raw = null;
-      }
-      // Migration douce: si l'ancien jeu par défaut (dep6, dep2, dep5) est détecté tel quel,
-      // on passe au nouveau défaut (dep2, dep5).
-      if (Array.isArray(raw)) {
-        const oldDefaultIds = ['grafana-dep6', 'grafana-dep2', 'grafana-dep5'];
-        const rawIds = raw.map(t => String((t && t.id) || ''));
-        const matchesOldDefaults = rawIds.length === oldDefaultIds.length
-          && oldDefaultIds.every(id => rawIds.includes(id));
-        if (matchesOldDefaults) raw = null;
       }
       const source = Array.isArray(raw) ? raw : DEFAULT_IFRAME_TABS;
       const seen = new Set();
@@ -2663,7 +2652,7 @@ SPDX-License-Identifier: Apache-2.0
       if (btnEl) btnEl.textContent = visible ? t('common.show') : t('common.hide');
     }
 
-    // Flux en cours
+    // Running streams
     const mmsStreamsBody = document.getElementById('mms-streams-body');
     const mmsStreamsToggleBtn = document.getElementById('mms-toggle-streams');
     if (mmsStreamsBody && mmsStreamsToggleBtn) {
@@ -2679,14 +2668,14 @@ SPDX-License-Identifier: Apache-2.0
       mmsNewCmdsToggleBtn.addEventListener('click', () => mmsToggleSection(mmsNewCmdsBody, mmsNewCmdsToggleBtn));
     }
 
-    // Commandes enregistrées
+    // Saved commands
     const mmsRecordedCmdsBody = document.getElementById('mms-recorded-cmds-body');
     const mmsRecordedCmdsToggleBtn = document.getElementById('mms-toggle-recorded-cmds');
     if (mmsRecordedCmdsBody && mmsRecordedCmdsToggleBtn) {
       mmsRecordedCmdsToggleBtn.addEventListener('click', () => mmsToggleSection(mmsRecordedCmdsBody, mmsRecordedCmdsToggleBtn));
     }
 
-    // Flux récents
+    // Recent streams
     const mmsRecentsSection = document.getElementById('mms-recents-section');
     const mmsRecentsToggleBtn = document.getElementById('mms-toggle-recents-panel');
     if (mmsRecentsSection && mmsRecentsToggleBtn) {
@@ -2924,7 +2913,7 @@ SPDX-License-Identifier: Apache-2.0
     const mmsLogsPauseBtn = document.getElementById('mms-logs-pause');
     let mmsLogsPaused = false;
     const mmsLogLines = [];
-    // Un seul flux SSE = journalctl -f : le serveur envoie d’abord le buffer (500 lignes), puis le temps réel
+    // One SSE stream, like journalctl -f: the server sends its buffer (500 lines) first, then new lines
     const mmsLogsEs = new EventSource(API.mms + '/logs');
     mmsLogsEs.onmessage = e => {
       mmsLogLines.push(e.data);
@@ -3008,8 +2997,8 @@ SPDX-License-Identifier: Apache-2.0
         const gooseRecentsExpanded = new Set();
         document.getElementById('goose-recents').querySelectorAll('.goose-recent-details').forEach(d => { if (d.style.display !== 'none') gooseRecentsExpanded.add(d.dataset.id); });
 
-        // Déduplication des flux récents GOOSE :
-        // on considère qu'un flux est le même s'il partage (iface, src_mac, dst_mac, app_id, gocbRef, goID).
+        // Recent GOOSE streams are deduplicated: a stream is the same when it
+        // shares (iface, src_mac, dst_mac, app_id, gocbRef, goID).
         const dedupMap = new Map();
         for (const r of recent) {
           const key = [
@@ -3020,7 +3009,7 @@ SPDX-License-Identifier: Apache-2.0
             r.gocb_ref || '',
             r.go_id || '',
           ].join('|');
-          // On garde simplement la dernière occurrence pour ce flux logique.
+          // Keep the last occurrence of each logical stream.
           dedupMap.set(key, r);
         }
         const dedupedRecent = Array.from(dedupMap.values());
@@ -3030,7 +3019,7 @@ SPDX-License-Identifier: Apache-2.0
               const canRestart = !activeGrefs.has(r.gocb_ref);
               const detailId = 'goose-recent-' + idx;
               const isExp = gooseRecentsExpanded.has(r.id);
-              return `<tr data-id="${escapeHtml(r.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="goose-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent goose-relancer" data-id="${escapeHtml(r.id)}">${t('common.restart')}</button>` : '<span class="status running">' + t('common.running') + '</span>'}</td></tr>
+              return `<tr data-id="${escapeHtml(r.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="goose-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button></td><td>${escapeHtml(r.id)}</td><td>${escapeHtml(r.gocb_ref)}</td><td>${escapeHtml(r.go_id)}</td><td>${canRestart ? `<button type="button" class="btn btn--small btn--accent goose-restart" data-id="${escapeHtml(r.id)}">${t('common.restart')}</button>` : '<span class="status running">' + t('common.running') + '</span>'}</td></tr>
               <tr class="details-row goose-recent-details" id="${detailId}" data-id="${escapeHtml(r.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="5">${gooseDetailsHtml(r)}</td></tr>`;
             }).join('')
           : '<tr><td colspan="5" class="empty">' + t('common.noRecent') + '</td></tr>';
@@ -3041,7 +3030,7 @@ SPDX-License-Identifier: Apache-2.0
             else { r.style.display = 'none'; btn.textContent = '▶'; }
           });
         });
-        document.getElementById('goose-recents').querySelectorAll('.goose-relancer').forEach(btn => {
+        document.getElementById('goose-recents').querySelectorAll('.goose-restart').forEach(btn => {
           btn.addEventListener('click', async () => {
             await fetch(API.goose + '/recent/' + encodeURIComponent(btn.dataset.id) + '/restart', { method: 'POST' });
             gooseLoad();
@@ -3696,13 +3685,13 @@ SPDX-License-Identifier: Apache-2.0
     async function svviewCaptureStart() {
       try {
         await fetch(SVVIEW_API + '/capture/start', { method: 'POST' });
-      } catch (_) { /* service non configuré */ }
+      } catch (_) { /* service not configured */ }
     }
 
     async function svviewCaptureStop() {
       try {
         await fetch(SVVIEW_API + '/capture/stop', { method: 'POST' });
-      } catch (_) { /* service non configuré */ }
+      } catch (_) { /* service not configured */ }
     }
 
     async function svviewOnTabLeave() {
@@ -3710,7 +3699,7 @@ SPDX-License-Identifier: Apache-2.0
         clearInterval(svviewRefreshTimer);
         svviewRefreshTimer = null;
       }
-      // Analyse en cours (svID choisi) : la capture continue en arrière-plan
+      // Analysis running (svID chosen): the capture goes on in the background
       if (!svviewActiveSvid) await svviewCaptureStop();
     }
 
@@ -3847,11 +3836,11 @@ SPDX-License-Identifier: Apache-2.0
 
     function glEventKindLabel(kind) {
       const map = {
-        declenchement: 'gl.event.kind.trigger',
-        retombee: 'gl.event.kind.reset',
+        trip: 'gl.event.kind.trigger',
+        reset: 'gl.event.kind.reset',
         initial: 'gl.event.kind.initial',
-        mixte: 'gl.event.kind.mixed',
-        inconnu: 'gl.event.kind.unknown',
+        mixed: 'gl.event.kind.mixed',
+        unknown: 'gl.event.kind.unknown',
       };
       return t(map[kind] || 'gl.event.kind.unknown');
     }
@@ -3868,7 +3857,7 @@ SPDX-License-Identifier: Apache-2.0
         return t('gl.msg.captureIncomplete', { sq: p.sq_num, delta: (p.delta_net_ms ?? 0).toFixed(2) });
       }
       if (kind === 'missing') {
-        const overdue = p.declenchement_next_ts == null && p.defaut_next_ts == null;
+        const overdue = p.trip_next_ts == null;
         return t(overdue ? 'gl.msg.missingLate' : 'gl.msg.missing', { cycle, gap });
       }
       if (kind === 'capture_unreliable') {
@@ -4154,7 +4143,7 @@ SPDX-License-Identifier: Apache-2.0
 
     const GL_HIST_BIN_MS = 1;
 
-    /** Agrège les Δ bruts (API) en histogramme 1 ms - rendu côté navigateur. */
+    /** Bin the raw Δ values (API) into a 1 ms histogram, drawn by the browser. */
     function glBuildHistogram(rawSeries) {
       const inputs = rawSeries || [];
       const allVals = inputs.flatMap(s => s.values || []);
@@ -4397,8 +4386,8 @@ SPDX-License-Identifier: Apache-2.0
         const ctx = p.context;
         if (!ctx?.length) return '';
         const lines = [t('gl.diag.header')];
-        const prevTs = p.declenchement_prev_ts ?? p.defaut_prev_ts;
-        const nextTs = p.declenchement_next_ts ?? p.defaut_next_ts;
+        const prevTs = p.trip_prev_ts;
+        const nextTs = p.trip_next_ts;
         if (prevTs != null) {
           lines.push(t('gl.diag.prev', { ts: glFmtProblemTs(prevTs) }));
         }
@@ -4476,14 +4465,14 @@ SPDX-License-Identifier: Apache-2.0
       }, 300);
     }
 
-    function glIsDeclenchementsOnlyFilter(analysis) {
-      const f = analysis.event_filter || 'declenchements_only';
-      return f === 'declenchements_only' || f === 'defauts_only';
+    function glIsTripsOnlyFilter(analysis) {
+      const f = analysis.event_filter || 'trips_only';
+      return f === 'trips_only';
     }
 
     function glFormatEventCount(analysis) {
       const n = analysis.event_count ?? 0;
-      if (glIsDeclenchementsOnlyFilter(analysis)) {
+      if (glIsTripsOnlyFilter(analysis)) {
         return t('gl.count.trips', { n });
       }
       return t('gl.count.events', { n });
@@ -4567,9 +4556,7 @@ SPDX-License-Identifier: Apache-2.0
     function glRenderAnalysis(analysis) {
       const filterSel = document.getElementById('gl-event-filter');
       if (filterSel && analysis.event_filter) {
-        filterSel.value = analysis.event_filter === 'defauts_only'
-          ? 'declenchements_only'
-          : analysis.event_filter;
+        filterSel.value = analysis.event_filter;
       }
       const demoBtn = document.getElementById('gl-demo-delay-btn');
       if (demoBtn) {
@@ -4599,16 +4586,16 @@ SPDX-License-Identifier: Apache-2.0
       const events = analysis.events_recent || [];
       const panelMax = analysis.events_panel_max ?? 50;
       const totalRam = analysis.event_count_total ?? events.length;
-      const declOnly = glIsDeclenchementsOnlyFilter(analysis);
+      const tripsOnly = glIsTripsOnlyFilter(analysis);
       if (meta) {
         if (!totalRam && !events.length) {
-          meta.textContent = declOnly
+          meta.textContent = tripsOnly
             ? t('gl.noTripsRam')
             : t('gl.noEventsRam');
         } else {
           const shown = events.length;
           const ram = totalRam || events.length;
-          const kind = declOnly ? t('gl.kindName.trips') : t('gl.kindName.events');
+          const kind = tripsOnly ? t('gl.kindName.trips') : t('gl.kindName.events');
           meta.textContent = t('gl.eventsMeta', { shown, max: Math.min(panelMax, ram), ram, kind });
         }
       }
@@ -4616,7 +4603,7 @@ SPDX-License-Identifier: Apache-2.0
       const scrollTop = wrap?.scrollTop ?? 0;
       if (!events.length) {
         const total = analysis.event_count_total ?? 0;
-        const msg = declOnly
+        const msg = tripsOnly
           ? (total > 0 ? t('gl.noRecentTrips') : t('gl.noTrips'))
           : (total > 0 ? t('gl.noRecentEvents') : t('gl.noTrips'));
         tbody.innerHTML = `<tr><td colspan="6" class="status">${escapeHtml(msg)}</td></tr>`;
@@ -4631,7 +4618,7 @@ SPDX-License-Identifier: Apache-2.0
           hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
         }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
         const tsUnix = (e.ts_goose ?? 0).toFixed(6);
-        const kind = e.event_kind || 'inconnu';
+        const kind = e.event_kind || 'unknown';
         const label = glEventKindLabel(kind);
         const detail = e.change_detail || '';
         return `<tr>
@@ -4949,7 +4936,7 @@ SPDX-License-Identifier: Apache-2.0
     document.getElementById('gl-problem-threshold')?.addEventListener('input', glScheduleProblemConfig);
 
     document.getElementById('gl-event-filter')?.addEventListener('change', async () => {
-      const event_filter = document.getElementById('gl-event-filter')?.value || 'declenchements_only';
+      const event_filter = document.getElementById('gl-event-filter')?.value || 'trips_only';
       try {
         await glFetchJson('/analysis/filter', {
           method: 'POST',
@@ -4981,7 +4968,7 @@ SPDX-License-Identifier: Apache-2.0
 
     document.getElementById('gl-start-btn')?.addEventListener('click', async () => {
       if (!glTargets.length) { alert(t('gl.needTarget')); return; }
-      const event_filter = document.getElementById('gl-event-filter')?.value || 'declenchements_only';
+      const event_filter = document.getElementById('gl-event-filter')?.value || 'trips_only';
       try {
         await glPostProblemConfig();
         await glFetchJson('/analysis/start', {

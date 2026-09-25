@@ -32,7 +32,7 @@ SvHandler = Callable[[object, bytes, float], None]
 
 
 def frame_ethertype(frame: bytes) -> Optional[int]:
-    """Ethertype réel (après VLAN 0x8100 si présent)."""
+    """The real ethertype (after an 0x8100 VLAN tag, if any)."""
     if len(frame) < 14:
         return None
     eth_type = (frame[12] << 8) | frame[13]
@@ -167,7 +167,7 @@ class ProcessbusCapture:
         return s
 
     def stats(self) -> Dict[str, object]:
-        """Compteurs mis à jour par le thread capture (pas d'appel cap.stats() ici)."""
+        """Counters updated by the capture thread (no cap.stats() call here)."""
         with self._stats_lock:
             s = self._stats
             with self._lock:
@@ -209,7 +209,7 @@ class ProcessbusCapture:
     def subscribe_sv(self, handler: SvHandler) -> Callable[[], None]:
         with self._lock:
             if self._sv_sub is not None:
-                raise RuntimeError("Une capture SV est déjà active sur cette interface.")
+                raise RuntimeError("An SV capture is already active on this interface.")
             self._sv_sub = _SvSubscription(handler=handler)
             self._bpf_generation += 1
             self._ensure_thread_locked()
@@ -312,7 +312,7 @@ class ProcessbusCapture:
         log.info(f"[processbus] filter {self.iface} -> {label}")
 
     def _goose_worker_loop(self) -> None:
-        """Ring buffer + handlers GOOSE hors du thread de capture (ne pas bloquer les SV)."""
+        """GOOSE ring buffer and handlers, off the capture thread (so SV is never held up)."""
         while not self._stop.is_set() or not self._goose_queue.empty():
             try:
                 raw, ts_rx = self._goose_queue.get(timeout=0.2)

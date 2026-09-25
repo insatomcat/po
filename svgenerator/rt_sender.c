@@ -35,9 +35,9 @@
 #define NSEC_PER_SEC  1000000000ULL
 #define STEP_NS       (NSEC_PER_SEC / SMP_PER_SEC)
 #define SV_ID_LEN     20
-#define SEQDATA_6I3U  72   /* 6 courants + 3 tensions */
-#define SEQDATA_4I4U  64   /* 4 courants + 4 tensions (compat Wireshark/9-2LE) */
-#define SEQDATA_LEN   SEQDATA_6I3U  /* défaut, surchargé par --format 4i4u */
+#define SEQDATA_6I3U  72   /* 6 currents + 3 voltages */
+#define SEQDATA_4I4U  64   /* 4 currents + 4 voltages (Wireshark / 9-2LE layout) */
+#define SEQDATA_LEN   SEQDATA_6I3U  /* the layout sent; SEQDATA_4I4U is not selectable at run time */
 #define BER_BUF_SIZE  512
 #define ETH_HEADER_LEN 14     /* dst(6) + src(6) + ethertype(2) */
 #define ETH_VLAN_TAG_LEN 4    /* 0x8100 + TCI (PCP 3b | DEI 1b | VID 12b) */
@@ -45,10 +45,10 @@
 #define ETH_P_8021Q 0x8100
 #endif
 
-/* 6I3U: 6 courants (INT32+IQ×4B) + 3 tensions (INT32+VQ×4B) = 72 octets. Facteurs I×1000, V×100. */
+/* 6I3U: 6 currents (INT32 + quality, 4 B each) + 3 voltages (same) = 72 bytes. Scale I x1000, V x100. */
 #define I_SCALE  1000
 #define V_SCALE  100
-#define QUALITY_GOOD 0       /* bits Validity 00 = Good */
+#define QUALITY_GOOD 0       /* Validity bits 00 = Good */
 
 static uint8_t frame_buf[BER_BUF_SIZE + ETH_HEADER_LEN + ETH_VLAN_TAG_LEN];
 static uint8_t ber_buf[BER_BUF_SIZE];
@@ -141,7 +141,7 @@ static size_t ber_build_sv_packet(const char *svid, uint16_t smpCnt0, uint16_t s
 
     ber_reset();
 
-    /* Length = total message length (8-byte header + savPdu). Normal packet: 0x00D3=211, not savPdu seul (203). */
+    /* Length = total message length (8-byte header + savPdu). Normal packet: 0x00D3=211, not the savPdu alone (203). */
     size_t total_len = 8u + apdu_len;
     ber_buf[0] = (appid >> 8) & 0xFF;
     ber_buf[1] = appid & 0xFF;
@@ -169,9 +169,9 @@ static void ns_to_timespec(int64_t ns, struct timespec *t) {
     t->tv_nsec = (long)nsec;
 }
 
-/* Remplit seqData 6I3U avec des sinusoïdes (ou zéros si freq_hz<=0).
- * fault_active: si 1, phase A utilise fault_* ; B et C inchangés.
- * Ordre: Ia,Ib,Ic,Ires,In,Ih (6×8B) + Va,Vb,Vc (3×8B). Qualité=Good. */
+/* Fill a 6I3U seqData with sine waves (zeros when freq_hz <= 0).
+ * fault_active: when 1, phase A uses the fault_* values; B and C unchanged.
+ * Order: Ia,Ib,Ic,Ires,In,Ih (6 x 8 B) + Va,Vb,Vc (3 x 8 B). Quality = Good. */
 static void fill_seqdata_6i3u(uint8_t *seqData, uint16_t smpCnt,
                                double freq_hz, double i_peak_a, double v_peak_v,
                                double phase_deg,
@@ -215,13 +215,13 @@ static void fill_seqdata_6i3u(uint8_t *seqData, uint16_t smpCnt,
         uint32_t be = htonl((uint32_t)vals[i]);
         memcpy(seqData + off, &be, 4);
         off += 4;
-        memcpy(seqData + off, &qual, 4);  /* qual déjà en big-endian (0) */
+        memcpy(seqData + off, &qual, 4);  /* qual already big-endian (0) */
         off += 4;
     }
 }
 
-/* Défaut aligné sur l'époque UNIX : période cycle_s, départ à
- * offset_s + smpCnt, durée = moitié de la période (sample près). */
+/* Fault aligned on the UNIX epoch: period cycle_s, start at
+ * offset_s + smpCnt, lasting half the period (to the sample). */
 static int in_fault_at(int64_t unix_sec, uint16_t smp_cnt,
                        int cycle_s, int offset_s, int fault_smpcnt)
 {
@@ -259,24 +259,24 @@ static int parse_mac(const char *str, uint8_t *mac) {
 }
 
 int main(int argc, char **argv) {
-    uint8_t smp_synch = 0; /* 0=None, 1=Local, 2=Global. Défaut 0. */
-    double freq_hz = 50.0;  /* fréquence sinusoïde (0 = tout à zéro) */
-    double i_peak_a = 10.0; /* crête courant (A) */
-    double v_peak_v = 100.0; /* crête tension (V) phase */
-    double phase_deg = 0.0; /* déphasage I/V en degrés (>0 = courant en retard) */
-    int fault_mode = 0;     /* 1 = mode défaut phase A alterné */
+    uint8_t smp_synch = 0; /* 0=None, 1=Local, 2=Global. Default 0. */
+    double freq_hz = 50.0;  /* sine frequency (0 = all zeros) */
+    double i_peak_a = 10.0; /* peak current (A) */
+    double v_peak_v = 100.0; /* peak phase voltage (V) */
+    double phase_deg = 0.0; /* I/V phase shift in degrees (>0 = current lags) */
+    int fault_mode = 0;     /* 1 = alternating phase A fault */
     double fault_i = 0.0, fault_v = 0.0, fault_phase = 0.0;
-    int fault_cycle_s = 2;  /* période entre débuts de défaut (s entières) */
-    int fault_offset_s = 0; /* décalage du début de défaut dans le cycle (s) */
-    int fault_smpcnt = 0;   /* smpCnt du premier échantillon en défaut */
-    int vlan_id = -1;       /* -1 = pas de VLAN; 0-4095 = VLAN tagué */
-    int vlan_priority = 0;  /* PCP 0-7, utilisé si vlan_id >= 0 */
-    uint16_t appid = 0;       /* APPID 0-65535 (0x0000-0xFFFF), obligatoire */
-    uint32_t conf_rev = 0;    /* confRev 0-4294967295, obligatoire */
+    int fault_cycle_s = 2;  /* period between fault starts (whole seconds) */
+    int fault_offset_s = 0; /* offset of the fault start within the cycle (s) */
+    int fault_smpcnt = 0;   /* smpCnt of the first fault sample */
+    int vlan_id = -1;       /* -1 = no VLAN; 0-4095 = tagged */
+    int vlan_priority = 0;  /* PCP 0-7, used when vlan_id >= 0 */
+    uint16_t appid = 0;       /* APPID 0-65535 (0x0000-0xFFFF), required */
+    uint32_t conf_rev = 0;    /* confRev 0-4294967295, required */
     int appid_set = 0;
     int conf_rev_set = 0;
-    int dump_one = 0;       /* --dump: afficher 1er paquet hex et quitter */
-    int debug_sync = 0;     /* --debug-sync: afficher durée du sleep à chaque seconde */
+    int dump_one = 0;       /* --dump: print the first frame in hex and exit */
+    int debug_sync = 0;     /* --debug-sync: print the sleep time every second */
     const char *ifname = NULL;
     const char *src_mac_str = NULL;
     const char *dst_mac_str = NULL;
@@ -366,7 +366,7 @@ int main(int argc, char **argv) {
         }
         if (strcmp(argv[i], "--appid") == 0 && i + 1 < argc) {
             char *end = NULL;
-            unsigned long v = strtoul(argv[++i], &end, 0); /* accepte decimal et 0x.... */
+            unsigned long v = strtoul(argv[++i], &end, 0); /* accepts decimal and 0x... */
             if (end == argv[i] || (end && *end != '\0')) {
                 fprintf(stderr, "Invalid --appid value: %s\n", argv[i]);
                 return 1;
@@ -379,7 +379,7 @@ int main(int argc, char **argv) {
         }
         if (strcmp(argv[i], "--conf-rev") == 0 && i + 1 < argc) {
             char *end = NULL;
-            unsigned long v = strtoul(argv[++i], &end, 0); /* accepte decimal et 0x.... */
+            unsigned long v = strtoul(argv[++i], &end, 0); /* accepts decimal and 0x... */
             if (end == argv[i] || (end && *end != '\0')) {
                 fprintf(stderr, "Invalid --conf-rev value: %s\n", argv[i]);
                 return 1;
@@ -408,13 +408,13 @@ int main(int argc, char **argv) {
         fprintf(stderr, "  opts: --smp-synch 0|1|2  --freq Hz  --zero  --i-peak A  --v-peak V  --phase deg\n");
         fprintf(stderr, "        --fault  --fault-i-peak A  --fault-v-peak V  --fault-phase deg\n");
         fprintf(stderr, "        --fault-cycle s  --fault-smpcnt 0-%d  --fault-offset s\n", SMP_PER_SEC - 1);
-        fprintf(stderr, "        --vlan-id <0-4095>  --vlan-priority <0-7>  (défaut: pas de VLAN)\n");
-        fprintf(stderr, "        --appid <0-65535|0x0000-0xFFFF>  (obligatoire)\n");
-        fprintf(stderr, "        --conf-rev <0-4294967295|0x00000000-0xFFFFFFFF>  (obligatoire)\n");
-        fprintf(stderr, "  smpSynch: 0=None, 1=Local, 2=Global. freq: 50 par défaut (0=zéros).\n");
-        fprintf(stderr, "  e.g. %s --freq 50 lo 00:00:00:00:00:01 00:00:00:00:00:02 LDTM1_SVI_DEP6\n", argv[0]);
+        fprintf(stderr, "        --vlan-id <0-4095>  --vlan-priority <0-7>  (default: no VLAN)\n");
+        fprintf(stderr, "        --appid <0-65535|0x0000-0xFFFF>  (required)\n");
+        fprintf(stderr, "        --conf-rev <0-4294967295|0x00000000-0xFFFFFFFF>  (required)\n");
+        fprintf(stderr, "  smpSynch: 0=None, 1=Local, 2=Global. freq: 50 by default (0 = zeros).\n");
+        fprintf(stderr, "  e.g. %s --freq 50 lo 00:00:00:00:00:01 00:00:00:00:00:02 IED01_SV1\n", argv[0]);
         fprintf(stderr, "  --dump: build 1 packet, print hex to stderr, exit (no send).\n");
-        fprintf(stderr, "  --debug-sync: afficher durée du sleep (µs) à chaque seconde.\n");
+        fprintf(stderr, "  --debug-sync: print the sleep time (us) every second.\n");
         return 1;
     }
 
@@ -464,7 +464,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* Mettre l'interface UP (nécessaire pour OVS bridge/internal port souvent DOWN) */
+    /* Bring the interface up (OVS bridge / internal ports are often down) */
     {
         struct ifreq ifr;
         memset(&ifr, 0, sizeof(ifr));
@@ -509,28 +509,28 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Ethernet: iface %s, src %s, dst %s, VLAN %d prio %d, ethertype 0x88ba\n",
                 ifname, src_mac_str, dst_mac_str, vlan_id, vlan_priority);
     else
-        fprintf(stderr, "Ethernet: iface %s, src %s, dst %s, ethertype 0x88ba (pas de VLAN)\n",
+        fprintf(stderr, "Ethernet: iface %s, src %s, dst %s, ethertype 0x88ba (no VLAN)\n",
                 ifname, src_mac_str, dst_mac_str);
     fprintf(stderr, "Clock: CLOCK_REALTIME (PTP-friendly). smpSynch=%u (0=None,1=Local,2=Global). Sync: sleep until boundary each second.\n",
             (unsigned)smp_synch);
     fprintf(stderr, "APPID: 0x%04x (%u)\n", (unsigned)appid, (unsigned)appid);
     fprintf(stderr, "confRev: %u\n", (unsigned)conf_rev);
     if (freq_hz > 0) {
-        fprintf(stderr, "6I3U: sinusoïdes %.1f Hz, I_peak=%.1f A, V_peak=%.1f V, déphasage=%.1f° (facteurs I×%d, V×%d).\n",
+        fprintf(stderr, "6I3U: sine waves %.1f Hz, I_peak=%.1f A, V_peak=%.1f V, phase shift=%.1f deg (scale I x%d, V x%d).\n",
                 freq_hz, i_peak_a, v_peak_v, phase_deg, I_SCALE, V_SCALE);
         if (fault_mode)
             fprintf(stderr, "Fault: phase A I=%.1f A V=%.1f V phase=%.1f°, cycle=%ds (%.1fs normal, %.1fs fault), smpCnt=%d, offset=%ds.\n",
                     fault_i, fault_v, fault_phase, fault_cycle_s,
                     fault_cycle_s / 2.0, fault_cycle_s / 2.0, fault_smpcnt, fault_offset_s);
     } else
-        fprintf(stderr, "6I3U: toutes valeurs à zéro (--zero ou --freq 0).\n");
+        fprintf(stderr, "6I3U: every value is zero (--zero or --freq 0).\n");
 
     uint8_t seqData0[SEQDATA_LEN], seqData1[SEQDATA_LEN];
 
     uint64_t sec_index = 0;
 
     for (;;) {
-        /* Attendre la borne nominale: smpCnt 0 part toujours à la seconde pile. */
+        /* Wait for the nominal boundary: smpCnt 0 always goes out on the second. */
         int64_t boundary_ns = (int64_t)(start_wall_sec + (time_t)sec_index) * (int64_t)NSEC_PER_SEC;
         struct timespec target;
         struct timespec now_ts;
@@ -598,8 +598,8 @@ int main(int argc, char **argv) {
                 perror("sendto");
         }
 
-        /* Après le dernier paquet, on est ~416 µs avant la borne suivante. On dort jusqu'à
-         * la borne : la durée s'adapte (400 µs, 416 µs, 430 µs...) selon l'avance/retard. */
+        /* After the last frame we are ~416 us before the next boundary. Sleep until
+         * it: the duration adapts (400 us, 416 us, 430 us...) to being early or late. */
         sec_index++;
     }
 

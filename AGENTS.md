@@ -253,5 +253,6 @@ of git (`*.pcap`, `*.pcapng` ignored); only the few bytes a test needs go to
   on `lo` an AF_PACKET socket sees each frame twice, skip `PACKET_OUTGOING`).
 - Quick checks: `python3 -m py_compile <file>`; codec round trips with
   `python3 -c` from the repo root.
-- All code in English. Older modules are still French and get translated
-  when they are refactored. Commit messages in English with the DCO `Signed-off-by` trailer.
+- All code, comments, messages and docs in English. The only French left is
+  the `fr` table of the web UI (`I18N` in `unified_ui.html`), which is a
+  translation; the default texts of the page are the English ones. Commit messages in English with the DCO `Signed-off-by` trailer.

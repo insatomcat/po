@@ -3,17 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Receiver SV (BER, 2 ASDU/pkt) via AF_PACKET – vérification format rt_sender, mesure usec/delay.
+SV receiver (BER, 2 ASDUs per frame) on AF_PACKET: checks the rt_sender format, measures usec/delay.
 
-Inspiré de sv_counter3.py: capture AF_PACKET (timestamps noyau par paquet), file + 2 threads.
-Parse BER comme receiver, calcule delay = (usec - expected) % 1e6, expected = smpCnt * (1e6/4800).
+Like sv_counter3.py: AF_PACKET capture (kernel timestamp per frame), a queue and 2 threads.
+Decodes BER like receiver.py; delay = (usec - expected) % 1e6, expected = smpCnt * (1e6/4800).
 
 Usage:
   sudo python3 sv_receiver_delay.py -i <interface> [--check-format] [--only-wrap]
 
-  --check-format   Capturer un paquet, vérifier format rt_sender, afficher structure, quitter.
-  --only-wrap      N'afficher que les paquets smpCnt 0,1.
-  --cpu N[,N...]   Épingler le processus sur les CPUs (ex. 0 ou 0,1), comme sv_counter3.
+  --check-format   Capture one frame, check the rt_sender format, print its structure, exit.
+  --only-wrap      Print only frames with smpCnt 0,1.
+  --cpu N[,N...]   Pin the process to these CPUs (e.g. 0 or 0,1), like sv_counter3.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _read_ber_tag_len(data: bytes, off: int) -> tuple[int | None, int, int]:
 
 
 def parse_sv_packet(data: bytes) -> list[tuple[str, int]]:
-    """Parse SV payload (8-byte header + savPdu), retourne [(svID, smpCnt), ...]."""
+    """Parse an SV payload (8-byte header + savPdu) into [(svID, smpCnt), ...]."""
     out: list[tuple[str, int]] = []
     if len(data) < 8:
         return out
@@ -107,8 +107,8 @@ def parse_sv_packet(data: bytes) -> list[tuple[str, int]]:
 
 def payload_from_frame(frame: bytes) -> tuple[bytes | None, int]:
     """
-    Extrait le payload SV (sans Eth, sans VLAN) et l'offset de l'ethertype.
-    Retourne (payload, ethertype) ou (None, 0) si pas 0x88ba.
+    The SV payload (no Ethernet header, no VLAN tag) and the ethertype.
+    Returns (payload, ethertype), or (None, 0) when it is not 0x88ba.
     """
     if len(frame) < ETH_HEADER_LEN:
         return None, 0
@@ -125,7 +125,7 @@ def payload_from_frame(frame: bytes) -> tuple[bytes | None, int]:
 
 
 def check_format(payload: bytes) -> None:
-    """Vérifie le format rt_sender (8-byte header + savPdu, 2 ASDUs) et affiche la structure."""
+    """Check the rt_sender format (8-byte header + savPdu, 2 ASDUs) and print the structure."""
     if len(payload) < 8:
         print("[check-format] payload < 8 bytes")
         return
@@ -137,7 +137,7 @@ def check_format(payload: bytes) -> None:
     for i, (svid, smpcnt) in enumerate(asdus):
         print(f"  ASDU {i}: svID=\"{svid}\"  smpCnt={smpcnt}")
     if len(asdus) != 2:
-        print("[check-format] ATTENTION: rt_sender envoie 2 ASDUs/pkt, trouvé", len(asdus))
+        print("[check-format] WARNING: rt_sender sends 2 ASDUs per frame, found", len(asdus))
     else:
         print("[check-format] Format rt_sender OK (2 ASDUs)")
 
@@ -148,7 +148,7 @@ def capture_loop(
     drop_non_wrap: bool,
 ) -> None:
     cap = PacketCapture(iface, (ETH_P_61850_SV,), timeout=READ_TIMEOUT_MS / 1000)
-    msg = f"[+] Capture sur {iface} (0x88ba). Ctrl+C pour arrêter."
+    msg = f"[+] Capturing on {iface} (0x88ba). Ctrl+C to stop."
     if drop_non_wrap:
         msg += " [--drop-non-wrap: enqueue 0,1 uniquement]"
     print(msg + "\n")
@@ -203,8 +203,8 @@ def process_loop(
             if smp0 <= 1 and usec_in_sec > 500_000 and backlog_warn:
                 backlog_warn.clear()
                 print(
-                    "[!] usec ~999 ms pour 0,1: backlog (capture ne suit pas 2400 pkt/s). "
-                    "--cpu N ou --drop-non-wrap peuvent aider.",
+                    "[!] usec ~999 ms for 0,1: backlog (the capture does not keep up with 2400 frames/s). "
+                    "--cpu N or --drop-non-wrap may help.",
                     file=sys.stderr,
                 )
             delays = []
@@ -214,12 +214,12 @@ def process_loop(
                 if delay_us > USEC_PER_SEC / 2:
                     delay_us -= USEC_PER_SEC
                 delays.append(round(delay_us))
-            # Pour 0,1: un seul délai (paquet envoyé à T+0), éviter delay1 trompeur.
+            # For 0,1: one delay only (frame sent at T+0); delay1 would mislead.
             if smp0 <= 1 and delays:
                 delay_str = str(delays[0])
             else:
                 delay_str = ", ".join(str(d) for d in delays)
-            # usec = µs dans la seconde (timestamp noyau), delay = µs vs expected (smpCnt * 1e6/4800)
+            # usec = us within the second (kernel timestamp), delay = us against expected (smpCnt * 1e6/4800)
             print(f"usec, {usec_in_sec}, delay, {delay_str}")
             packet_queue.task_done()
     except KeyboardInterrupt:
@@ -234,22 +234,22 @@ def main() -> None:
     ap.add_argument(
         "--check-format",
         action="store_true",
-        help="Capturer un paquet, vérifier format rt_sender, afficher structure et quitter.",
+        help="Capture one frame, check the rt_sender format, print its structure and exit.",
     )
     ap.add_argument(
         "--only-wrap",
         action="store_true",
-        help="N'afficher que les paquets smpCnt 0,1.",
+        help="Print only frames with smpCnt 0,1.",
     )
     ap.add_argument(
         "--cpu",
         metavar="N[,N...]",
-        help="Épingler le processus sur les CPUs (ex. 0 ou 0,1).",
+        help="Pin the process to these CPUs (e.g. 0 or 0,1).",
     )
     ap.add_argument(
         "--drop-non-wrap",
         action="store_true",
-        help="Avec --only-wrap: ne mettre en file que les paquets 0,1 (drop les autres en capture).",
+        help="With --only-wrap: queue only frames 0,1 (drop the others at capture).",
     )
     args = ap.parse_args()
 
@@ -267,7 +267,7 @@ def main() -> None:
 
     if args.check_format:
         cap = PacketCapture(iface, (ETH_P_61850_SV,), timeout=2.0)
-        print(f"[check-format] Capture 1 paquet sur {iface}...")
+        print(f"[check-format] Capturing 1 frame on {iface}...")
         for _ in range(5000):
             frame = cap.recv()
             if frame is None:
@@ -277,7 +277,7 @@ def main() -> None:
                 check_format(payload)
                 break
         else:
-            print("[check-format] Aucun paquet 0x88ba reçu (timeout).")
+            print("[check-format] No 0x88ba frame received (timeout).")
         return
 
     if args.drop_non_wrap and not args.only_wrap:
@@ -293,7 +293,7 @@ def main() -> None:
     try:
         process_loop(packet_queue, args.only_wrap, backlog_warn)
     except KeyboardInterrupt:
-        print("\n[!] Arrêt.")
+        print("\n[!] Stopped.")
 
 
 if __name__ == "__main__":

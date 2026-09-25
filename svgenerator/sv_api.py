@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-API SV Generator exposée sans FastAPI pour intégration dans le service unifié.
+SV Generator API without FastAPI, served by the unified service.
 Routes: /flows, /flows/recents, /flows/{name}
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Ajouter le répertoire parent pour les imports
+# Put this directory on the import path
 _here = Path(__file__).resolve().parent
 if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
@@ -38,18 +38,18 @@ from sv_service import (
 
 
 def init_sv_api() -> None:
-    """Initialise l'API SV (charge config, récents) pour usage sans uvicorn."""
+    """Set up the SV API (configuration, recent flows) without uvicorn."""
     _load_recents()
     rebuild_from_config()
 
 
 def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | list]:
     """
-    Traite une requête API SV.
-    path: chemin après /api/sv (ex: "/flows", "/flows/recents", "/flows/monflux")
+    Handle one SV API request.
+    path: the path after /api/sv (e.g. "/flows", "/flows/recents", "/flows/myflow")
     method: GET, POST, PUT, DELETE
-    body: corps brut (JSON pour POST/PUT)
-    Retourne (status_code, body_json_serializable).
+    body: raw body (JSON for POST/PUT)
+    Returns (status_code, JSON-serialisable body).
     """
     path = (path or "/").rstrip("/") or "/"
     data = {}
@@ -134,7 +134,7 @@ def handle_sv(path: str, method: str, body: bytes | None) -> tuple[int, dict | l
         save_config()
         return 200, {"status": "ok"}
 
-    # DELETE /flows (tous)
+    # DELETE /flows (all of them)
     if path == "/flows" and method == "DELETE":
         with flows_lock:
             for fr in flows.values():

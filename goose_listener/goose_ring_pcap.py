@@ -1,7 +1,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tampon glissant GOOSE + export PCAP (4 s avant chaque problème)."""
+"""Sliding GOOSE buffer and PCAP export (the 4 s before each problem)."""
 from __future__ import annotations
 
 import json
@@ -40,7 +40,7 @@ class RingSnapshotMeta:
 
 
 class GooseRingBuffer:
-    """Conserve les trames Ethernet GOOSE des N dernières secondes."""
+    """Keep the GOOSE Ethernet frames of the last N seconds."""
 
     def __init__(self, window_s: float = RING_DEFAULT_WINDOW_S, *, max_packets: int = 80_000) -> None:
         self._window_s = max(0.5, float(window_s))
@@ -88,7 +88,7 @@ class GooseRingBuffer:
 
 
 def format_ts_local(ts: Optional[float]) -> Optional[str]:
-    """Horodatage lisible (heure locale PO) pour corrélation avec l'UI."""
+    """Readable timestamp (PO local time) to match the UI."""
     if ts is None:
         return None
     dt = datetime.fromtimestamp(float(ts))
@@ -97,7 +97,7 @@ def format_ts_local(ts: Optional[float]) -> Optional[str]:
 
 
 def build_pcap_comment(problem: Dict[str, Any], packets: List[Packet]) -> str:
-    """Texte embarqué dans le PCAP-NG (visible dans Wireshark > propriétés fichier)."""
+    """Text embedded in the PCAP-NG (Wireshark > capture file properties)."""
     kind = problem.get("kind") or "problem"
     go_id = problem.get("go_id") or ""
     ts_prob = problem.get("ts_goose")
@@ -105,19 +105,19 @@ def build_pcap_comment(problem: Dict[str, Any], packets: List[Packet]) -> str:
         ts_prob = problem.get("ts_expected")
     lines = [
         "PO GOOSE Listener — ring buffer 4 s",
-        f"Problème: {kind}" + (f" ({go_id})" if go_id else ""),
+        f"Problem: {kind}" + (f" ({go_id})" if go_id else ""),
     ]
     prob_s = format_ts_local(ts_prob)
     if prob_s:
-        lines.append(f"Heure problème (UI): {prob_s}")
+        lines.append(f"Problem time (UI): {prob_s}")
     if packets:
-        lines.append(f"Premier paquet: {format_ts_local(packets[0][0])}")
-        lines.append(f"Dernier paquet:  {format_ts_local(packets[-1][0])}")
+        lines.append(f"First frame: {format_ts_local(packets[0][0])}")
+        lines.append(f"Last frame:  {format_ts_local(packets[-1][0])}")
     msg = str(problem.get("message") or "").strip()
     if msg:
-        lines.append(f"Détail: {msg}")
+        lines.append(f"Detail: {msg}")
     lines.append(
-        "Wireshark: afficher Date/heure (pas « depuis début capture ») pour voir l'heure réelle."
+        "Wireshark: show Date and Time of Day (not seconds since the capture start) to see the real time."
     )
     return "\n".join(lines)
 
@@ -132,7 +132,7 @@ def _pcapng_option(code: int, value: bytes) -> bytes:
 
 
 def _pcapng_timestamp_us(ts: float) -> Tuple[int, int]:
-    """Découpe un epoch float en (high, low) pour EPB PCAP-NG (résolution µs)."""
+    """Split an epoch float into (high, low) for a PCAP-NG EPB (microsecond resolution)."""
     total_us = int(round(float(ts) * 1_000_000))
     if total_us < 0:
         total_us = 0
@@ -217,7 +217,7 @@ def write_dump_meta(
         },
         "wireshark_hint": (
             "Colonne Time : View > Time Display Format > "
-            "Date and Time of Day (horodatage absolu du noyau)."
+            "Date and Time of Day (absolute kernel timestamps)."
         ),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -236,7 +236,7 @@ def write_pcap(
     dump_id: str = "",
     window_s: float = RING_DEFAULT_WINDOW_S,
 ) -> int:
-    """Écrit un PCAP-NG (timestamps epoch absolus + commentaire problème)."""
+    """Write a PCAP-NG (absolute epoch timestamps and a problem comment)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if not comment and problem is not None:
         comment = build_pcap_comment(problem, packets)

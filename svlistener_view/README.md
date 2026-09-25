@@ -1,75 +1,46 @@
-# SV Listener View – Capture et visualisation SV
+# SV Listener View
 
-Application de **capture** et **visualisation** des paquets **Sampled Values (SV)** (IEC 61869-9, format 6I3U). Parse les phasors courants (Ia, Ib, Ic) et tensions (Va, Vb, Vc), affiche des cercles vectoriels (U et I) et fournit une **interface web** (Flask) pour les graphiques.
+Receives **Sampled Values** (IEC 61850-9-2 / IEC 61869-9) and shows the U and I phasors of one stream in a web page (Flask).
 
-## Rôle
+## What it does
 
-- Recevoir les paquets SV d’une interface réseau par la capture partagée (`processbus_capture`).
-- Parser les ASDUs (smpCnt, courants et tensions).
-- Afficher en terminal : résumé ASCII des phasors (optionnel).
-- Servir une **Web UI** (Flask) : cercles U/I, stats, délais inter-paquets.
-- Peut être utilisé **seul** (serveur Flask sur un port dédié) ou derrière le **service unifié** (proxy `/api/svview` quand `po_service.py` est lancé avec `--svview-interface`).
+- Takes the SV frames of the shared process bus capture (`processbus_capture`, one AF_PACKET socket per interface, shared with GOOSE).
+- Lists every svID seen. A stream is decoded in full when it is new, when it carries the selected svID, and once per second; its other frames are only counted.
+- For the selected svID (6I3U, or 4I4U mapped onto it): phasors by a 96-sample DFT at 50 Hz, waveforms, inter-frame delays, delay from the second boundary to smpCnt 0, missing samples.
+- Counts received frames and frames the SV decoder rejects (shown under the capture badge).
 
-## Prérequis
+Streams with fewer than 8 channels per ASDU are listed but not displayed. Quality is ignored.
 
-- **Python 3.10+**
-- **Linux**, droits root ou CAP_NET_RAW (capture AF_PACKET)
-- **Flask** : `pip install flask` (interface web)
+## Requirements
 
-## Utilisation
+- Python 3.10+
+- Linux, root or `CAP_NET_RAW` (AF_PACKET capture)
+- Flask (`pip install flask`)
 
-Depuis la racine du dépôt (pour que les chemins et imports fonctionnent) :
+## Running it
 
-```bash
-# Capture sur eth0, interface web sur le port 8080
-sudo python3 svlistener_view/sv_listener_view.py -i eth0 --web 8080
-```
-
-Options principales :
-
-| Option | Description |
-|--------|-------------|
-| `-i`, `--interface` | Interface réseau (obligatoire pour la capture) |
-| `--interval SEC` | Intervalle de rafraîchissement en secondes (défaut : 1) |
-| `--window SEC` | Fenêtre pour les stats de délai inter-paquets (défaut : 10) |
-| `--svid SVID` | Filtrer sur le svID ; si absent, affiche la liste des svIDs vus |
-| `--web PORT` | Démarrer le serveur web Flask sur le port indiqué (ex. 8080) |
-
-Sans `--web`, l’outil ne fait qu’afficher en console (liste des svIDs ou flux des phasors si `--svid` est donné).
-
-## Intégration au service unifié
-
-Pour afficher l’onglet « SV Listener » dans l’UI unifiée, lancer le service unifié avec l’**interface de capture** (pas un port) :
+Usually through the unified service, which starts the Flask app on a local port and proxies `/api/svview/` to it:
 
 ```bash
-python3 po_service.py --port 7050 --svview-interface eth0
+sudo python3 po_service.py --svview-interface eth1
 ```
 
-Le service unifié démarre alors **SV Listener View** en interne (Flask sur un port local), et proxifie **/api/svview/** vers ce serveur. Aucun lancement séparé de `sv_listener_view.py` n’est nécessaire.
-
-En mode **standalone**, on lance le listener à la main (ex. pour un port web dédié) :
+On its own, from the repository root:
 
 ```bash
-sudo python3 svlistener_view/sv_listener_view.py -i eth0 --web 8080
+sudo SVVIEW_INTERFACE=eth1 SVVIEW_PORT=7052 python3 svlistener_view/sv_listener_view.py
 ```
 
-## Structure
+Optional settings: `SVVIEW_WINDOW` (statistics window, s, default 10), `SVVIEW_SCALE`, `SVVIEW_ASPECT`. `svgenerator/svlistener_view.service.example` is a systemd unit for this standalone mode (uvicorn on port 7052).
 
-| Fichier | Rôle |
-|---------|------|
-| `sv_listener_view.py` | Point d’entrée : abonnement SV à la capture partagée, parsing SV (6I3U / 4I4U), calcul phasors, serveur Flask, templates |
-| `templates/` | Templates HTML/Jinja2 pour la partie web |
+The capture starts with `POST /api/capture/start` (the UI does it) and stops with `POST /api/capture/stop`; `POST /api/svid` selects a stream; `GET /api/data` returns the display data and the counters.
 
-Le script gère notamment :
+## Files
 
-- Décodage BER des ASDUs SV (smpCnt, données 6I+3U ou 4I+4U).
-- Calcul des grandeurs pour les cercles (module, angle).
-- Stats sur les délais entre paquets (fenêtre configurable).
-- Routes Flask pour la page principale et les données (JSON) utilisées par les graphiques.
-
-## Exemple systemd
-
-Un exemple de unit systemd pour le listener est fourni dans `svgenerator/svlistener_view.service.example` (lancement avec uvicorn sur le port 7052). Adapter les chemins et l’interface selon l’environnement.
+| File | Content |
+|------|---------|
+| `sv_listener_view.py` | Flask app, SV subscription to the shared capture, decoding (`iec61850.sv`), phasors, statistics |
+| `templates/index.html` | Standalone web page (the unified UI has its own SV Listener tab) |
 
 ## License
 

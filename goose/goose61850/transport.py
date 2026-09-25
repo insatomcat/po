@@ -71,7 +71,7 @@ def _build_frame(
 
 @dataclass
 class GoosePublisher:
-    """Publication de trames GOOSE sur un interface réseau."""
+    """Publishes GOOSE frames on a network interface."""
 
     iface: str
     src_mac: str
@@ -86,7 +86,7 @@ class GoosePublisher:
         count: int = 1,
         inter: float = 0.0,
     ) -> None:
-        """Envoie une ou plusieurs trames GOOSE."""
+        """Send one or more GOOSE frames."""
         raw = _build_frame(
             dst_mac=dst_mac,
             src_mac=self.src_mac,
@@ -198,7 +198,7 @@ class GooseSubscriber:
         }
 
     def _use_processbus_mux(self) -> bool:
-        """Multiplexeur partagé GOOSE+SV (une socket par interface)."""
+        """Shared GOOSE and SV capture (one socket per interface)."""
         try:
             root = Path(__file__).resolve().parents[2]
             root_str = str(root)
@@ -226,7 +226,7 @@ class GooseSubscriber:
         should_stop: Callable[[], bool],
         poll_s: float = 0.05,
     ) -> int:
-        """Capture continue jusqu'à should_stop() == True (multiplexeur processbus)."""
+        """Capture until should_stop() returns True (shared process bus capture)."""
         self._ensure_worker()
 
         if self._use_processbus_mux():
@@ -267,7 +267,7 @@ class GooseSubscriber:
         timeout: Optional[Union[int, float]] = None,
         stop_filter: Optional[Callable[..., bool]] = None,
     ) -> None:
-        """Capture bloquante (CLI). Préférer run_until() pour l'écoute longue durée."""
+        """Blocking capture (CLI); prefer run_until() for long runs."""
         deadline: Optional[float] = None
         if timeout is not None:
             deadline = time.time() + float(timeout)
@@ -286,7 +286,7 @@ class GooseSubscriber:
 
 
 def decode_hex_goose(hex_str: str) -> GoosePDU:
-    """Utilitaire : décode une chaîne hexadécimale représentant un APDU GOOSE."""
+    """Decode a GOOSE APDU given as a hex string."""
     hex_str = hex_str.replace(" ", "").replace("\n", "")
     data = binascii.unhexlify(hex_str)
     return decode_goose_pdu(data)

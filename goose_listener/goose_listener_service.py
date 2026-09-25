@@ -1,7 +1,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""GOOSE Listener : scan de flux et mesure delta déclenchement → référence SV (smpCnt / cycle)."""
+"""GOOSE Listener: stream scan and trip delay measurement against the SV reference (smpCnt / cycle)."""
 from __future__ import annotations
 
 import logging
@@ -31,17 +31,17 @@ from trigger_classify import classify_trigger  # noqa: E402
 
 Key = Tuple[str, str]  # (gocb_ref, go_id)
 
-EVENT_FILTER_DECLENCHEMENTS_ONLY = "declenchements_only"
+EVENT_FILTER_TRIPS_ONLY = "trips_only"
 PANEL_EVENTS_MAX = 50
 PANEL_PROBLEMS_MAX = 50
 EVENT_FILTER_ALL = "all"
-VALID_EVENT_FILTERS = {EVENT_FILTER_DECLENCHEMENTS_ONLY, EVENT_FILTER_ALL}
+VALID_EVENT_FILTERS = {EVENT_FILTER_TRIPS_ONLY, EVENT_FILTER_ALL}
 
 
 def _normalize_event_filter(event_filter: str) -> str:
-    """Alias historique defauts_only → declenchements_only."""
-    if event_filter == "defauts_only":
-        return EVENT_FILTER_DECLENCHEMENTS_ONLY
+    """Map the older French names of the trips-only filter, still found in saved states."""
+    if event_filter in ("declenchements_only", "defauts_only"):
+        return EVENT_FILTER_TRIPS_ONLY
     return event_filter
 
 DEFAULT_PROBLEM_THRESHOLD_MS = 40.0
@@ -64,7 +64,7 @@ _sv_flows_getter: Optional[Callable[[], List[Dict[str, Any]]]] = None
 
 
 def set_sv_flows_getter(fn: Optional[Callable[[], List[Dict[str, Any]]]]) -> None:
-    """Enregistre un getter des flux SV (po_service) pour lier gocbRef → svID."""
+    """Register the SV flow getter (po_service) used to link gocbRef to svID."""
     global _sv_flows_getter
     _sv_flows_getter = fn
 
@@ -74,7 +74,7 @@ def _stream_key(gocb_ref: str, go_id: Optional[str]) -> Key:
 
 
 def _targets_from_payload(raw_targets: Any) -> List[AnalysisTarget]:
-    """Construit la liste de cibles depuis un JSON (API ou fichier d'état)."""
+    """Build the target list from JSON (API or state file)."""
     targets: List[AnalysisTarget] = []
     if not isinstance(raw_targets, list):
         return targets
@@ -130,7 +130,7 @@ def _missing_grace_s(cycle_s: float) -> float:
 
 
 def _nic_counter_delta(baseline: Dict[str, int], current: Dict[str, int]) -> Dict[str, int]:
-    """Delta entre deux lectures sysfs (gère reset compteur, ignore écarts absurdes)."""
+    """Delta between two sysfs reads (handles counter resets, ignores absurd jumps)."""
     out: Dict[str, int] = {}
     if not baseline:
         return out
@@ -156,7 +156,7 @@ def is_trigger_event(
     last_trigger_st: Dict[Key, int],
     lenient: bool = False,
 ) -> bool:
-    """Déclenchement GOOSE : stNum↑ et sqNum=0 (strict ou tolérant si sqNum=0 manqué)."""
+    """GOOSE trip: stNum up and sqNum=0 (strict, or tolerant when sqNum=0 was missed)."""
     if prev_st_num is None:
         return False
     if st_num <= prev_st_num:
@@ -175,7 +175,7 @@ def _missing_slots_between(
     *,
     confirm_before: Optional[float] = None,
 ) -> List[float]:
-    """Timestamps attendus manquants strictement entre t_prev et t_next."""
+    """Expected timestamps missing strictly between t_prev and t_next."""
     grace = _missing_grace_s(cycle_s)
     gap = t_next - t_prev
     if gap <= cycle_s + grace:
@@ -197,18 +197,18 @@ def _index_events_by_key(events: List[TriggerEvent]) -> Dict[Key, List[TriggerEv
     return idx
 
 
-def _declenchements_for_key(events: List[TriggerEvent], key: Key) -> List[TriggerEvent]:
+def _trips_for_key(events: List[TriggerEvent], key: Key) -> List[TriggerEvent]:
     return [
         e for e in events
-        if _stream_key(e.gocb_ref, e.go_id) == key and e.event_kind == "declenchement"
+        if _stream_key(e.gocb_ref, e.go_id) == key and e.event_kind == "trip"
     ]
 
 
-def _declenchements_from_index(index: Dict[Key, List[TriggerEvent]], key: Key) -> List[TriggerEvent]:
-    return [e for e in index.get(key, ()) if e.event_kind == "declenchement"]
+def _trips_from_index(index: Dict[Key, List[TriggerEvent]], key: Key) -> List[TriggerEvent]:
+    return [e for e in index.get(key, ()) if e.event_kind == "trip"]
 
 
-def _events_between_declenchements(
+def _events_between_trips(
     events: List[TriggerEvent],
     key: Key,
     t_lo: float,
@@ -216,7 +216,7 @@ def _events_between_declenchements(
     *,
     limit: int = PROBLEMS_CONTEXT_MAX,
 ) -> List[Dict[str, Any]]:
-    """Déclenchements entre deux défauts (exclus) pour diagnostic."""
+    """Trips between two faults (excluded), for diagnosis."""
     return _events_between_indexed(
         [e for e in events if _stream_key(e.gocb_ref, e.go_id) == key],
         t_lo,
@@ -267,7 +267,7 @@ def _problem_delay_exceeded(evt: TriggerEvent, threshold_ms: float) -> Dict[str,
         "st_num": evt.st_num,
         "sq_num": evt.sq_num,
         "message": (
-            f"Δ net {evt.delta_net_ms:.2f} ms > seuil {threshold_ms:.0f} ms"
+            f"net Δ {evt.delta_net_ms:.2f} ms > threshold {threshold_ms:.0f} ms"
         ),
     }
 
@@ -288,7 +288,7 @@ def _problem_capture_incomplete(evt: TriggerEvent) -> Dict[str, Any]:
         "st_num": evt.st_num,
         "sq_num": sq,
         "message": (
-            f"sqNum={sq} (sqNum=0 manqué en capture) - "
+            f"sqNum={sq} (sqNum=0 missed by the capture) - "
             f"Δ={evt.delta_net_ms:.2f} ms non fiable"
         ),
     }
@@ -313,14 +313,14 @@ def _problem_missing_between(
         "delta_net_ms": None,
         "st_num": None,
         "message": (
-            f"Déclenchement manquant (cycle {cycle_s:.0f} s, "
-            f"écart {gap:.1f} s)"
+            f"Missing trip (cycle {cycle_s:.0f} s, "
+            f"gap {gap:.1f} s)"
         ),
         "context": context,
         "gap_s": round(gap, 3),
         "cycle_s": cycle_s,
-        "declenchement_prev_ts": t_prev,
-        "declenchement_next_ts": t_next,
+        "trip_prev_ts": t_prev,
+        "trip_next_ts": t_next,
     }
 
 
@@ -331,7 +331,7 @@ def _compute_overdue_missing_problems(
     running: bool,
     now: float,
 ) -> List[Dict[str, Any]]:
-    """Manquants « en retard » depuis le dernier déclenchement (poll périodique)."""
+    """Overdue missing trips since the last one (periodic poll)."""
     if not running:
         return []
     problems: List[Dict[str, Any]] = []
@@ -341,11 +341,11 @@ def _compute_overdue_missing_problems(
         if timing.cycle_s is None:
             continue
         cycle_s = max(1.0, float(timing.cycle_s))
-        declenchements = _declenchements_from_index(index, key)
-        if not declenchements:
+        trips = _trips_from_index(index, key)
+        if not trips:
             continue
         key_events = index.get(key, ())
-        t_last = declenchements[-1].ts_goose
+        t_last = trips[-1].ts_goose
         grace = _missing_grace_s(cycle_s)
         gap = now - t_last
         if gap <= cycle_s + grace:
@@ -364,20 +364,20 @@ def _compute_overdue_missing_problems(
             "delta_net_ms": None,
             "st_num": None,
             "message": (
-                f"Déclenchement manquant (cycle {cycle_s:.0f} s, "
-                f"écart {gap:.1f} s) - en retard"
+                f"Missing trip (cycle {cycle_s:.0f} s, "
+                f"gap {gap:.1f} s) - overdue"
             ),
             "context": context,
             "gap_s": round(gap, 3),
             "cycle_s": cycle_s,
-            "declenchement_prev_ts": t_last,
-            "declenchement_next_ts": None,
+            "trip_prev_ts": t_last,
+            "trip_next_ts": None,
         })
     return _dedupe_problems(problems)
 
 
 def _problem_identity_key(p: Dict[str, Any]) -> Tuple[Any, ...]:
-    """Clé stable pour déduplication et persistance session."""
+    """Stable key for deduplication and session persistence."""
     kind = p.get("kind")
     go_id = str(p.get("go_id") or "")
     if kind == "capture_unreliable":
@@ -457,7 +457,7 @@ def _build_histogram_from_buckets(
     *,
     bin_width_ms: float = HIST_BIN_MS,
 ) -> Optional[Dict[str, Any]]:
-    """Construit l'histogramme depuis des compteurs cumulés (indépendant de la RAM)."""
+    """Build the histogram from cumulative counters (independent of the events kept in memory)."""
     all_bins: Set[int] = set()
     for buckets in per_key_buckets.values():
         all_bins.update(buckets.keys())
@@ -503,7 +503,7 @@ def _build_histogram_from_buckets(
 
 
 def _dedupe_problems(problems: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Évite les doublons pour un même manquant, sans fusionner les Δ>seuil."""
+    """Avoid duplicates for one missing trip, without merging the Δ > threshold ones."""
     deduped: List[Dict[str, Any]] = []
     seen: Set[Tuple[Any, ...]] = set()
     for p in sorted(problems, key=_problem_sort_key, reverse=True):
@@ -730,7 +730,7 @@ def _resolve_target_timing_live(
 def snapshot_target_timing(
     target: AnalysisTarget, flows: Optional[List[SvFlowInfo]] = None
 ) -> AnalysisTarget:
-    """Fige cycle / smpCnt / offset au lancement. Plus de relecture SV pendant le run."""
+    """Freeze cycle / smpCnt / offset at start; SV flows are not read again during the run."""
     timing = _resolve_target_timing_live(target, flows)
     target.svid = timing.svid
     target.cycle_s = timing.cycle_s
@@ -843,8 +843,8 @@ class TriggerEvent:
     ts_seconde_pile: float
     delta_net_ms: float
     processing_lag_ms: float = 0.0
-    event_kind: str = "inconnu"
-    event_label: str = "Inconnu"
+    event_kind: str = "unknown"
+    event_label: str = "Unknown"
     change_detail: str = ""
 
 
@@ -868,12 +868,12 @@ class GooseListenerManager:
     _last_st_num: Dict[Key, int] = field(default_factory=dict, repr=False)
     _last_trigger_st: Dict[Key, int] = field(default_factory=dict, repr=False)
     _last_all_data: Dict[Key, list] = field(default_factory=dict, repr=False)
-    _event_filter: str = EVENT_FILTER_DECLENCHEMENTS_ONLY
+    _event_filter: str = EVENT_FILTER_TRIPS_ONLY
     _problem_threshold_ms: float = DEFAULT_PROBLEM_THRESHOLD_MS
     _events: Deque[TriggerEvent] = field(default_factory=lambda: deque(maxlen=10000), repr=False)
     _events_by_key: Dict[Key, List[float]] = field(default_factory=dict, repr=False)
     _hist_all_buckets: HistBuckets = field(default_factory=dict, repr=False)
-    _hist_declenchement_buckets: HistBuckets = field(default_factory=dict, repr=False)
+    _hist_trip_buckets: HistBuckets = field(default_factory=dict, repr=False)
     _events_rev: int = field(default=0, repr=False)
     _targets_frozen: frozenset[Key] = field(default_factory=frozenset, repr=False)
     _analysis_poll_cache: _AnalysisPollCache = field(
@@ -887,7 +887,7 @@ class GooseListenerManager:
     _analysis_warmup_started: float = field(default=0.0, repr=False)
     _problems_ram: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     _problem_identity_keys: Set[Tuple[Any, ...]] = field(default_factory=set, repr=False)
-    _last_declenchement_ts: Dict[Key, float] = field(default_factory=dict, repr=False)
+    _last_trip_ts: Dict[Key, float] = field(default_factory=dict, repr=False)
     _ring_dump_records: List[Dict[str, Any]] = field(default_factory=list, repr=False)
     _ring_dump_seq: int = field(default=0, repr=False)
     _analysis_started_at: float = field(default=0.0, repr=False)
@@ -953,11 +953,11 @@ class GooseListenerManager:
             )
 
     def _active_hist_buckets_locked(self) -> HistBuckets:
-        """Copie des compteurs histogramme actifs (_lock tenu)."""
+        """Copy of the active histogram counters (_lock held)."""
         src = (
             self._hist_all_buckets
             if self._event_filter == EVENT_FILTER_ALL
-            else self._hist_declenchement_buckets
+            else self._hist_trip_buckets
         )
         return {k: dict(v) for k, v in src.items()}
 
@@ -973,7 +973,7 @@ class GooseListenerManager:
             self._capture_active = False
 
     def _expire_scan_if_due(self) -> None:
-        """Termine un scan dont la durée est écoulée (_lock tenu)."""
+        """End a scan whose duration has elapsed (_lock held)."""
         if self._mode == "scan" and time.time() >= self._scan_deadline:
             self._mode = "idle"
             self._stop_capture_if_idle()
@@ -1085,8 +1085,8 @@ class GooseListenerManager:
                 self._last_all_data[key] = pdu_data_copy
             self._last_trigger_st[key] = pdu.st_num
             pending_problems: List[Dict[str, Any]] = []
-            if kind == "declenchement":
-                pending_problems = self._problems_for_declenchement_unlocked(
+            if kind == "trip":
+                pending_problems = self._problems_for_trip_unlocked(
                     key, evt, target
                 )
             exclude_from_hist = any(
@@ -1094,8 +1094,8 @@ class GooseListenerManager:
             )
             if not exclude_from_hist:
                 _hist_buckets_add(self._hist_all_buckets, key, delta_ms)
-                if kind == "declenchement":
-                    _hist_buckets_add(self._hist_declenchement_buckets, key, delta_ms)
+                if kind == "trip":
+                    _hist_buckets_add(self._hist_trip_buckets, key, delta_ms)
             if self._event_passes_filter_unlocked(evt):
                 self._events.append(evt)
                 self._events_rev += 1
@@ -1126,7 +1126,7 @@ class GooseListenerManager:
         }
 
     def _persist_analysis_state(self) -> None:
-        """Écrit la config d'analyse (cibles + options) pour survivre à un restart."""
+        """Write the analysis configuration (targets and options) so it survives a restart."""
         try:
             with self._lock:
                 payload = self._analysis_state_dict_unlocked()
@@ -1142,7 +1142,7 @@ class GooseListenerManager:
             log.error(f"[GOOSE Listener] Cannot save the state: {exc}")
 
     def restore_analysis_if_needed(self) -> None:
-        """Restaure les mappings ; relance l'analyse si elle tournait (sans l'historique)."""
+        """Restore the mappings; restart the analysis if it was running (without its history)."""
         if not ANALYSIS_STATE_PATH.exists():
             return
         try:
@@ -1164,7 +1164,7 @@ class GooseListenerManager:
         except (TypeError, ValueError):
             threshold_ms = None
         event_filter = _normalize_event_filter(
-            str(raw.get("event_filter") or EVENT_FILTER_DECLENCHEMENTS_ONLY).strip()
+            str(raw.get("event_filter") or EVENT_FILTER_TRIPS_ONLY).strip()
         )
         with self._lock:
             if threshold_ms is not None and threshold_ms >= 0:
@@ -1192,7 +1192,7 @@ class GooseListenerManager:
             )
 
     def _install_idle_targets(self, targets: List[AnalysisTarget]) -> None:
-        """Recharge le tableau d'analyse sans démarrer la capture."""
+        """Reload the analysis table without starting the capture."""
         sv_flows = list_sv_flow_infos()
         with self._lock:
             self._targets.clear()
@@ -1205,7 +1205,7 @@ class GooseListenerManager:
             self._analysis_poll_cache.key = None
 
     def set_targets(self, targets: List[AnalysisTarget]) -> Optional[str]:
-        """Met à jour les mappings persistés (tableau Analyse), analyse en cours ou non."""
+        """Update the saved mappings (Analysis table), whether an analysis runs or not."""
         sv_flows = list_sv_flow_infos()
         with self._lock:
             analyzing = self._mode == "analyze"
@@ -1239,7 +1239,7 @@ class GooseListenerManager:
         duration_s = max(0.5, min(float(duration_s), 120.0))
         with self._lock:
             if self._mode == "analyze":
-                return "Analyse en cours : arrêtez l'analyse avant de scanner."
+                return "An analysis is running: stop it before scanning."
             self._mode = "scan"
             self._scan_duration_s = duration_s
             self._scan_deadline = time.time() + duration_s
@@ -1255,7 +1255,7 @@ class GooseListenerManager:
     def _event_passes_filter_unlocked(self, event: TriggerEvent) -> bool:
         if self._event_filter == EVENT_FILTER_ALL:
             return True
-        return event.event_kind == "declenchement"
+        return event.event_kind == "trip"
 
     def _purge_events_unlocked(self) -> None:
         if self._event_filter == EVENT_FILTER_ALL:
@@ -1268,8 +1268,8 @@ class GooseListenerManager:
         event_filter = _normalize_event_filter(event_filter.strip())
         if event_filter not in VALID_EVENT_FILTERS:
             return (
-                f"Filtre invalide (attendu: {EVENT_FILTER_DECLENCHEMENTS_ONLY} "
-                f"ou {EVENT_FILTER_ALL})."
+                f"Invalid filter (expected {EVENT_FILTER_TRIPS_ONLY} "
+                f"or {EVENT_FILTER_ALL})."
             )
         with self._lock:
             self._event_filter = event_filter
@@ -1286,7 +1286,7 @@ class GooseListenerManager:
         with self._lock:
             if threshold_ms is not None:
                 if threshold_ms < 0:
-                    return "Le seuil doit être ≥ 0 ms."
+                    return "The threshold must be >= 0 ms."
                 self._problem_threshold_ms = float(threshold_ms)
             self._analysis_poll_cache.key = None
         self._persist_analysis_state()
@@ -1298,19 +1298,19 @@ class GooseListenerManager:
         gocb_ref: Optional[str] = None,
         go_id: Optional[str] = None,
     ) -> Optional[str]:
-        """Injecte un déclenchement fictif avec delta > seuil (démo UI, pas d'émission réseau)."""
+        """Inject a fake trip with delta > threshold (UI demo, nothing is sent on the network)."""
         problem: Optional[Dict[str, Any]] = None
         with self._lock:
             if self._mode != "analyze":
-                return "Lancez une analyse avant de simuler un retard."
+                return "Start an analysis before simulating a delay."
             if not self._targets:
-                return "Aucun flux en analyse."
+                return "No stream under analysis."
             want_gocb = (gocb_ref or "").strip()
             want_go = (go_id or "").strip()
             if want_gocb:
                 target = self._targets.get(_stream_key(want_gocb, want_go))
                 if target is None:
-                    return "Flux introuvable dans l'analyse en cours."
+                    return "Stream not found in the running analysis."
             else:
                 target = random.choice(list(self._targets.values()))
             key = _stream_key(target.gocb_ref, target.go_id)
@@ -1344,9 +1344,9 @@ class GooseListenerManager:
                 ts_seconde_pile=t_ref,
                 delta_net_ms=delta_ms,
                 processing_lag_ms=0.0,
-                event_kind="declenchement",
-                event_label="Déclenchement",
-                change_detail="démo (injection UI)",
+                event_kind="trip",
+                event_label="Trip",
+                change_detail="demo (UI injection)",
             )
             if self._event_passes_filter_unlocked(evt):
                 self._events.append(evt)
@@ -1362,20 +1362,20 @@ class GooseListenerManager:
     def start_analysis(
         self,
         targets: List[AnalysisTarget],
-        event_filter: str = EVENT_FILTER_DECLENCHEMENTS_ONLY,
+        event_filter: str = EVENT_FILTER_TRIPS_ONLY,
     ) -> Optional[str]:
         if not targets:
-            return "Sélectionnez au moins un gocbRef/goID."
+            return "Select at least one gocbRef/goID."
         event_filter = _normalize_event_filter(event_filter.strip())
         if event_filter not in VALID_EVENT_FILTERS:
             return (
-                f"Filtre invalide (attendu: {EVENT_FILTER_DECLENCHEMENTS_ONLY} "
-                f"ou {EVENT_FILTER_ALL})."
+                f"Invalid filter (expected {EVENT_FILTER_TRIPS_ONLY} "
+                f"or {EVENT_FILTER_ALL})."
             )
         with self._lock:
             self._expire_scan_if_due()
             if self._mode == "scan":
-                return "Scan en cours : attendez la fin du scan."
+                return "A scan is running: wait for it to end."
             self._mode = "analyze"
             self._event_filter = event_filter
             self._targets.clear()
@@ -1392,10 +1392,10 @@ class GooseListenerManager:
             self._events.clear()
             self._events_by_key.clear()
             self._hist_all_buckets.clear()
-            self._hist_declenchement_buckets.clear()
+            self._hist_trip_buckets.clear()
             self._problems_ram.clear()
             self._problem_identity_keys.clear()
-            self._last_declenchement_ts.clear()
+            self._last_trip_ts.clear()
             self._events_rev = 0
             self._targets_frozen = frozenset(self._targets.keys())
             self._analysis_poll_cache.key = None
@@ -1424,17 +1424,17 @@ class GooseListenerManager:
         self._persist_analysis_state()
 
     def reset_session(self) -> None:
-        """Efface événements, histogramme et problèmes. L'analyse continue."""
+        """Clear events, histogram and problems; the analysis goes on."""
         dumps_to_delete: List[Dict[str, Any]] = []
         analyzing = False
         with self._lock:
             self._events.clear()
             self._events_by_key.clear()
             self._hist_all_buckets.clear()
-            self._hist_declenchement_buckets.clear()
+            self._hist_trip_buckets.clear()
             self._problems_ram.clear()
             self._problem_identity_keys.clear()
-            self._last_declenchement_ts.clear()
+            self._last_trip_ts.clear()
             self._events_rev += 1
             self._analysis_poll_cache.key = None
             dumps_to_delete = list(self._ring_dump_records)
@@ -1452,7 +1452,7 @@ class GooseListenerManager:
             self._schedule_capture_baseline()
 
     def clear_problems(self) -> None:
-        """Efface uniquement la liste des problèmes (et dumps PCAP associés). L'analyse continue."""
+        """Clear only the problem list (and its PCAP dumps); the analysis goes on."""
         dumps_to_delete: List[Dict[str, Any]] = []
         with self._lock:
             self._problems_ram.clear()
@@ -1603,22 +1603,22 @@ class GooseListenerManager:
             events = sorted(self._events, key=lambda e: e.ts_goose)
             filt = self._event_filter
         if not events:
-            return "# Aucun événement en mémoire\n"
+            return "# No event in memory\n"
         filt_label = (
-            "déclenchements seuls"
-            if filt == EVENT_FILTER_DECLENCHEMENTS_ONLY
-            else "tous les événements"
+            "trips only"
+            if filt == EVENT_FILTER_TRIPS_ONLY
+            else "all events"
         )
-        header = f"# GOOSE Listener - {len(events)} événement(s) ({filt_label})\n"
+        header = f"# GOOSE Listener - {len(events)} event(s) ({filt_label})\n"
         return header + "\n".join(_event_export_line(e) for e in events) + "\n"
 
     def export_problems_txt(self) -> str:
         with self._lock:
             problems = list(self._problems_ram)
         if not problems:
-            return "# Aucun problème détecté\n"
+            return "# No problem detected\n"
         ordered = sorted(problems, key=_problem_sort_key)
-        header = f"# GOOSE Listener - {len(ordered)} problème(s) (session)\n"
+        header = f"# GOOSE Listener - {len(ordered)} problem(s) (session)\n"
         return header + "\n".join(_problem_export_line(p) for p in ordered) + "\n"
 
     def _enable_ring_capture(self) -> None:
@@ -1653,19 +1653,19 @@ class GooseListenerManager:
         except Exception:
             return {"enabled": False}
 
-    def _problems_for_declenchement_unlocked(
+    def _problems_for_trip_unlocked(
         self,
         key: Key,
         evt: TriggerEvent,
         target: AnalysisTarget,
     ) -> List[Dict[str, Any]]:
-        """Détecte Δ/sqNum/manquants à la réception (comme l'histogramme)."""
+        """Detect Δ / sqNum / missing trips on reception (like the histogram)."""
         out: List[Dict[str, Any]] = []
         timing = resolve_target_timing(target)
         cycle_s = timing.cycle_s
         threshold_ms = max(0.0, float(self._problem_threshold_ms))
         t_next = evt.ts_goose
-        t_prev = self._last_declenchement_ts.get(key)
+        t_prev = self._last_trip_ts.get(key)
         if t_prev is not None and cycle_s is not None:
             cycle_s = max(1.0, float(cycle_s))
             key_events = [
@@ -1684,7 +1684,7 @@ class GooseListenerManager:
                         cycle_s=cycle_s,
                     )
                 )
-        self._last_declenchement_ts[key] = t_next
+        self._last_trip_ts[key] = t_next
 
         if evt.sq_num != 0:
             out.append(_problem_capture_incomplete(evt))
@@ -1693,7 +1693,7 @@ class GooseListenerManager:
         return out
 
     def _accumulate_problems(self, live: List[Dict[str, Any]]) -> None:
-        """Ajoute les nouveaux problèmes à la liste session (indépendante des 10k événements)."""
+        """Add new problems to the session list (independent of the 10k events)."""
         new_entries: List[Dict[str, Any]] = []
         with self._lock:
             for p in live:
@@ -1844,7 +1844,7 @@ class GooseListenerManager:
         return int(mux.get("packets") or 0) > 0
 
     def _schedule_capture_baseline(self) -> None:
-        """Ignore le burst d'ouverture de la capture (restart / capture froide)."""
+        """Ignore the burst when the capture opens (restart, cold capture)."""
         if self._mux_capture_ready():
             self._analysis_capture_baseline = self._snapshot_capture_baseline()
             self._analysis_baseline_active = True
@@ -1916,7 +1916,7 @@ class GooseListenerManager:
                 int(mux.get("sv_queue_drops", 0)) - int(baseline.get("sv_queue_drops", 0)),
             )
             if drops_delta:
-                reasons.append(f"{drops_delta} paquet(s) perdus (file Python GOOSE)")
+                reasons.append(f"{drops_delta} frame(s) lost (Python GOOSE queue)")
             if queue_size > self.CAPTURE_QUEUE_WARN:
                 reasons.append(f"file GOOSE {queue_size} (retard traitement)")
             if kernel_drop_delta:

@@ -2,7 +2,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Service GOOSE : point d'entrée principal (API HTTP + envoi continu)."""
+"""GOOSE service entry point (HTTP API and continuous publication)."""
 from __future__ import annotations
 
 import logging
@@ -23,18 +23,18 @@ log = logging.getLogger(__name__)
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Démarre le service GOOSE (API HTTP + envoi continu des flux).",
+        description="Run the GOOSE service (HTTP API and continuous stream publication).",
     )
     parser.add_argument(
         "--host",
         default="localhost",
-        help="Adresse d'écoute de l'API HTTP (défaut: localhost).",
+        help="HTTP API listen address (default localhost).",
     )
     parser.add_argument(
         "--port",
         type=int,
         default=7053,
-        help="Port d'écoute de l'API HTTP (défaut: 7053).",
+        help="HTTP API listen port (default 7053).",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")

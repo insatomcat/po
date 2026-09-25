@@ -1,97 +1,38 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
+"""Long-running HTTP service that manages MMS report subscriptions.
+
+The service starts once with its global settings (--victoriametrics-url,
+--vm-batch-ms). Each subscription (one IED, optionally one logical device)
+runs in its own thread: it connects, finds and enables the report control
+blocks, and pushes every report to VictoriaMetrics. The HTTP API creates,
+changes and deletes subscriptions and toggles their debug output (reports
+as text in the log). State is kept in mms/subscriptions.json.
+
+  POST   /subscriptions        {"id"?, "ied_host", "ied_port", "domain"?, "scl"?,
+                                "rcb_filter"?, "rcb_list"?, "debug"?, "triggers"?,
+                                "integrity_ms"?} -> 201 and the subscription
+  GET    /subscriptions        -> every subscription, with last_error and rcb_items
+  GET    /subscriptions/<id>   -> one subscription, or 404
+  PUT    /subscriptions/<id>   same fields as POST, all optional; a debug-only
+                               change applies at once, anything else restarts
+                               the subscription thread
+  DELETE /subscriptions/<id>   stop and delete one subscription -> 204
+  DELETE /subscriptions        stop and delete all of them -> 204
+  GET    /healthz              200
+  GET    /logs                 the service log as server-sent events
+"""
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Bootstrap pour exécution standalone (python3 mms/mms_service.py)
+# Bootstrap for a standalone run (python3 mms/mms_service.py)
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
-"""
-Service HTTP long‑running pour gérer des flux de reports MMS par domaine.
-
-Concepts:
-  - Le service est démarré une fois, avec des paramètres globaux:
-        --victoriametrics-url URL
-        --vm-batch-ms N
-    Le push VictoriaMetrics est donc le mode par défaut.
-
-  - Via l'API HTTP, on gère des « flux domaine » (subscriptions MMS) :
-        * création / modification / suppression d'un flux
-        * mise en mode debug (affichage texte dans la console) ou non
-        * modification de la liste RCB (rcb-list) et du fichier SCL
-        * listing des flux et de leurs options actuelles
-
-  - Un flux est défini par:
-        * ied_host, ied_port : IED cible
-        * domain_id          : domaine MMS (LD)
-        * scl_path           : chemin fichier SCL/ICD (optionnel)
-        * rcb_list_path      : chemin liste des RCB à activer (optionnel → liste intégrée)
-        * debug_console      : bool (affiche les reports en texte dans la console du service)
-
-  - Chaque flux tourne dans un thread dédié qui ouvre la connexion MMS,
-    active les RCB, boucle sur les reports et les pousse vers VictoriaMetrics.
-
-API HTTP (JSON, état persistant dans mms/subscriptions.json) :
-
-  POST /subscriptions
-      Body:
-        {
-          "id": "flux-1",           # optionnel, sinon généré
-          "ied_host": "10.1.2.3",
-          "ied_port": 102,
-          "domain": "IED01_LD0",
-          "scl": "/chemin/vers/fichier.icd",        # optionnel
-          "rcb_list": "/chemin/vers/rcb.txt",       # optionnel
-          "debug": true                             # optionnel, défaut False
-        }
-      Réponse:
-        201 Created + JSON du flux
-
-  GET /subscriptions
-      Réponse:
-        200 OK
-        [
-          {
-            "id": "...",
-            "ied_host": "...",
-            "ied_port": 102,
-            "domain": "...",
-            "scl": "...",
-            "rcb_list": "...",
-            "debug": true,
-            "last_error": "..." | null,
-            "rcb_items": ["...", ...]
-          },
-          ...
-        ]
-
-  GET /subscriptions/<id>
-      Réponse :
-        200 OK + JSON du flux
-        404 si inconnu
-
-  PUT /subscriptions/<id>
-      Body: mêmes champs que POST mais tous optionnels (patch sémantique).
-      Derrière les coulisses, on arrête l'ancien thread et on en lance un nouveau
-      avec la nouvelle configuration.
-
-  DELETE /subscriptions/<id>
-      Supprime le flux (arrête le thread) et renvoie 204.
-
-  DELETE /subscriptions
-      Supprime tous les flux (arrête tous les threads) et renvoie 204.
-
-  GET /healthz
-      Simple check 200 OK.
-
-  GET /logs
-      Flux SSE des logs du service (temps réel).
-"""
 
 import argparse
 import json
@@ -179,14 +120,14 @@ class SubscriptionRuntime:
     total_reports: int = 0
     reports_since_log: int = 0
     last_log_ts: float = 0.0
-    rcb_items: list = field(default_factory=list)  # liste des RCB souscrits (remplie par le worker)
-    # Conteneur mutable pour que le thread worker voie le toggle debug sans restart
+    rcb_items: list = field(default_factory=list)  # subscribed RCBs (filled by the worker)
+    # Mutable holder so the worker thread sees the debug toggle without a restart
     debug_console: list = field(default_factory=lambda: [False])
 
 
 @dataclass
 class MMSCommandConfig:
-    """Configuration persistée d'une commande MMS (write/operate)."""
+    """Saved configuration of an MMS command (write/operate)."""
 
     id: str
     name: str
@@ -207,10 +148,10 @@ RECENTS_MAX = 20
 _RECONNECT_DELAY_INITIAL = 5.0
 _RECONNECT_DELAY_MAX = 60.0
 
-# Drapeau debug par flux (in-memory, pas de persistance)
+# Debug flag per subscription (in memory, not saved)
 _DEBUG_CONSOLE: Dict[str, bool] = {}
 
-# Chemins des fichiers de persistance (dans mms/)
+# State files (in mms/)
 _MMS_DIR = Path(__file__).resolve().parent
 SUBSCRIPTIONS_PATH = _MMS_DIR / "subscriptions.json"
 RECENTS_PATH = _MMS_DIR / "recents.json"
@@ -218,7 +159,7 @@ COMMANDS_PATH = _MMS_DIR / "commands.json"
 
 
 class SubscriptionManager:
-    """Gestion centralisée des flux (in‑memory avec persistance sur disque)."""
+    """Holds every subscription (in memory, saved on disk)."""
 
     def __init__(self, vm_url: Optional[str], vm_batch_ms: int) -> None:
         self._subs: Dict[str, SubscriptionRuntime] = {}
@@ -260,7 +201,7 @@ class SubscriptionManager:
             runtime = self._subs.get(sub_id)
             if not runtime:
                 raise KeyError(sub_id)
-            # Cas 1 : mise à jour uniquement du flag debug → pas de redémarrage
+            # Case 1: only the debug flag changes, no restart
             only_debug = all(
                 (k == "debug") or (v is None)
                 for k, v in new_fields.items()
@@ -274,7 +215,7 @@ class SubscriptionManager:
                 log.info(f"[MMS] Stream {sub_id}: debug={new_val} (no restart)")
                 return runtime
 
-            # Cas 2 : modification host/port/domain/scl/rcb_list → redémarrer le flux
+            # Case 2: host/port/domain/scl/rcb_list change, restart the subscription
             data = asdict(runtime.config)
             data.update({k: v for k, v in new_fields.items() if v is not None})
             if "debug" in new_fields:
@@ -298,7 +239,7 @@ class SubscriptionManager:
             self._stop_runtime(runtime)
 
     def purge_all(self) -> None:
-        """Supprime tous les flux (arrêt de tous les threads + reset du fichier de conf)."""
+        """Delete every subscription (stop all threads, reset the state file)."""
         with self._lock:
             runtimes = list(self._subs.values())
             self._subs.clear()
@@ -322,7 +263,7 @@ class SubscriptionManager:
             return list(self._recents)
 
     def _add_to_recents(self, runtime: SubscriptionRuntime) -> None:
-        """Ajoute un flux aux récents (20 derniers uniques par id)."""
+        """Add a subscription to the recent ones (last 20, unique by id)."""
         cfg = runtime.config
         entry = {**config_to_json(cfg), "triggers": cfg.triggers, "rcb_items": list(runtime.rcb_items)}
         with self._lock:
@@ -469,7 +410,7 @@ class SubscriptionManager:
         except Exception as e:
             log.error(f"[MMS-CMD] Cannot save {self._commands_path}: {e}")
 
-    # --- gestion des threads ---
+    # --- threads ---
 
     def _start_subscription_thread(self, runtime: SubscriptionRuntime) -> None:
         runtime.stop_event = threading.Event()
@@ -488,7 +429,7 @@ class SubscriptionManager:
     # --- persistance ---
 
     def _load_state(self) -> None:
-        """Charge la configuration des flux depuis le fichier JSON (si présent)."""
+        """Load the subscriptions from the JSON file, if any."""
         try:
             with open(self._state_path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
@@ -513,12 +454,12 @@ class SubscriptionManager:
             _DEBUG_CONSOLE[cfg.id] = cfg.debug
         if self._subs:
             log.info(f"[State] {len(self._subs)} stream(s) reloaded from {self._state_path}.")
-            # Démarrer les threads après reconstruction des runtimes
+            # Start the threads once every runtime is rebuilt
             for rt in list(self._subs.values()):
                 self._start_subscription_thread(rt)
 
     def _save_state_locked(self) -> None:
-        """Sauvegarde la configuration des flux dans un fichier JSON (lock déjà tenu)."""
+        """Save the subscriptions to the JSON file (lock already held)."""
         try:
             data = [asdict(rt.config) for rt in self._subs.values()]
             tmp_path = self._state_path.with_suffix(self._state_path.suffix + ".tmp")
@@ -787,7 +728,7 @@ def _json_error(handler: BaseHTTPRequestHandler, status: int, message: str) -> N
 
 
 class MMSServiceHandler(BaseHTTPRequestHandler):
-    manager: SubscriptionManager  # injecté par le main()
+    manager: SubscriptionManager  # set by main()
 
     def _read_json(self) -> Tuple[Optional[dict], bool]:
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -811,7 +752,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _serve_logs_sse(self) -> None:
-        """Flux SSE des logs en temps réel (seq pour fenêtre glissante)."""
+        """The log as server-sent events (seq numbers for the sliding window)."""
         def escape_sse(s: str) -> str:
             return s.replace("\r", "").replace("\n", " ").replace("\x00", "")
 
@@ -837,7 +778,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
                 break
 
     def _serve_webui(self) -> None:
-        """Sert la page webui.html (même répertoire que ce script)."""
+        """Serve webui.html (next to this script)."""
         state_dir = os.path.dirname(os.path.abspath(__file__))
         ui_path = os.path.join(state_dir, "webui.html")
         try:
@@ -846,7 +787,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
         except OSError as e:
             self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
             self.end_headers()
-            self.wfile.write(f"webui non trouvée: {e}".encode("utf-8"))
+            self.wfile.write(f"webui not found: {e}".encode("utf-8"))
             return
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -918,7 +859,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
         if not ok or data is None:
             _json_error(self, HTTPStatus.BAD_REQUEST, "invalid JSON body")
             return
-        # On accepte seulement les champs connus
+        # Only known fields are accepted
         allowed_fields = set(CONFIG_FIELDS)
         update_fields: Dict[str, Any] = {}
         for k, v in data.items():
@@ -946,7 +887,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:  # noqa: N802
         if self.path == "/subscriptions":
-            # Purge globale de tous les flux
+            # Delete every subscription
             self.manager.purge_all()
             self.send_response(HTTPStatus.NO_CONTENT)
             self.end_headers()
@@ -972,29 +913,29 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Service HTTP pour gérer des subscriptions MMS (flux par domaine) et pousser vers VictoriaMetrics.",
+        description="HTTP service that manages MMS report subscriptions and pushes them to VictoriaMetrics.",
     )
     parser.add_argument(
         "--listen-host",
         default="localhost",
-        help="Adresse d'écoute HTTP (défaut: localhost).",
+        help="HTTP listen address (default localhost).",
     )
     parser.add_argument(
         "--listen-port",
         type=int,
         default=7050,
-        help="Port d'écoute HTTP (défaut: 7050).",
+        help="HTTP listen port (default 7050).",
     )
     parser.add_argument(
         "--victoriametrics-url",
         metavar="URL",
-        help="URL VictoriaMetrics (ex. http://localhost:8428). Si omis, seul le mode console debug sera disponible.",
+        help="VictoriaMetrics URL (e.g. http://localhost:8428); without it, reports only go to the debug log.",
     )
     parser.add_argument(
         "--vm-batch-ms",
         type=int,
         default=5000,
-        help="Intervalle de batch VM en ms (défaut: 5000).",
+        help="VictoriaMetrics batch interval in ms (default 5000).",
     )
     args = parser.parse_args()
 

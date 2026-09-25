@@ -19,7 +19,7 @@ class GooseStatistics:
 
 
 class GooseAnalyzer:
-    """Fonctions d'analyse simple sur des trames GOOSE."""
+    """Simple analysis of GOOSE frames."""
 
     def __init__(self) -> None:
         self.frames: List[GooseFrame] = []
@@ -55,7 +55,7 @@ class GooseAnalyzer:
             else:
                 line = (
                     f"[{ts_str}] {f.src_mac} -> {f.dst_mac} "
-                    f"APPID=0x{f.app_id:04X} (PDU non décodé)"
+                    f"APPID=0x{f.app_id:04X} (PDU not decoded)"
                 )
             lines.append(line)
 

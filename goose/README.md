@@ -1,116 +1,61 @@
-# GOOSE – Service et bibliothèque IEC 61850
+# GOOSE: publication service and goose61850 package
 
-Envoi et réception de messages **GOOSE** (IEC 61850). Comprend un **service HTTP** (flux multiples, API), un **CLI** pour piloter l’API et une **bibliothèque** `goose61850` (encode/decode, transport, analyse).
+Publishes and receives **GOOSE** messages (IEC 61850-8-1). It has an HTTP service that keeps streams on the bus, a command line for its API, and the `goose61850` package (codec re-exported from `iec61850.goose`, transport, analysis).
 
-## Composants
+## Components
 
-| Élément | Rôle |
-|--------|------|
-| **Service** | `goose_service.py` – API HTTP + envoi continu des flux GOOSE (port 7053 en standalone) |
-| **API** | Intégrée au service ; routes `/api/streams`, `/api/streams/<id>`, `/api/recent`, `/api/restart` (unifié : préfixe `/api/goose`) |
-| **CLI** | `goose_cli.py` – commandes list, create, get, update, delete, restart vers l’API |
-| **Bibliothèque** | `goose61850/` – types, codec, transport (publisher/subscriber), analyseur |
+| File | Role |
+|------|------|
+| `goose_service.py` | Standalone service: HTTP API and web page, continuous publication (port 7053) |
+| `goose_cli.py` | Command line for the API (`add`, `modify`, `update-cmd`, `list`, `delete`) |
+| `goose61850/` | `types`, `codec`, `transport` (`GoosePublisher`, `GooseSubscriber`), `analyzer`, `service` |
+| `examples/listen_goose.py` | Listener and trip delay diagnostics on the command line |
+| `goose.service` | Example systemd unit |
 
-## Prérequis
+Publication needs **scapy**; reception goes through the shared process bus capture (`processbus_capture`, Linux AF_PACKET, root).
 
-- **Python 3.10+**
-- Stdlib uniquement pour la bibliothèque et le service
+## Service
 
-## Service GOOSE
-
-### Standalone (port 7053)
+Through the unified service, the API is under `/api/goose/` and the web UI has a GOOSE tab. Standalone:
 
 ```bash
-cd goose
-python3 goose_service.py --host localhost --port 7053
+python3 goose/goose_service.py --host localhost --port 7053
 ```
 
-- **API** : `GET/POST /api/streams`, `GET/PATCH/DELETE /api/streams/<id>`, `GET /api/recent`, `POST /api/restart`
-- **Web UI** : `/` (interface fournie par le service)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET/POST | `/api/streams` | List, create |
+| GET/PATCH/DELETE | `/api/streams/<id>` | Read, change, delete |
+| GET | `/api/recent` | Recently deleted streams |
+| POST | `/api/recent/<id>/restart` | Start one of them again |
 
-### Via service unifié (port 7050)
+One sender thread polls every 10 ms; the retransmission interval starts at 10 ms and doubles up to 2000 ms. Any change of a stream (PATCH, reload at startup, restart from the recent list) is a new state: stNum + 1, sqNum 0, fast retransmission again. `t` and the utc-time / binary-time values inside `allData` take the time of that change, so retransmissions differ only by sqNum.
 
-En lançant `po_service.py` à la racine du dépôt, l’API GOOSE est exposée sous **/api/goose/** (streams, recent, restart). La Web UI unifiée propose l’onglet GOOSE.
+Streams are saved in `goose/streams.json`, the recent ones in `goose/recents.json`.
 
-## CLI goose_cli
-
-Le CLI envoie des requêtes à l’API (par défaut `http://localhost:7050` en mode unifié, sinon `http://localhost:7053` pour le service standalone).
+## Command line
 
 ```bash
-# Lister les flux
-python3 goose_cli.py list --base-url http://127.0.0.1:7050
-
-# Créer un flux
-python3 goose_cli.py create --base-url http://127.0.0.1:7050 \
-  --iface eth0 --src-mac 01:0c:cd:01:00:01 --dst-mac 01:0c:cd:01:00:02 \
-  --appid 0x100 --gocb-ref "IED1/LLN0$GO$gcb" --dat-set "IED1/LLN0$DS$go" \
-  --go-id "GOOSE_1" --value bool:true --value int:42
-
-# Détail d’un flux
-python3 goose_cli.py get <id> --base-url http://127.0.0.1:7050
-
-# Mettre à jour (PATCH)
-python3 goose_cli.py update <id> --base-url http://127.0.0.1:7050 --ttl 5000
-
-# Supprimer
-python3 goose_cli.py delete <id> --base-url http://127.0.0.1:7050
-
-# Redémarrer l’envoi (st_num incrémenté)
-python3 goose_cli.py restart <id> --base-url http://127.0.0.1:7050
+python3 goose/goose_cli.py list
+python3 goose/goose_cli.py add eth1 02:00:00:00:00:01 01:0c:cd:01:00:01 \
+  --appid 0x1000 --gocb-ref 'IED01_LD0/LLN0$GO$gcb1' --dat-set 'IED01_LD0/LLN0$DS1' \
+  --go-id GOOSE_1 --value bool:true --value int:42
+python3 goose/goose_cli.py modify <id> --value bool:false
+python3 goose/goose_cli.py update-cmd <id>      # prints a prefilled modify command
+python3 goose/goose_cli.py delete <id>
 ```
 
-Valeurs `--value` : `bool:true`, `int:42`, `str:texte`, `raw:TAG:HEX` (ex. `raw:1:80`).
+`--service` defaults to the unified service (`http://localhost:7050`); use `http://localhost:7053` for the standalone one. `--value` takes `bool:`, `int:`, `str:` or `raw:TAG:HEX` (e.g. `raw:0x91:...` for a UtcTime).
 
-> **Timestamps auto-rafraîchis** : si `allData` contient des valeurs de type `utc-time` (tag `0x91`) ou `binary-time` (tag `0x8C`) — passées via `raw:` — elles sont automatiquement mises à jour à l'heure courante à chaque émission. Cela évite qu'un IED récepteur rejette le message comme obsolète.
-
-## Bibliothèque goose61850
-
-Package Python dans `goose61850/` :
-
-| Module | Rôle |
-|--------|------|
-| `types` | `GoosePDU`, `GooseFrame` |
-| `codec` | `decode_goose_pdu`, `encode_goose_pdu` (BER) |
-| `transport` | `GooseSubscriber`, `GoosePublisher` (réseau) |
-| `analyzer` | `GooseAnalyzer` (inspection / analyse) |
-| `service` | Logique métier du service HTTP (flux, persistance, envoi) |
-
-### Exemple : écouter des GOOSE
+## Listening
 
 ```bash
-cd goose
-python3 examples/listen_goose.py -i eth0
+sudo python3 goose/examples/listen_goose.py eth1 --app-id 0x1000
+sudo python3 goose/examples/listen_goose.py eth1 --measure-delay --triggers-only
+python3 goose/examples/listen_goose.py eth1 --from-api http://127.0.0.1:7050 --problem-diag
 ```
 
-Options : `-i` interface, `--appid`, `--show-all` pour afficher tout `allData`. Le script utilise `GooseSubscriber` et affiche un résumé de chaque frame (timestamp, gocbRef, goID, stNum, sqNum, allData).
-
-## Fichiers de configuration
-
-- **streams.json** : flux GOOSE définis (créés via API ou CLI), persistance par le service.
-- **recents.json** : derniers messages reçus (si réception utilisée).
-- **goose.service** : exemple de fichier systemd pour lancer le service en production.
-
-## Structure des fichiers
-
-```
-goose/
-├── README.md           # Ce fichier
-├── goose_service.py    # Point d’entrée service (--host, --port)
-├── goose_cli.py        # CLI (list, create, get, update, delete, restart)
-├── goose61850/         # Bibliothèque
-│   ├── __init__.py
-│   ├── types.py        # GoosePDU, GooseFrame
-│   ├── codec.py        # Encode / decode BER
-│   ├── transport.py    # GooseSubscriber, GoosePublisher
-│   ├── service.py      # GooseService, API HTTP
-│   └── analyzer.py     # GooseAnalyzer
-├── examples/
-│   └── listen_goose.py # Exemple écoute GOOSE
-├── streams.json        # (généré) flux persistés
-├── recents.json        # (généré) derniers messages
-├── goose.service       # Exemple systemd
-└── pyproject.toml      # Config projet (optionnel)
-```
+Filters: `--app-id`, `--go-id`, `--gocb-ref`, `--src-mac`, `--dst-mac`, `--sqnum-zero`, `--bool-true`. Trip delay: `--measure-delay`, `--delay-ms`, `--audit-triggers`, `--problem-watch`, `--problem-diag`, `--problem-cycle`, `--problem-threshold`. See [goose_listener/](../goose_listener/README.md) for the measurement itself. While the GOOSE Listener of the service is analysing, prefer `--from-api` to a second capture.
 
 ## License
 

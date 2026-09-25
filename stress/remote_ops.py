@@ -2,10 +2,10 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Opérations exécutées sur le nœud cible (localement ou via SSH stdin).
+"""Operations run on the target node (locally or through SSH stdin).
 
-stdlib uniquement. Entrée : argv[1]=op, argv[2]=JSON ou base64(JSON).
-Sortie : un objet JSON sur stdout.
+Standard library only. Input: argv[1]=op, argv[2]=JSON or base64(JSON).
+Output: one JSON object on stdout.
 """
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def _online_cpus() -> list[int]:
 
 
 def _proc_stat_counters(cpu_ids: list[int]) -> dict[int, tuple[int, int]]:
-    """idle, total par CPU depuis /proc/stat."""
+    """idle and total per CPU from /proc/stat."""
     wanted = set(cpu_ids)
     found: dict[int, tuple[int, int]] = {}
     try:
@@ -141,7 +141,7 @@ def _sys_counters() -> dict[str, int]:
 
 
 def _parse_perf_csv(text: str) -> dict[str, float] | None:
-    """Dernier intervalle `perf stat -I 1000 -x,` (count = déjà un débit /s)."""
+    """Last `perf stat -I 1000 -x,` interval (count is already a rate per second)."""
     misses = None
     refs = None
     for raw in text.splitlines():
@@ -601,7 +601,7 @@ def _qemu_fallback_vms() -> list[dict[str, Any]]:
             name = f"qemu:{pid}"
         tcode, tout, _ = _run(["taskset", "-cp", str(pid)], timeout=3)
         cpus = parse_cpu_list(tout.split(":")[-1] if tcode == 0 else "")
-        # Affinité large = cpuset de la VM, pas le pinning vCPU : on ignore.
+        # A wide affinity is the VM cpuset, not vCPU pinning: ignore it.
         if len(cpus) > 8:
             cpus = []
         vms.append({"name": name, "cpus": cpus, "source": "qemu"})
@@ -693,16 +693,16 @@ def _without_taskset(cmd: list[str]) -> list[str]:
 
 
 def _wrap_isolated_cmd(cpu: int, inner: list[str], allowed: set[int]) -> list[str]:
-    """isolcpus n'exécute un process sur un cœur isolé que si l'affinité est exclusive.
+    """isolcpus runs a process on an isolated core only when its affinity is exclusive.
 
-    Si le cpuset SSH n'inclut pas ce CPU, seapath-run l'alloue (slot exclusive_logical).
+    When the SSH cpuset does not include this CPU, seapath-run allocates it (exclusive_logical slot).
     """
     if cpu in allowed:
         return inner
     sea = shutil.which("seapath-run")
     if not sea:
         return inner
-    # seapath-run choisit un CPU libre : ne pas re-taskset vers un autre cœur.
+    # seapath-run picks a free CPU: do not taskset to another core again.
     return [sea, f"po-stress-{cpu}", "exclusive_logical", "OTHER", "0", "--"] + _without_taskset(inner)
 
 
@@ -816,7 +816,7 @@ def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
 
     cpus = sorted({int(c) for c in (spec.get("cpus") or []) if int(c) >= 0})
     if not cpus:
-        return {"error": "Aucun CPU sélectionné"}
+        return {"error": "No CPU selected"}
     workloads = [str(w) for w in (spec.get("workloads") or ["cpu"])]
     if not workloads:
         workloads = ["cpu"]
@@ -827,7 +827,7 @@ def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
 
     binary = shutil.which("stress-ng")
     if not binary:
-        return {"error": "stress-ng introuvable sur la cible (apt/dnf install stress-ng)"}
+        return {"error": "stress-ng not found on the target (apt/dnf install stress-ng)"}
 
     online = _online_cpus()
     isolated = _isolated_set(online)
@@ -840,8 +840,8 @@ def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
     except OSError:
         pass
 
-    # Un masque unique HK+isolés laisse isolcpus tout placer sur le housekeeping.
-    # HK : un stress-ng (ces cœurs sont schedulables). Isolés : 1 worker / CPU.
+    # One mask for housekeeping and isolated cores lets isolcpus put everything on housekeeping.
+    # Housekeeping: one stress-ng (those cores are schedulable). Isolated: 1 worker per CPU.
     cmds: list[list[str]] = []
     if hk_cpus:
         cmds.append(_stress_ng_argv(
@@ -868,7 +868,7 @@ def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
             time.sleep(0.05)
 
     if not procs:
-        return {"error": "Impossible de lancer stress-ng: " + ("; ".join(errors) or "aucun process")}
+        return {"error": "Cannot start stress-ng: " + ("; ".join(errors) or "no process")}
 
     time.sleep(0.25)
     pids = [p.pid for p in procs]
@@ -876,7 +876,7 @@ def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
     if len(dead) == len(procs):
         tail = _read_text(LOG_FILE)
         return {
-            "error": f"stress-ng s'est arrêté immédiatement: {tail or dead[0].returncode}",
+            "error": f"stress-ng stopped at once: {tail or dead[0].returncode}",
             "cmd": launched[0],
             "cmds": launched,
         }
@@ -920,7 +920,7 @@ def _start_stress(spec: dict[str, Any]) -> dict[str, Any]:
         PID_FILE.write_text(str(pids[0]), encoding="utf-8")
         SPEC_FILE.write_text(json.dumps(payload), encoding="utf-8")
     except OSError as exc:
-        return {"error": f"stress-ng lancé (pid {pids[0]}) mais pidfile illisible: {exc}", **payload}
+        return {"error": f"stress-ng started (pid {pids[0]}) but its pidfile is unreadable: {exc}", **payload}
     if errors:
         payload["warning"] = "; ".join(errors)
     return payload
@@ -1092,7 +1092,7 @@ def dispatch(op: str, spec: dict[str, Any] | None = None) -> dict[str, Any]:
     if op == "status":
         stress = _current_stress()
         return {"running": stress is not None, "stress": stress}
-    return {"error": f"opération inconnue: {op}"}
+    return {"error": f"unknown operation: {op}"}
 
 
 def main() -> int:
@@ -1108,7 +1108,7 @@ def main() -> int:
             spec = parsed
     try:
         result = dispatch(op, spec)
-    except Exception as exc:  # noqa: BLE001 - renvoyer l'erreur à po_service
+    except Exception as exc:  # noqa: BLE001 - return the error to po_service
         result = {"error": f"{type(exc).__name__}: {exc}"}
     sys.stdout.write(json.dumps(result, ensure_ascii=False))
     sys.stdout.write("\n")

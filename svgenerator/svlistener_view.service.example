@@ -11,12 +11,12 @@ User=svgenerator
 Group=svgenerator
 WorkingDirectory=/opt/svgenerator
 
-# Configuration de la capture et du flux suivi
-# Interface obligatoire :
+# Capture and followed stream
+# Interface (required):
 # Environment=SVVIEW_INTERFACE=processbus
-# svID optionnel (sinon la page permettra de choisir) :
-# Environment=SVVIEW_SVID=LDTM1_SVI_DEP6
-# Optionnel : fenêtre/échelle/aspect/port
+# Optional svID (the page lets you pick one otherwise):
+# Environment=SVVIEW_SVID=IED01_SV1
+# Optional window/scale/aspect/port
 # Environment=SVVIEW_WINDOW=10
 # Environment=SVVIEW_SCALE=100
 # Environment=SVVIEW_ASPECT=2.4

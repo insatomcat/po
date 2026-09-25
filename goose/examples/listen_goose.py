@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-# Ajoute la racine du dépôt au sys.path pour pouvoir importer goose61850 et iec_data
+# Put the repository root on sys.path to import goose61850 and iec_data
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -74,7 +74,7 @@ def summarize_frame(
     if pdu is None:
         return (
             f"{frame.src_mac} -> {frame.dst_mac} "
-            f"APPID=0x{frame.app_id:04X} (PDU non décodé)"
+            f"APPID=0x{frame.app_id:04X} (PDU not decoded)"
         )
 
     if ts_rx is not None:
@@ -180,16 +180,16 @@ def _problem_dedup_key(p: dict) -> Tuple[object, ...]:
 
 
 def run_api_problem_diag(base_url: str, *, poll_s: float = 1.0) -> None:
-    """Lit les problèmes depuis po_service (même source que la GUI)."""
+    """Read the problems from po_service (the same source as the UI)."""
     base_url = base_url.rstrip("/")
     url = f"{base_url}/api/gooselistener/analysis"
     seen: set[Tuple[object, ...]] = set()
-    print(f"Diagnostic via API : {url}", file=sys.stderr)
+    print(f"Diagnostic through the API: {url}", file=sys.stderr)
     print(
-        "Utilisez ce mode quand l'analyse GUI tourne déjà (évite le conflit de capture).",
+        "Use this mode while the UI analysis runs (avoids a second capture).",
         file=sys.stderr,
     )
-    print("Interrompre avec Ctrl+C.", file=sys.stderr)
+    print("Stop with Ctrl+C.", file=sys.stderr)
 
     api_stop = {"flag": False, "count": 0}
 
@@ -208,11 +208,11 @@ def run_api_problem_diag(base_url: str, *, poll_s: float = 1.0) -> None:
                 with urlopen(url, timeout=5) as resp:
                     data = json.loads(resp.read().decode())
             except URLError as exc:
-                print(f"Erreur API : {exc}", file=sys.stderr, flush=True)
+                print(f"API error: {exc}", file=sys.stderr, flush=True)
             else:
                 if not data.get("running"):
                     print(
-                        "Analyse GUI inactive — lancez l'analyse dans l'UI.",
+                        "UI analysis inactive: start it in the UI.",
                         file=sys.stderr,
                         flush=True,
                     )
@@ -232,15 +232,15 @@ def run_api_problem_diag(base_url: str, *, poll_s: float = 1.0) -> None:
                         sq = prob.get("sq_num")
                         sq_note = f"  sqNum={sq}" if sq is not None else ""
                         if sq not in (None, 0):
-                            sq_note += " (sqNum=0 manqué)"
+                            sq_note += " (sqNum=0 missed)"
                         print(
-                            f"⚠ Δ > seuil  {ts_s}  {go_id}  Δ={delta:.2f} ms{sq_note}",
+                            f"⚠ Δ > threshold  {ts_s}  {go_id}  Δ={delta:.2f} ms{sq_note}",
                             file=sys.stderr,
                             flush=True,
                         )
                     elif kind == "missing":
                         print(
-                            f"⚠ Manquant  {ts_s}  {go_id}  {msg}",
+                            f"⚠ Missing  {ts_s}  {go_id}  {msg}",
                             file=sys.stderr,
                             flush=True,
                         )
@@ -258,7 +258,7 @@ def run_api_problem_diag(base_url: str, *, poll_s: float = 1.0) -> None:
         api_stop["flag"] = True
     finally:
         print(
-            f"\n=== Bilan API ({len(seen)} problème(s) distinct(s)) ===",
+            f"\n=== API summary ({len(seen)} distinct problem(s)) ===",
             file=sys.stderr,
         )
 
@@ -266,10 +266,10 @@ def run_api_problem_diag(base_url: str, *, poll_s: float = 1.0) -> None:
 def print_delay_alert(record: TriggerRecord, *, threshold_ms: float) -> None:
     sq_note = f"  sqNum={record.sq_num}"
     if record.sq_num != 0:
-        sq_note += " (sqNum=0 manqué)"
+        sq_note += " (sqNum=0 missed)"
     print(
-        f"⚠ Δ > seuil  {fmt_rx_ts(record.ts_rx)}  {record.label}  "
-        f"st={record.st_num}{sq_note}  Δ={record.delta_ms:.2f} ms (seuil {threshold_ms:.0f} ms)",
+        f"⚠ Δ > threshold  {fmt_rx_ts(record.ts_rx)}  {record.label}  "
+        f"st={record.st_num}{sq_note}  Δ={record.delta_ms:.2f} ms (threshold {threshold_ms:.0f} ms)",
         file=sys.stderr,
         flush=True,
     )
@@ -279,7 +279,7 @@ def print_problem_diagnostic(
     *,
     gocb_ref: str,
     go_id: str,
-    prev_defaut: Optional[TriggerRecord],
+    prev_trip: Optional[TriggerRecord],
     current: TriggerRecord,
     gap: Optional[float],
     cycle_s: float,
@@ -291,41 +291,41 @@ def print_problem_diagnostic(
 ) -> None:
     print("\n" + "=" * 72, file=sys.stderr)
     print("DIAGNOSTIC ANOMALIE", file=sys.stderr)
-    print(f"  flux : gocbRef={gocb_ref}  goID={go_id or '-'}", file=sys.stderr)
+    print(f"  stream: gocbRef={gocb_ref}  goID={go_id or '-'}", file=sys.stderr)
 
     reasons: List[str] = []
     if delay_high:
-        reasons.append(f"Δ {current.delta_ms:.2f} ms > seuil {threshold_ms:.0f} ms")
+        reasons.append(f"Δ {current.delta_ms:.2f} ms > threshold {threshold_ms:.0f} ms")
     if missing_slots:
-        reasons.append(f"{len(missing_slots)} défaut(s) manquant(s)")
+        reasons.append(f"{len(missing_slots)} missing trip(s)")
     elif gap is not None and abs(gap - cycle_s) > grace:
         reasons.append(
-            f"écart défauts {gap:.2f} s hors marge (attendu ~{cycle_s:.0f} s ± {grace:.1f} s)"
+            f"trip gap {gap:.2f} s out of margin (expected ~{cycle_s:.0f} s ± {grace:.1f} s)"
         )
     print(f"  cause : {' ; '.join(reasons)}", file=sys.stderr)
 
-    if prev_defaut is not None:
-        print("  défaut précédent :", file=sys.stderr)
-        print(_fmt_trigger_line(prev_defaut), file=sys.stderr)
+    if prev_trip is not None:
+        print("  previous trip:", file=sys.stderr)
+        print(_fmt_trigger_line(prev_trip), file=sys.stderr)
     else:
-        print("  défaut précédent : (aucun — premier défaut de référence)", file=sys.stderr)
+        print("  previous trip: (none, first reference trip)", file=sys.stderr)
 
-    print("  défaut courant :", file=sys.stderr)
+    print("  current trip:", file=sys.stderr)
     print(_fmt_trigger_line(current), file=sys.stderr)
 
     if gap is not None:
-        msg = f"  écart défauts : {gap:.2f} s (cycle configuré {cycle_s:.0f} s)"
+        msg = f"  trip gap: {gap:.2f} s (configured cycle {cycle_s:.0f} s)"
         if missing_slots:
             slots = ", ".join(fmt_rx_ts(s) for s in missing_slots)
-            msg += f" → manquant(s) attendu(s) : {slots}"
+            msg += f" → expected missing: {slots}"
         print(msg, file=sys.stderr)
 
     if between:
-        print(f"  GOOSE entre les deux défauts ({len(between)}) :", file=sys.stderr)
+        print(f"  GOOSE between the two trips ({len(between)}):", file=sys.stderr)
         for rec in between:
             print(_fmt_trigger_line(rec), file=sys.stderr)
     else:
-        print("  GOOSE entre les deux défauts : (aucun — aucun déclenchement intermédiaire)", file=sys.stderr)
+        print("  GOOSE between the two trips: (none)", file=sys.stderr)
 
     print("=" * 72, file=sys.stderr, flush=True)
 
@@ -341,22 +341,22 @@ def print_epoch_audit(epoch: StNumEpoch, delay_ms: float) -> None:
 
     if epoch.prev_st_num is not None and epoch.st_num != epoch.prev_st_num + 1:
         warnings.append(
-            f"stNum saute de {epoch.prev_st_num} à {epoch.st_num} (écart {epoch.st_num - epoch.prev_st_num})"
+            f"stNum jumps from {epoch.prev_st_num} to {epoch.st_num} (gap {epoch.st_num - epoch.prev_st_num})"
         )
     if not sq0_frames:
-        warnings.append("aucune trame sqNum=0 vue pour ce stNum")
+        warnings.append("no sqNum=0 frame seen for this stNum")
     elif len(sq0_frames) > 1:
-        warnings.append(f"{len(sq0_frames)} trames sqNum=0 (attendu: 1)")
+        warnings.append(f"{len(sq0_frames)} sqNum=0 frames (expected 1)")
     if frames[0].sq_num != 0:
         warnings.append(
-            f"première trame reçue sqNum={frames[0].sq_num} (sqNum=0 manquée ou perdue ?)"
+            f"first frame received has sqNum={frames[0].sq_num} (sqNum=0 missed or lost?)"
         )
 
     expected_sq = 0
     for f in frames:
         if f.sq_num != expected_sq:
             if f.sq_num > expected_sq:
-                warnings.append(f"trou sqNum: attendu {expected_sq}, reçu {f.sq_num}")
+                warnings.append(f"sqNum gap: expected {expected_sq}, got {f.sq_num}")
             break
         expected_sq += 1
 
@@ -364,16 +364,16 @@ def print_epoch_audit(epoch: StNumEpoch, delay_ms: float) -> None:
     first_delta = compute_delta_ms(first.ts_rx, delay_ms)[1]
     sq0_delta = compute_delta_ms(sq0_frames[0].ts_rx, delay_ms)[1] if sq0_frames else None
 
-    print(f"\n=== Audit stNum {epoch.st_num} (précédent {epoch.prev_st_num}) ===", file=sys.stderr)
+    print(f"\n=== Audit stNum {epoch.st_num} (previous {epoch.prev_st_num}) ===", file=sys.stderr)
     print(
-        f"  trames capturées : {len(frames)} | sqNum=0 : {len(sq0_frames)} | "
-        f"premier sqNum vu : {frames[0].sq_num}",
+        f"  frames captured: {len(frames)} | sqNum=0: {len(sq0_frames)} | "
+        f"first sqNum seen: {frames[0].sq_num}",
         file=sys.stderr,
     )
     if sq0_delta is not None:
         print(
-            f"  Δ net si sqNum=0 : {sq0_delta:.2f} ms | "
-            f"Δ net si 1ère trame : {first_delta:.2f} ms",
+            f"  net Δ from sqNum=0: {sq0_delta:.2f} ms | "
+            f"net Δ from the first frame: {first_delta:.2f} ms",
             file=sys.stderr,
         )
     show = frames[:12]
@@ -388,13 +388,13 @@ def print_epoch_audit(epoch: StNumEpoch, delay_ms: float) -> None:
             file=sys.stderr,
         )
     if len(frames) > len(show):
-        print(f"  ... +{len(frames) - len(show)} trames", file=sys.stderr)
+        print(f"  ... +{len(frames) - len(show)} frames", file=sys.stderr)
     if warnings:
         print("  ⚠ anomalies :", file=sys.stderr)
         for w in warnings:
             print(f"    - {w}", file=sys.stderr)
     else:
-        print("  ✓ séquence conforme (stNum↑, sqNum=0 en premier, retransmissions 0,1,2…)", file=sys.stderr)
+        print("  ✓ sequence as expected (stNum up, sqNum=0 first, retransmissions 0,1,2...)", file=sys.stderr)
     print("", file=sys.stderr)
 
 
@@ -405,7 +405,7 @@ def print_delay_stats(deltas: list[float]) -> None:
     for d in deltas:
         buckets[f"{round(d):.0f}ms"] += 1
     print("\n--- Statistiques Δ net ---", file=sys.stderr)
-    print(f"  événements : {len(deltas)}", file=sys.stderr)
+    print(f"  events: {len(deltas)}", file=sys.stderr)
     print(f"  min/max    : {min(deltas):.2f} / {max(deltas):.2f} ms", file=sys.stderr)
     for k in sorted(buckets, key=lambda x: float(x.replace("ms", ""))):
         n = buckets[k]
@@ -416,119 +416,119 @@ def print_delay_stats(deltas: list[float]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Écoute les trames GOOSE et affiche un résumé pour chacune.",
+        description="Listen to GOOSE frames and print a summary of each.",
     )
     parser.add_argument(
         "iface",
-        help="Interface réseau à écouter (ex: en0, eth0, ...)",
+        help="Network interface to listen on (e.g. eth0)",
     )
     parser.add_argument(
         "--app-id",
         type=lambda x: int(x, 0),
         default=None,
-        help="Filtre APPID (ex: 0x1000). Si omis, accepte tous les APPID.",
+        help="APPID filter (e.g. 0x1000); every APPID when omitted.",
     )
     parser.add_argument(
         "--go-id",
         type=str,
         default=None,
-        help="Filtre sur goID (chaîne exacte). Si omis, accepte tous les goID.",
+        help="goID filter (exact string); every goID when omitted.",
     )
     parser.add_argument(
         "--gocb-ref",
         type=str,
         default=None,
-        help="Filtre sur gocbRef (chaîne exacte).",
+        help="gocbRef filter (exact string).",
     )
     parser.add_argument(
         "--src-mac",
         type=str,
         default=None,
-        help="Filtre sur adresse MAC source.",
+        help="Source MAC address filter.",
     )
     parser.add_argument(
         "--dst-mac",
         type=str,
         default=None,
-        help="Filtre sur adresse MAC destination.",
+        help="Destination MAC address filter.",
     )
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Affiche des informations de debug sur chaque paquet capturé.",
+        help="Print debug information about every captured frame.",
     )
     parser.add_argument(
         "--show-all-elements",
         action="store_true",
-        help="Affiche l'intégralité de la liste allData (aucune troncature).",
+        help="Print the whole allData list (no truncation).",
     )
     parser.add_argument(
         "--sqnum-zero",
         action="store_true",
-        help="N'affiche que les trames avec sqNum=0 (filtre affichage uniquement).",
+        help="Show only frames with sqNum=0 (display filter only).",
     )
     parser.add_argument(
         "--bool-true",
         action="store_true",
-        help="N'affiche que les trames dont le 1er allData est bool(True).",
+        help="Show only frames whose first allData is bool(True).",
     )
     parser.add_argument(
         "--measure-delay",
         action="store_true",
-        help="Mesure Δ net sur déclenchements (stNum↑, sqNum=0, ts réception capture).",
+        help="Measure the net Δ of trips (stNum up, sqNum=0, kernel receive time).",
     )
     parser.add_argument(
         "--triggers-only",
         action="store_true",
-        help="Avec --measure-delay : n'affiche que les déclenchements (pas les retransmissions).",
+        help="With --measure-delay: show only trips (no retransmissions).",
     )
     parser.add_argument(
         "--delay-ms",
         type=float,
         default=0.0,
-        help="Temporisation protection à soustraire du Δ (défaut: 0).",
+        help="Protection time delay to subtract from Δ (default 0).",
     )
     parser.add_argument(
         "--stats-every",
         type=int,
         default=0,
         metavar="N",
-        help="Avec --measure-delay : résumé des Δ toutes les N déclenchements.",
+        help="With --measure-delay: Δ summary every N trips.",
     )
     parser.add_argument(
         "--audit-triggers",
         action="store_true",
-        help="Avec --measure-delay : dump la séquence sqNum de chaque stNum (vérifie la détection).",
+        help="With --measure-delay: dump the sqNum sequence of each stNum (checks the detection).",
     )
     parser.add_argument(
         "--problem-watch",
         action="store_true",
-        help="Suivi continu manquants/délais (active --measure-delay --triggers-only).",
+        help="Continuous watch of missing trips and delays (sets --measure-delay --triggers-only).",
     )
     parser.add_argument(
         "--problem-diag",
         action="store_true",
-        help="Mode diagnostic : silencieux si OK, rapport détaillé uniquement sur anomalie "
-        "(manquant, écart hors marge, Δ>seuil). Active --measure-delay.",
+        help="Diagnostic mode: silent when fine, detailed report only on anomalies "
+        "(missing trip, gap out of margin, Δ > threshold). Sets --measure-delay.",
     )
     parser.add_argument(
         "--problem-cycle",
         type=float,
         default=4.0,
-        help="Cycle attendu entre défauts en secondes (défaut: 4).",
+        help="Expected cycle between trips in seconds (default 4).",
     )
     parser.add_argument(
         "--problem-threshold",
         type=float,
         default=40.0,
-        help="Seuil Δ net en ms (défaut: 40).",
+        help="Net Δ threshold in ms (default 40).",
     )
     parser.add_argument(
         "--from-api",
         metavar="URL",
         default=None,
-        help="Diagnostic via po_service (ex: http://127.0.0.1:7050). "
-        "À utiliser si l'analyse GUI tourne — même résultats que l'UI.",
+        help="Diagnostic through po_service (e.g. http://127.0.0.1:7050). "
+        "Use it while the UI analysis runs: same results as the UI.",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
@@ -543,7 +543,7 @@ def main() -> None:
         args.measure_delay = True
         if args.problem_watch:
             print(
-                "Note : --problem-diag remplace --problem-watch (suivi continu ignoré).",
+                "Note: --problem-diag replaces --problem-watch (continuous watch ignored).",
                 file=sys.stderr,
             )
     elif args.problem_watch:
@@ -557,18 +557,18 @@ def main() -> None:
 
     last_st: Dict[Key, int] = {}
     last_all_data: Dict[Key, list] = {}
-    last_defaut_ts: Dict[Key, float] = {}
-    defaut_gaps: list[float] = []
+    last_trip_ts: Dict[Key, float] = {}
+    trip_gaps: list[float] = []
     deltas: list[float] = []
     trigger_count = 0
-    defaut_count = 0
+    trips_seen = 0
     problem_missing = 0
     problem_delay = 0
     problem_diag_count = 0
     between_triggers: Dict[Key, List[TriggerRecord]] = defaultdict(list)
-    last_defaut_record: Dict[Key, TriggerRecord] = {}
+    last_trip_record: Dict[Key, TriggerRecord] = {}
     last_trigger_st: Dict[Key, int] = {}
-    defaut_delay_hits: List[TriggerRecord] = []
+    trip_delay_hits: List[TriggerRecord] = []
     current_epoch: Optional[StNumEpoch] = None
 
     def close_epoch() -> None:
@@ -578,7 +578,7 @@ def main() -> None:
         current_epoch = None
 
     def on_frame(frame: GooseFrame) -> None:
-        nonlocal trigger_count, current_epoch, defaut_count, problem_missing, problem_delay
+        nonlocal trigger_count, current_epoch, trips_seen, problem_missing, problem_delay
         nonlocal problem_diag_count
         ts_rx = frame.ts_rx if frame.ts_rx is not None else time.time()
 
@@ -651,27 +651,27 @@ def main() -> None:
             if args.problem_diag:
                 grace = _missing_grace_s(args.problem_cycle)
                 delay_high = (
-                    kind == "declenchement"
+                    kind == "trip"
                     and pdu.sq_num == 0
                     and delta_ms > args.problem_threshold
                 )
                 gap_bad = False
                 gap: Optional[float] = None
                 missing: List[float] = []
-                prev_rec = last_defaut_record.get(key)
-                prev_ts = last_defaut_ts.get(key)
+                prev_rec = last_trip_record.get(key)
+                prev_ts = last_trip_ts.get(key)
 
                 if delay_high:
                     problem_delay += 1
-                    defaut_delay_hits.append(record)
+                    trip_delay_hits.append(record)
                     print_delay_alert(record, threshold_ms=args.problem_threshold)
 
-                if kind == "declenchement":
-                    defaut_count += 1
+                if kind == "trip":
+                    trips_seen += 1
 
                     if prev_ts is not None and prev_rec is not None:
                         gap = ts_rx - prev_ts
-                        defaut_gaps.append(gap)
+                        trip_gaps.append(gap)
                         missing = _missing_slots_between(
                             prev_ts, ts_rx, args.problem_cycle
                         )
@@ -684,7 +684,7 @@ def main() -> None:
                         print_problem_diagnostic(
                             gocb_ref=pdu.gocb_ref,
                             go_id=pdu.go_id or "",
-                            prev_defaut=prev_rec,
+                            prev_trip=prev_rec,
                             current=record,
                             gap=gap,
                             cycle_s=args.problem_cycle,
@@ -696,8 +696,8 @@ def main() -> None:
                         )
 
                     between_triggers[key] = []
-                    last_defaut_record[key] = record
-                    last_defaut_ts[key] = ts_rx
+                    last_trip_record[key] = record
+                    last_trip_ts[key] = ts_rx
                 else:
                     between_triggers[key].append(record)
                 last_trigger_st[key] = pdu.st_num
@@ -709,49 +709,49 @@ def main() -> None:
                 )
             if args.problem_watch and not args.problem_diag:
                 grace = _missing_grace_s(args.problem_cycle)
-                if kind == "declenchement":
-                    defaut_count += 1
+                if kind == "trip":
+                    trips_seen += 1
                     if pdu.sq_num == 0 and delta_ms > args.problem_threshold:
                         problem_delay += 1
                         print(
-                            f"  └─ ⚠ Δ {delta_ms:.2f} ms > seuil {args.problem_threshold:.0f} ms",
+                            f"  └─ ⚠ Δ {delta_ms:.2f} ms > threshold {args.problem_threshold:.0f} ms",
                             file=sys.stderr,
                         )
-                    prev_def = last_defaut_ts.get(key)
-                    if prev_def is not None:
-                        gap = ts_rx - prev_def
-                        defaut_gaps.append(gap)
+                    prev_trip_ts = last_trip_ts.get(key)
+                    if prev_trip_ts is not None:
+                        gap = ts_rx - prev_trip_ts
+                        trip_gaps.append(gap)
                         missing = _missing_slots_between(
-                            prev_def, ts_rx, args.problem_cycle
+                            prev_trip_ts, ts_rx, args.problem_cycle
                         )
-                        msg = f"  └─ écart défauts: {gap:.2f} s (attendu ~{args.problem_cycle:.0f} s, marge {grace:.1f} s)"
+                        msg = f"  └─ trip gap: {gap:.2f} s (expected ~{args.problem_cycle:.0f} s, margin {grace:.1f} s)"
                         if missing:
                             problem_missing += len(missing)
                             slots = ", ".join(fmt_rx_ts(s) for s in missing)
-                            msg += f" → {len(missing)} manquant(s): {slots}"
+                            msg += f" → {len(missing)} missing: {slots}"
                         elif abs(gap - args.problem_cycle) > grace:
-                            msg += " → écart hors marge"
+                            msg += " → gap out of margin"
                         else:
                             msg += " → OK"
                         print(msg, file=sys.stderr)
                     else:
-                        print("  └─ premier défaut de référence", file=sys.stderr)
-                    last_defaut_ts[key] = ts_rx
-                elif kind == "retombee":
+                        print("  └─ first reference trip", file=sys.stderr)
+                    last_trip_ts[key] = ts_rx
+                elif kind == "reset":
                     print(
-                        f"  └─ (fin défaut — ignoré pour cycle défaut {args.problem_cycle:.0f} s)",
+                        f"  └─ (reset, not counted in the {args.problem_cycle:.0f} s trip cycle)",
                         file=sys.stderr,
                     )
                 else:
                     print(
-                        f"  └─ (type {label} — non compté comme défaut)",
+                        f"  └─ (type {label}, not counted as a trip)",
                         file=sys.stderr,
                     )
             elif not args.problem_diag and show_frame:
                 line = summarize_frame(frame, ts_rx=ts_rx, show_all_elements=args.show_all_elements)
                 print(
                     f"{line}  | rx={fmt_rx_ts(ts_rx)} type={label} frac={frac_ms:.2f}ms "
-                    f"Δnet={delta_ms:.2f}ms pile={int(ts_pile)} *** TRIGGER ***"
+                    f"Δnet={delta_ms:.2f}ms second={int(ts_pile)} *** TRIGGER ***"
                     + (f" ({detail})" if detail else "")
                 )
 
@@ -774,7 +774,7 @@ def main() -> None:
     )
 
     print(
-        f"Écoute GOOSE sur {args.iface} "
+        f"Listening to GOOSE on {args.iface} "
         f"(APPID={'*' if args.app_id is None else hex(args.app_id)}, "
         f"goID={'*' if args.go_id is None else args.go_id}, "
         f"gocbRef={'*' if args.gocb_ref is None else args.gocb_ref})...",
@@ -787,68 +787,68 @@ def main() -> None:
         display_filters.append("bool(True)")
     if display_filters:
         print(
-            f"Filtres affichage : {', '.join(display_filters)}",
+            f"Display filters: {', '.join(display_filters)}",
             file=sys.stderr,
         )
     if args.problem_diag:
         print(
-            f"Mode diagnostic (anomalies seules) : cycle défaut={args.problem_cycle} s "
-            f"| seuil Δ={args.problem_threshold} ms",
+            f"Diagnostic mode (anomalies only): trip cycle={args.problem_cycle} s "
+            f"| Δ threshold={args.problem_threshold} ms",
             file=sys.stderr,
         )
         print(
-            "Silencieux si OK. Δ>seuil : alerte compacte immédiate. "
-            "Manquant / écart cycle : rapport détaillé.",
+            "Silent when fine. Δ > threshold: short alert at once. "
+            "Missing trip or cycle gap: detailed report.",
             file=sys.stderr,
         )
         print(
-            "Détection : sqNum=0, ou premier cadre d'un nouveau stNum si sqNum=0 absent en capture.",
+            "Detection: sqNum=0, or the first frame of a new stNum when sqNum=0 was not captured.",
             file=sys.stderr,
         )
         print(
-            "Le cycle doit correspondre à l'intervalle entre événements « Défaut » "
-            "(pas entre tous les GOOSE).",
+            "The cycle must be the interval between trip events "
+            "(not between all GOOSE).",
             file=sys.stderr,
         )
         print(
-            "Si l'analyse GUI tourne en parallèle, la capture CLI peut être vide. "
-            "Utilisez alors : --from-api http://127.0.0.1:7050",
+            "If the UI analysis runs at the same time, this capture may stay empty. "
+            "Then use: --from-api http://127.0.0.1:7050",
             file=sys.stderr,
         )
     elif args.problem_watch:
         print(
-            f"Mode suivi continu : cycle défaut={args.problem_cycle} s "
-            f"| seuil Δ={args.problem_threshold} ms",
+            f"Continuous watch: trip cycle={args.problem_cycle} s "
+            f"| Δ threshold={args.problem_threshold} ms",
             file=sys.stderr,
         )
         print(
-            "Vérifiez que le cycle correspond à l'intervalle entre événements « Défaut » "
-            "(pas entre tous les GOOSE : défaut + fin défaut = souvent 2× plus court).",
+            "Check that the cycle is the interval between trip events "
+            "(not between all GOOSE: trip plus reset often halves it).",
             file=sys.stderr,
         )
     if args.measure_delay:
         if args.problem_diag:
-            mode = "diagnostic silencieux (déclenchements seuls, rapport si anomalie)"
+            mode = "silent diagnostic (trips only, report on anomalies)"
         elif args.triggers_only:
-            mode = "déclenchements seuls"
+            mode = "trips only"
         else:
-            mode = "toutes trames + marque TRIGGER"
+            mode = "all frames, TRIGGER marked"
         print(
-            f"Mesure Δ net : temporisation={args.delay_ms} ms | mode={mode}",
+            f"Net Δ measurement: time delay={args.delay_ms} ms | mode={mode}",
             file=sys.stderr,
         )
         if args.triggers_only:
             print(
-                "Colonnes: réception | type | stNum | sqNum | frac_seconde(ms) | Δ net(ms) | seconde_pile",
+                "Columns: received | type | stNum | sqNum | second_fraction(ms) | net Δ(ms) | whole_second",
                 file=sys.stderr,
             )
             print("-" * 88, file=sys.stderr)
         if args.audit_triggers:
             print(
-                "Mode audit : après chaque stNum, la séquence sqNum complète est affichée sur stderr.",
+                "Audit mode: after each stNum, the whole sqNum sequence is printed on stderr.",
                 file=sys.stderr,
             )
-    print("Interrompre avec Ctrl+C.", file=sys.stderr)
+    print("Stop with Ctrl+C.", file=sys.stderr)
 
     capture_stop = {"flag": False, "count": 0}
 
@@ -863,7 +863,7 @@ def main() -> None:
 
     if args.go_id and args.app_id is None:
         print(
-            "Astuce : ajoutez --app-id 0x150A pour réduire le trafic GOOSE capturé.",
+            "Tip: add --app-id 0x150A to reduce the captured GOOSE traffic.",
             file=sys.stderr,
         )
 
@@ -875,47 +875,47 @@ def main() -> None:
         drop_n = sub.stats().get("drops", sub._drops)
         if drop_n:
             print(
-                f"⚠ {drop_n} paquet(s) GOOSE perdus (file de capture pleine).",
+                f"⚠ {drop_n} GOOSE frame(s) lost (capture queue full).",
                 file=sys.stderr,
             )
         close_epoch()
         if args.measure_delay:
             print_delay_stats(deltas)
-            print(f"\n{trigger_count} déclenchement(s) détecté(s).", file=sys.stderr)
+            print(f"\n{trigger_count} trip(s) detected.", file=sys.stderr)
         if args.problem_diag or args.problem_watch:
-            title = "Bilan diagnostic" if args.problem_diag else "Bilan suivi"
+            title = "Diagnostic summary" if args.problem_diag else "Watch summary"
             print(f"\n=== {title} ===", file=sys.stderr)
-            print(f"  défauts vus        : {defaut_count}", file=sys.stderr)
-            print(f"  Δ > seuil          : {problem_delay}", file=sys.stderr)
-            print(f"  manquants déduits  : {problem_missing}", file=sys.stderr)
+            print(f"  trips seen         : {trips_seen}", file=sys.stderr)
+            print(f"  Δ > threshold      : {problem_delay}", file=sys.stderr)
+            print(f"  missing (deduced)  : {problem_missing}", file=sys.stderr)
             if args.problem_diag:
-                print(f"  rapports cycle     : {problem_diag_count}", file=sys.stderr)
-                if defaut_delay_hits:
-                    print(f"\n=== Δ > seuil ({len(defaut_delay_hits)} défaut(s)) ===", file=sys.stderr)
-                    for rec in defaut_delay_hits:
+                print(f"  cycle reports      : {problem_diag_count}", file=sys.stderr)
+                if trip_delay_hits:
+                    print(f"\n=== Δ > threshold ({len(trip_delay_hits)} trip(s)) ===", file=sys.stderr)
+                    for rec in trip_delay_hits:
                         print(f"  {_fmt_trigger_line(rec)}", file=sys.stderr)
                 elif problem_diag_count == 0 and problem_delay == 0:
-                    print("  → aucune anomalie détectée", file=sys.stderr)
+                    print("  → no anomaly detected", file=sys.stderr)
                 if trigger_count == 0:
                     print(
-                        "  ⚠ Aucun déclenchement capturé — po_service utilise peut-être "
-                        "déjà l'interface.",
+                        "  ⚠ No trip captured: po_service may already "
+                        "be capturing on this interface.",
                         file=sys.stderr,
                     )
                     print(
-                        "    Essayez : --from-api http://127.0.0.1:7050",
+                        "    Try: --from-api http://127.0.0.1:7050",
                         file=sys.stderr,
                     )
-            if defaut_gaps:
-                avg = sum(defaut_gaps) / len(defaut_gaps)
+            if trip_gaps:
+                avg = sum(trip_gaps) / len(trip_gaps)
                 print(
-                    f"  écart moyen défauts: {avg:.2f} s "
-                    f"(min {min(defaut_gaps):.2f} / max {max(defaut_gaps):.2f})",
+                    f"  mean trip gap     : {avg:.2f} s "
+                    f"(min {min(trip_gaps):.2f} / max {max(trip_gaps):.2f})",
                     file=sys.stderr,
                 )
                 print(
-                    f"  → cycle configuré  : {args.problem_cycle} s "
-                    f"(essayez --problem-cycle {round(avg)})",
+                    f"  → configured cycle: {args.problem_cycle} s "
+                    f"(try --problem-cycle {round(avg)})",
                     file=sys.stderr,
                 )
 

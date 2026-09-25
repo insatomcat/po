@@ -1,7 +1,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Service GOOSE : envoi continu de flux GOOSE avec API HTTP."""
+"""GOOSE service: continuous stream publication with an HTTP API."""
 from __future__ import annotations
 
 import logging
@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
-# Chemins des fichiers de persistance (dans goose/)
+# State files (in goose/)
 _GOOSE_DIR = Path(__file__).resolve().parent.parent
 STREAMS_PATH = _GOOSE_DIR / "streams.json"
 RECENTS_PATH = _GOOSE_DIR / "recents.json"
@@ -32,7 +32,7 @@ from .types import GoosePDU
 
 @dataclass
 class GooseStream:
-    """Configuration d'un flux GOOSE envoyé en continu."""
+    """Configuration of a continuously published GOOSE stream."""
 
     id: str
     iface: str
@@ -129,12 +129,12 @@ def _stream_to_dict(s: GooseStream) -> Dict[str, Any]:
 
 
 def _parse_all_data(raw: List[Any]) -> List[IECData]:
-    """Convertit les valeurs JSON en IECData. Accepte l'ancien format ["raw", tag, hex]."""
+    """Convert JSON values to IECData; also accepts the old ["raw", tag, hex] form."""
     return [iec_data_from_json(item) for item in raw]
 
 
 class GooseService:
-    """Service d'envoi continu de flux GOOSE, configurable via API HTTP."""
+    """Continuous GOOSE stream publication, driven by an HTTP API."""
 
     IEC_MIN_MS = 10
     IEC_MAX_MS = 2000
@@ -149,13 +149,13 @@ class GooseService:
         self._streams_path = STREAMS_PATH
         self._recents_path = RECENTS_PATH
         self._streams: Dict[str, GooseStream] = {}
-        # Historique des flux récemment configurés (max 10 éléments).
+        # Recently configured streams (10 at most).
         self._recent: List[Dict[str, Any]] = []
         self._streams_lock = threading.Lock()
         self._stop = threading.Event()
         self._sender_thread: Optional[threading.Thread] = None
         self._http_server: Optional[HTTPServer] = None
-        # Charge l'état éventuel des flux depuis le disque.
+        # Load the saved streams, if any.
         self._load_state()
 
     def add_stream(self, config: Dict[str, Any]) -> GooseStream:
@@ -185,9 +185,9 @@ class GooseService:
             )
             self._streams[stream_id] = s
 
-        # Ajoute ce flux à l'historique des flux récemment utilisés, si config nouvelle.
+        # Add the stream to the recent ones when its configuration is new.
         self._remember_recent(_stream_to_dict(s))
-        # Sauvegarde hors zone critique pour éviter les blocages.
+        # Save outside the critical section to avoid blocking.
         self._save_state()
         return s
 
@@ -225,7 +225,7 @@ class GooseService:
         if s is None:
             return False
 
-        # On ajoute ce flux supprimé à l'historique récent.
+        # The deleted stream goes to the recent ones.
         entry = _stream_to_dict(s)
         self._remember_recent(entry)
         self._save_state()
@@ -240,25 +240,24 @@ class GooseService:
             return list(self._streams.values())
 
     def list_recent(self) -> List[Dict[str, Any]]:
-        """Retourne la liste des flux récemment arrêtés (historique)."""
+        """The recently stopped streams."""
         with self._streams_lock:
-            # On renvoie une copie superficielle pour éviter les modifications in-place.
+            # Shallow copy so callers cannot change the list in place.
             return list(self._recent)
 
     def _remember_recent(self, entry: Dict[str, Any]) -> None:
-        """Ajoute une entrée à l'historique récent si elle est vraiment nouvelle.
+        """Add an entry to the recent ones if it is really new.
 
-        "Nouvelle" signifie qu'aucun élément existant de _recent n'a exactement les
-        mêmes paramètres « de configuration » (interface + adresses + GOOSE params),
-        à l'exception des champs d'id, des compteurs stNum/sqNum et du contenu
-        all_data, qui peuvent évoluer dans le temps pour un même flux logique.
+        New means no entry of _recent has the same configuration (interface,
+        addresses, GOOSE parameters), leaving out the id, the stNum/sqNum
+        counters and all_data, which change over time for one logical stream.
 
-        Si la même configuration existe déjà, on remplace l'entrée existante par
-        un snapshot frais (notamment all_data) puis on la remonte en tête.
+        When the same configuration exists, its entry is replaced by the fresh
+        snapshot (all_data included) and moved first.
         """
         with self._streams_lock:
-            # Filtre de dé-duplication : on compare la config hors id/st_num/sq_num
-            # et hors all_data, pour ne garder qu'une seule entrée par flux logique.
+            # Deduplication: compare the configuration without id/st_num/sq_num
+            # and all_data, to keep one entry per logical stream.
             def _config_key(e: Dict[str, Any]) -> Dict[str, Any]:
                 return {
                     k: e.get(k)
@@ -282,19 +281,19 @@ class GooseService:
             new_key = _config_key(entry)
             for idx, e in enumerate(self._recent):
                 if _config_key(e) == new_key:
-                    # Même flux logique : on met à jour le snapshot (all_data, id, etc.)
-                    # puis on le remonte en tête pour refléter la suppression la plus récente.
+                    # Same logical stream: refresh the snapshot (all_data, id, ...)
+                    # and move it first, as the most recently deleted one.
                     self._recent.pop(idx)
                     self._recent.insert(0, entry)
                     self._recent = self._recent[:10]
                     return
 
-            # On ajoute en tête de liste et on tronque à 10 éléments.
+            # Insert first and keep 10 entries.
             self._recent.insert(0, entry)
             self._recent = self._recent[:10]
 
     def restart_from_recent(self, hist_id: str) -> bool:
-        """Relance un flux à partir de l'historique récent."""
+        """Restart a stream from the recent ones."""
         with self._streams_lock:
             entry = None
             for e in self._recent:
@@ -304,7 +303,7 @@ class GooseService:
             if entry is None:
                 return False
 
-            # Si un flux avec le même gocbRef est déjà en cours, on ne relance pas.
+            # A stream with the same gocbRef already runs: do not restart.
             gref = str(entry.get("gocb_ref", ""))
             for s_active in self._streams.values():
                 if s_active.gocb_ref == gref:
@@ -313,7 +312,7 @@ class GooseService:
             now = time.monotonic()
             all_data = _parse_all_data(entry.get("all_data", []))
             s = GooseStream(
-                # Nouveau flux => nouvel identifiant interne.
+                # New stream, new internal id.
                 id=str(uuid.uuid4()),
                 iface=str(entry["iface"]),
                 src_mac=str(entry["src_mac"]),
@@ -341,14 +340,14 @@ class GooseService:
         return True
 
     # ------------------------------------------------------------------
-    # Persistance simple sur disque
+    # Simple persistence on disk
     # ------------------------------------------------------------------
 
     def _save_state(self) -> None:
-        """Sauvegarde les flux et les récents dans streams.json et recents.json.
+        """Save the streams and the recent ones to streams.json and recents.json.
 
-        Doit être appelée hors de `_streams_lock` : elle acquiert elle-même
-        le verrou pour copier l'état, puis écrit sur disque hors section critique.
+        Call it outside `_streams_lock`: it takes the lock to copy the state,
+        then writes to disk outside the critical section.
         """
         try:
             with self._streams_lock:
@@ -368,7 +367,7 @@ class GooseService:
             log.error(f"[GOOSE] Cannot save the state: {e}")
 
     def _load_state(self) -> None:
-        """Recharge les flux depuis streams.json et recents.json."""
+        """Reload the streams from streams.json and recents.json."""
         streams_data: List[Any] = []
         recent_data: List[Any] = []
         if self._streams_path.exists():
@@ -419,16 +418,15 @@ class GooseService:
                     log.warning(f"[GOOSE] Stream entry skipped (invalid data): {e}")
                     continue
 
-            # Recharge l'historique récent tel quel (les conversions auront lieu
-            # au moment d'une éventuelle relance).
+            # Reload the recent streams as they are (converted only when one
+            # is restarted).
             for e in recent_data:
                 if isinstance(e, dict):
                     self._recent.append(e)
 
-            # Si aucun historique récent n'est présent mais que des flux sont
-            # configurés, on initialise _recent avec un snapshot des flux
-            # actuels. Cela permet d'avoir une liste « Récents » non vide
-            # juste après un redémarrage, même avant toute suppression.
+            # With no recent streams but some configured ones, start _recent
+            # from a snapshot of the current streams, so the Recent list is
+            # not empty right after a restart.
             if not self._recent and self._streams:
                 for s in list(self._streams.values())[:10]:
                     self._recent.append(_stream_to_dict(s))
@@ -486,7 +484,7 @@ class GooseService:
         t.start()
 
     def start_sender_only(self) -> None:
-        """Démarre uniquement le thread d'envoi GOOSE (sans serveur HTTP)."""
+        """Start only the GOOSE sender thread (no HTTP server)."""
         self._stop.clear()
         self._sender_thread = threading.Thread(target=self._sender_loop, daemon=True)
         self._sender_thread.start()
@@ -552,7 +550,7 @@ def _handle_api(service: GooseService, path: str, method: str, body: Optional[by
 
 
 def make_unified_handler(service: GooseService) -> type:
-    """Crée un handler unique : API sous /api/*, Web UI à la racine."""
+    """One handler: API under /api/*, web UI at the root."""
 
     class UnifiedHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # type: ignore[override]
@@ -658,15 +656,15 @@ def make_unified_handler(service: GooseService) -> type:
                     f"<td>{_e(s.src_mac)}</td>"
                     f"<td>{_e(s.dst_mac)}</td>"
                     f"<td class=\"actions\">"
-                    f"<a href=\"/streams/{_e(s.id)}/edit\" class=\"btn btn--accent\">Modifier</a>"
+                    f"<a href=\"/streams/{_e(s.id)}/edit\" class=\"btn btn--accent\">Edit</a>"
                     f" "
-                    f"<form method=\"POST\" action=\"/streams/{_e(s.id)}/delete\" style=\"display:inline\" onsubmit=\"return confirm('Supprimer ce flux ?');\">"
-                    f"<button type=\"submit\" class=\"btn btn--danger\">Supprimer</button>"
+                    f"<form method=\"POST\" action=\"/streams/{_e(s.id)}/delete\" style=\"display:inline\" onsubmit=\"return confirm('Delete this stream?');\">"
+                    f"<button type=\"submit\" class=\"btn btn--danger\">Delete</button>"
                     f"</form>"
                     f"</td>"
                     f"</tr>"
                 )
-            rows_html = "\n".join(rows) if rows else '<tr><td colspan="6" class="empty">Aucun flux</td></tr>'
+            rows_html = "\n".join(rows) if rows else '<tr><td colspan="6" class="empty">No stream</td></tr>'
 
             recent_rows: List[str] = []
             active_grefs = {s.gocb_ref for s in streams}
@@ -677,17 +675,17 @@ def make_unified_handler(service: GooseService) -> type:
                 if can_restart:
                     action_html = (
                         f"<form method=\"POST\" action=\"/recent/{_e(rid)}/restart\" style=\"display:inline\">"
-                        f"<button type=\"submit\" class=\"btn btn--accent\">Relancer</button>"
+                        f"<button type=\"submit\" class=\"btn btn--accent\">Restart</button>"
                         f"</form>"
                     )
                 else:
-                    action_html = '<span class="muted">Déjà actif</span>'
+                    action_html = '<span class="muted">Already running</span>'
 
-                # Détails complets du flux au format JSON pretty-printed.
+                # Every stream detail, as pretty-printed JSON.
                 details_json = json.dumps(r, ensure_ascii=False, indent=2)
                 details_html = html_module.escape(details_json)
                 action_html += (
-                    "<br><details class=\"details-row\"><summary>Détails</summary>"
+                    "<br><details class=\"details-row\"><summary>Details</summary>"
                     f"<pre>{details_html}</pre></details>"
                 )
 
@@ -702,15 +700,15 @@ def make_unified_handler(service: GooseService) -> type:
                     f"</tr>"
                 )
             recent_rows_html = (
-                "\n".join(recent_rows) if recent_rows else '<tr><td colspan="6" class="empty">Aucun flux récent</td></tr>'
+                "\n".join(recent_rows) if recent_rows else '<tr><td colspan="6" class="empty">No recent stream</td></tr>'
             )
 
             html = f"""<!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GOOSE - Flux configurés</title>
+  <title>GOOSE - Configured streams</title>
   <style>
     :root {{
       --bg: #1a1b26;
@@ -745,9 +743,9 @@ def make_unified_handler(service: GooseService) -> type:
   </style>
 </head>
 <body>
-  <h1>Flux GOOSE configurés</h1>
+  <h1>Configured GOOSE streams</h1>
   <div class="toolbar">
-    <a href="/streams" class="btn btn--accent">Actualiser</a>
+    <a href="/streams" class="btn btn--accent">Refresh</a>
   </div>
   <table>
     <thead>
@@ -766,7 +764,7 @@ def make_unified_handler(service: GooseService) -> type:
   </table>
 
   <section class="recents-section">
-    <h2>Flux récemment configurés</h2>
+    <h2>Recently configured streams</h2>
     <table>
       <thead>
         <tr>
@@ -798,11 +796,11 @@ def make_unified_handler(service: GooseService) -> type:
             _e = html_module.escape
 
             html = f"""<!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Modifier le flux {_e(stream_id)}</title>
+  <title>Edit stream {_e(stream_id)}</title>
   <style>
     :root {{
       --bg: #1a1b26;
@@ -831,7 +829,7 @@ def make_unified_handler(service: GooseService) -> type:
   </style>
 </head>
 <body>
-  <h1>Modifier le flux</h1>
+  <h1>Edit the stream</h1>
   <div class="details-grid">
     <p><strong>ID:</strong> {_e(s.id)}</p>
     <p><strong>Interface:</strong> {_e(s.iface)} &nbsp; <strong>src_mac:</strong> {_e(s.src_mac)} &nbsp; <strong>dst_mac:</strong> {_e(s.dst_mac)}</p>
@@ -851,12 +849,12 @@ def make_unified_handler(service: GooseService) -> type:
     <label>TTL (ms)</label>
     <input type="text" name="ttl" value="{s.ttl}">
 
-    <label>allData (JSON, liste de valeurs et de ['raw', tag, hex])</label>
+    <label>allData (JSON list of values and ['raw', tag, hex])</label>
     <textarea name="all_data_json">{_e(all_data_json)}</textarea>
 
     <div class="form-actions">
-      <button type="submit" class="btn btn--accent">Enregistrer</button>
-      <a href="/streams" class="btn" style="background:var(--surface);color:var(--text);border:1px solid var(--muted)">Annuler</a>
+      <button type="submit" class="btn btn--accent">Save</button>
+      <a href="/streams" class="btn" style="background:var(--surface);color:var(--text);border:1px solid var(--muted)">Cancel</a>
     </div>
   </form>
 </body>
@@ -878,7 +876,7 @@ def make_unified_handler(service: GooseService) -> type:
                 try:
                     updates["all_data"] = json.loads(all_data_vals[0])
                 except json.JSONDecodeError:
-                    # Ne pas casser la requête pour un JSON incorrect, on ignore.
+                    # Ignore bad JSON rather than failing the request.
                     pass
 
             if updates:

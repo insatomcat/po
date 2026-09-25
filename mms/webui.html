@@ -3,7 +3,7 @@
 Copyright 2026 Florent Carli
 SPDX-License-Identifier: Apache-2.0
 -->
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -152,17 +152,17 @@ SPDX-License-Identifier: Apache-2.0
   </style>
 </head>
 <body>
-  <h1>Flux MMS</h1>
+  <h1>MMS subscriptions</h1>
   <div class="toolbar">
-    <button type="button" class="btn btn--accent" id="refresh">Actualiser</button>
-    <button type="button" class="btn btn--danger" id="purge">Tout supprimer</button>
+    <button type="button" class="btn btn--accent" id="refresh">Refresh</button>
+    <button type="button" class="btn btn--danger" id="purge">Delete all</button>
     <span id="loading"></span>
   </div>
   <table>
     <thead>
       <tr>
         <th>Id</th>
-        <th>Domaine</th>
+        <th>Domain</th>
         <th>IED</th>
         <th>Debug</th>
         <th>Actions</th>
@@ -172,12 +172,12 @@ SPDX-License-Identifier: Apache-2.0
   </table>
 
   <section class="recents-section">
-    <h2>Récents</h2>
+    <h2>Recent</h2>
     <div id="recents-list"></div>
   </section>
 
   <section class="logs-section">
-    <h2>Logs (temps réel)</h2>
+    <h2>Log (live)</h2>
     <pre id="logs"></pre>
   </section>
 
@@ -220,7 +220,7 @@ SPDX-License-Identifier: Apache-2.0
     }
 
     async function purgeAll() {
-      if (!confirm('Supprimer tous les flux ?')) return;
+      if (!confirm('Delete every subscription?')) return;
       const r = await fetch(api + '/subscriptions', { method: 'DELETE' });
       if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
     }
@@ -229,15 +229,15 @@ SPDX-License-Identifier: Apache-2.0
       const items = s.rcb_items || [];
       const rcbList = items.length
         ? '<ul class="rcb-list">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>'
-        : '<span style="color:var(--muted)">(chargement en cours ou flux arrêté)</span>';
-      const errBlock = s.last_error ? `<dt>Dernière erreur</dt><dd class="error-msg">${escapeHtml(s.last_error)}</dd>` : '';
+        : '<span style="color:var(--muted)">(loading, or subscription stopped)</span>';
+      const errBlock = s.last_error ? `<dt>Last error</dt><dd class="error-msg">${escapeHtml(s.last_error)}</dd>` : '';
       return `<dl class="details-grid">
         <dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd>
         <dt>Domaine</dt><dd>${escapeHtml(s.domain)}</dd>
         <dt>SCL</dt><dd>${escapeHtml(s.scl) || '—'}</dd>
-        <dt>RCB list</dt><dd>${escapeHtml(s.rcb_list) || 'liste intégrée'}</dd>
+        <dt>RCB list</dt><dd>${escapeHtml(s.rcb_list) || 'none'}</dd>
         <dt>Debug</dt><dd>${s.debug ? 'Oui' : 'Non'}</dd>
-        <dt>Reports souscrits (${items.length})</dt><dd>${rcbList}</dd>
+        <dt>Subscribed reports (${items.length})</dt><dd>${rcbList}</dd>
         ${errBlock}
       </dl>`;
     }
@@ -249,7 +249,7 @@ SPDX-License-Identifier: Apache-2.0
         if (r.style.display !== 'none') expanded.add(r.dataset.id);
       });
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucun flux.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No subscription.</td></tr>';
         return;
       }
       tbody.innerHTML = rows.map((s, idx) => {
@@ -261,8 +261,8 @@ SPDX-License-Identifier: Apache-2.0
           <td>${escapeHtml(s.ied_host)}:${s.ied_port}</td>
           <td>${s.debug ? 'Oui' : 'Non'}</td>
           <td class="actions">
-            <button type="button" class="btn btn--small" data-action="expand" data-id="${escapeHtml(s.id)}" data-rowid="${rowId}">${isExp ? 'Réduire' : 'Détails'}</button>
-            <button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Désactiver debug' : 'Activer debug'}</button>
+            <button type="button" class="btn btn--small" data-action="expand" data-id="${escapeHtml(s.id)}" data-rowid="${rowId}">${isExp ? 'Hide' : 'Details'}</button>
+            <button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? 'Disable debug' : 'Enable debug'}</button>
             <button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">Supprimer</button>
           </td>
         </tr>
@@ -276,10 +276,10 @@ SPDX-License-Identifier: Apache-2.0
           const id = btn.dataset.id;
           if (detailRow.style.display === 'none') {
             detailRow.style.display = 'table-row';
-            btn.textContent = 'Réduire';
+            btn.textContent = 'Hide';
           } else {
             detailRow.style.display = 'none';
-            btn.textContent = 'Détails';
+            btn.textContent = 'Details';
           }
         });
       });
@@ -287,7 +287,7 @@ SPDX-License-Identifier: Apache-2.0
         btn.addEventListener('click', async () => {
           const id = btn.dataset.id;
           const debug = btn.dataset.debug === 'true';
-          setLoading('Mise à jour…');
+          setLoading('Updating...');
           try {
             await setDebug(id, debug);
             await load();
@@ -298,7 +298,7 @@ SPDX-License-Identifier: Apache-2.0
       });
       tbody.querySelectorAll('[data-action="delete"]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!confirm('Supprimer le flux "' + btn.dataset.id + '" ?')) return;
+          if (!confirm('Delete subscription "' + btn.dataset.id + '"?')) return;
           setLoading('Suppression…');
           try {
             await del(btn.dataset.id);
@@ -316,7 +316,7 @@ SPDX-License-Identifier: Apache-2.0
       const el = document.getElementById('recents-list');
       _recentsCache = recentsData || [];
       if (!_recentsCache.length) {
-        el.innerHTML = '<p class="empty">Aucun flux récent.</p>';
+        el.innerHTML = '<p class="empty">No recent subscription.</p>';
         return;
       }
       const expanded = new Set();
@@ -333,7 +333,7 @@ SPDX-License-Identifier: Apache-2.0
             ${isRunning ? ' <span class="status running">(en cours)</span>' : ''}
           </div>
           <div class="actions">
-            <button type="button" class="btn btn--small" data-action="recent-expand" data-id="${escapeHtml(r.id)}" data-detailid="${detailId}">${isExp ? 'Réduire' : 'Détails'}</button>
+            <button type="button" class="btn btn--small" data-action="recent-expand" data-id="${escapeHtml(r.id)}" data-detailid="${detailId}">${isExp ? 'Hide' : 'Details'}</button>
             ${!isRunning ? `<button type="button" class="btn btn--small btn--accent" data-action="relancer" data-idx="${idx}">Relancer</button>` : ''}
           </div>
           <div class="recent-details" id="${detailId}" data-id="${escapeHtml(r.id)}" style="display:${isExp ? 'block' : 'none'};width:100%">${detailsHtml(r)}</div>
@@ -345,10 +345,10 @@ SPDX-License-Identifier: Apache-2.0
           const d = document.getElementById(btn.dataset.detailid);
           if (d.style.display === 'none') {
             d.style.display = 'block';
-            btn.textContent = 'Réduire';
+            btn.textContent = 'Hide';
           } else {
             d.style.display = 'none';
-            btn.textContent = 'Détails';
+            btn.textContent = 'Details';
           }
         });
       });
@@ -391,8 +391,8 @@ SPDX-License-Identifier: Apache-2.0
         renderRecents(recentsData, runningIds);
         setLoading('');
       } catch (e) {
-        setLoading('Erreur: ' + e.message, true);
-        document.getElementById('list').innerHTML = '<tr><td colspan="6" class="empty">Impossible de charger les flux.</td></tr>';
+        setLoading('Error: ' + e.message, true);
+        document.getElementById('list').innerHTML = '<tr><td colspan="6" class="empty">Cannot load the subscriptions.</td></tr>';
       }
     }
 
@@ -417,7 +417,7 @@ SPDX-License-Identifier: Apache-2.0
       logsEl.textContent = logLines.join('\n');
       logsEl.scrollTop = logsEl.scrollHeight;
     };
-    // EventSource reconnecte automatiquement en cas d'erreur si on ne ferme pas
+    // EventSource reconnects by itself after an error unless it is closed
 
     load();
   </script>

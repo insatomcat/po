@@ -1,7 +1,7 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-"""Orchestration SSH / locale des stress-tests (stress-ng)."""
+"""Runs the stress tests (stress-ng) over SSH or locally."""
 from __future__ import annotations
 
 import base64
@@ -45,21 +45,21 @@ def _format_ssh_error(text: str, sess: StressSession | None = None) -> str:
     target = f"{sess.user}@{sess.host}" if sess else ""
     if "Permission denied" in msg:
         who = target or msg.split(":", 1)[0]
-        return f"Authentification SSH refusée pour {who} (clé publique ou mot de passe)."
+        return f"SSH authentication refused for {who} (public key or password)."
     if "Connection refused" in msg:
         port = sess.port if sess else 22
         host = sess.host if sess else ""
-        return f"SSH refusé sur {host}:{port}."
+        return f"SSH refused on {host}:{port}."
     if "timed out" in msg.lower() or "Timeout" in msg:
-        return f"Timeout SSH vers {target or msg}."
+        return f"SSH timeout to {target or msg}."
     if "Could not resolve" in msg or "Name or service not known" in msg:
         host = sess.host if sess else msg
-        return f"Hôte inconnu: {host}."
+        return f"Unknown host: {host}."
     if "No route to host" in msg:
         host = sess.host if sess else msg
-        return f"Pas de route vers {host}."
+        return f"No route to {host}."
     if not msg:
-        return f"Échec SSH vers {target}." if target else "Échec SSH."
+        return f"SSH failed to {target}." if target else "SSH failed."
     if target and target not in msg:
         return f"{target}: {msg}"
     return msg
@@ -305,13 +305,13 @@ class StressManager:
         stdout = (proc.stdout or b"").decode("utf-8", errors="replace")
         stderr = (proc.stderr or b"").decode("utf-8", errors="replace")
         if not stdout.strip():
-            raise RuntimeError(_format_ssh_error(stderr, sess) or f"SSH sans sortie (code {proc.returncode})")
+            raise RuntimeError(_format_ssh_error(stderr, sess) or f"SSH without output (code {proc.returncode})")
         try:
             data = json.loads(stdout.strip().splitlines()[-1])
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"JSON invalide depuis la cible: {stdout[-400:]}") from exc
+            raise RuntimeError(f"Invalid JSON from the target: {stdout[-400:]}") from exc
         if not isinstance(data, dict):
-            raise RuntimeError("réponse cible invalide")
+            raise RuntimeError("invalid answer from the target")
         if data.get("error"):
             raise RuntimeError(str(data["error"]))
         return data
@@ -536,7 +536,7 @@ class StressManager:
     ) -> dict[str, Any]:
         host = (host or "").strip()
         if not host:
-            return {"error": "Adresse du nœud requise"}
+            return {"error": "Node address required"}
         user = (user or "root").strip() or "root"
         port = int(port or 22)
         key = session_key(user, host, port)
@@ -594,7 +594,7 @@ class StressManager:
             k = key or self._current_key
             sess = self._sessions.get(k) if k else None
             if not sess or not sess.connected:
-                return {"error": "Aucun nœud connecté"}
+                return {"error": "No node connected"}
             try:
                 data = self._run_ops(sess, "start", spec)
             except Exception as exc:  # noqa: BLE001
@@ -617,7 +617,7 @@ class StressManager:
             k = key or self._current_key
             sess = self._sessions.get(k) if k else None
             if not sess or not sess.connected:
-                return {"error": "Aucun nœud connecté"}
+                return {"error": "No node connected"}
             try:
                 self._run_ops(sess, "stop")
             except Exception as exc:  # noqa: BLE001

@@ -1,40 +1,19 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
+"""Command line for the MMS subscription service (HTTP API of mms_service.py).
+
+    python3 mms/mmsctl.py create --id s1 --ied-host 192.0.2.10 --rcb-filter "CB_LDPX_*" --debug
+    python3 mms/mmsctl.py list
+    python3 mms/mmsctl.py get s1
+    python3 mms/mmsctl.py update s1 --triggers dchg,qchg,gi --no-debug
+    python3 mms/mmsctl.py delete s1
+
+--api-url defaults to the unified service (http://localhost:7050, /api/mms
+prefix); add --standalone for a standalone mms_service.py.
+"""
+
 from __future__ import annotations
-
-"""
-CLI pour piloter le service MMS HTTP.
-
-Ce programme convertit des commandes utilisateur en appels HTTP vers l'API
-exposée par `mms_service.py` :
-
-  - Créer un flux :
-        python3 mmsctl.py create \
-            --api-url http://127.0.0.1:8080 \
-            --id flux-1 \
-            --ied-host 192.0.2.10 \
-            --ied-port 102 \
-            --domain IED01_LD0 \
-            --scl /chemin/ied.icd \
-            --rcb-list /chemin/rcb.txt \
-            --debug
-
-  - Lister les flux :
-        python3 mmsctl.py list --api-url http://127.0.0.1:8080
-
-  - Afficher un flux :
-        python3 mmsctl.py get flux-1 --api-url http://127.0.0.1:8080
-
-  - Mettre à jour un flux (ex. changer la rcb-list et le debug) :
-        python3 mmsctl.py update flux-1 \
-            --api-url http://127.0.0.1:8080 \
-            --rcb-list /nouveau/rcb.txt \
-            --debug/--no-debug
-
-  - Supprimer un flux :
-        python3 mmsctl.py delete flux-1 --api-url http://127.0.0.1:8080
-"""
 
 import argparse
 import json
@@ -55,7 +34,7 @@ def _http_request(
     *,
     json_body: Dict[str, Any] | None = None,
 ) -> tuple[int, str]:
-    """Envoie une requête HTTP simple et renvoie (status, body_text)."""
+    """Send one HTTP request and return (status, body_text)."""
     data = None
     headers = {}
     if json_body is not None:
@@ -71,12 +50,12 @@ def _http_request(
         body = e.read().decode("utf-8", errors="replace")
         return e.code, body
     except urllib.error.URLError as e:
-        print(f"Erreur réseau vers {url}: {e}", file=sys.stderr)
+        print(f"Network error for {url}: {e}", file=sys.stderr)
         return 0, ""
 
 
 def _api_base(base: str, suffix: str, unified: bool) -> str:
-    """Préfixe /api/mms si service unifié."""
+    """Add the /api/mms prefix for the unified service."""
     u = base.rstrip("/")
     if unified:
         return f"{u}/api/mms{suffix}"
@@ -90,7 +69,7 @@ def cmd_list(args: argparse.Namespace) -> int:
     if status == 0:
         return 1
     if status != 200:
-        print(f"Erreur {status}: {body}", file=sys.stderr)
+        print(f"Error {status}: {body}", file=sys.stderr)
         return 1
     try:
         data = json.loads(body)
@@ -98,7 +77,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         print(body)
         return 0
     if not data:
-        print("Aucun flux.")
+        print("No subscription.")
         return 0
     for sub in data:
         sid = sub.get("id")
@@ -117,10 +96,10 @@ def cmd_get(args: argparse.Namespace) -> int:
     if status == 0:
         return 1
     if status == 404:
-        print(f"Flux {args.id!r} introuvable.", file=sys.stderr)
+        print(f"Subscription {args.id!r} not found.", file=sys.stderr)
         return 1
     if status != 200:
-        print(f"Erreur {status}: {body}", file=sys.stderr)
+        print(f"Error {status}: {body}", file=sys.stderr)
         return 1
     try:
         data = json.loads(body)
@@ -158,14 +137,14 @@ def cmd_create(args: argparse.Namespace) -> int:
     if status == 0:
         return 1
     if status not in (200, 201):
-        print(f"Erreur {status}: {body}", file=sys.stderr)
+        print(f"Error {status}: {body}", file=sys.stderr)
         return 1
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
         print(body)
         return 0
-    print("Flux créé:")
+    print("Subscription created:")
     print(json.dumps(data, indent=2, ensure_ascii=False))
     return 0
 
@@ -193,23 +172,23 @@ def cmd_update(args: argparse.Namespace) -> int:
     if args.debug is not None:
         payload["debug"] = args.debug
     if not payload:
-        print("Aucune option à mettre à jour (utiliser --ied-host/--ied-port/--domain/--scl/--rcb-list/--debug/--no-debug).")
+        print("Nothing to update (use --ied-host/--ied-port/--domain/--scl/--rcb-filter/--rcb-list/--triggers/--integrity-ms/--debug/--no-debug).")
         return 1
     status, body = _http_request("PUT", url, json_body=payload)
     if status == 0:
         return 1
     if status == 404:
-        print(f"Flux {args.id!r} introuvable.", file=sys.stderr)
+        print(f"Subscription {args.id!r} not found.", file=sys.stderr)
         return 1
     if status != 200:
-        print(f"Erreur {status}: {body}", file=sys.stderr)
+        print(f"Error {status}: {body}", file=sys.stderr)
         return 1
     try:
         data = json.loads(body)
     except json.JSONDecodeError:
         print(body)
         return 0
-    print("Flux mis à jour:")
+    print("Subscription updated:")
     print(json.dumps(data, indent=2, ensure_ascii=False))
     return 0
 
@@ -221,100 +200,100 @@ def cmd_delete(args: argparse.Namespace) -> int:
     if status == 0:
         return 1
     if status == 404:
-        print(f"Flux {args.id!r} introuvable.", file=sys.stderr)
+        print(f"Subscription {args.id!r} not found.", file=sys.stderr)
         return 1
     if status not in (200, 204):
-        print(f"Erreur {status}: {body}", file=sys.stderr)
+        print(f"Error {status}: {body}", file=sys.stderr)
         return 1
-    print(f"Flux {args.id!r} supprimé.")
+    print(f"Subscription {args.id!r} deleted.")
     return 0
 
 
 def cmd_purge(args: argparse.Namespace) -> int:
-    """Supprime tous les flux côté service (DELETE /subscriptions)."""
+    """Delete every subscription of the service (DELETE /subscriptions)."""
     base = args.api_url.rstrip("/")
     url = _api_base(base, "/subscriptions", getattr(args, "unified", True))
     status, body = _http_request("DELETE", url)
     if status == 0:
         return 1
     if status not in (200, 204):
-        print(f"Erreur {status}: {body}", file=sys.stderr)
+        print(f"Error {status}: {body}", file=sys.stderr)
         return 1
-    print("Tous les flux ont été supprimés.")
+    print("Every subscription was deleted.")
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="CLI pour gérer les flux MMS d'un service mms_service.py.",
+        description="Manage the subscriptions of the MMS service.",
     )
     parser.add_argument(
         "--api-url",
         default=_default_api_url(),
-        help=f"URL de base de l'API (défaut: {_default_api_url()}).",
+        help=f"API base URL (default {_default_api_url()}).",
     )
     parser.add_argument(
         "--unified",
         action="store_true",
         default=True,
-        help="Utiliser le préfixe /api/mms (service unifié, défaut).",
+        help="Use the /api/mms prefix (unified service, default).",
     )
     parser.add_argument(
         "--standalone",
         dest="unified",
         action="store_false",
-        help="Service MMS standalone (sans préfixe /api/mms).",
+        help="Standalone MMS service (no /api/mms prefix).",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     # list
-    p_list = sub.add_parser("list", help="Lister tous les flux.")
+    p_list = sub.add_parser("list", help="List every subscription.")
     p_list.set_defaults(func=cmd_list)
 
     # get
-    p_get = sub.add_parser("get", help="Afficher le détail d'un flux.")
-    p_get.add_argument("id", help="Identifiant du flux.")
+    p_get = sub.add_parser("get", help="Show one subscription.")
+    p_get.add_argument("id", help="Subscription id.")
     p_get.set_defaults(func=cmd_get)
 
     # create
-    p_create = sub.add_parser("create", help="Créer un nouveau flux.")
-    p_create.add_argument("--id", help="Identifiant du flux (sinon généré côté service).")
-    p_create.add_argument("--ied-host", required=True, help="IP/hostname de l'IED.")
-    p_create.add_argument("--ied-port", type=int, default=102, help="Port MMS (défaut: 102).")
+    p_create = sub.add_parser("create", help="Create a subscription.")
+    p_create.add_argument("--id", help="Subscription id (generated by the service when omitted).")
+    p_create.add_argument("--ied-host", required=True, help="IED address or host name.")
+    p_create.add_argument("--ied-port", type=int, default=102, help="MMS port (default 102).")
     p_create.add_argument("--domain", help="One logical device (MMS domain); default: every one of the IED.")
     p_create.add_argument("--scl", help="CID/SCD of the IED: block names without asking the IED.")
     p_create.add_argument("--rcb-filter", help='Blocks to subscribe to, e.g. "CB_LDPX_*, CB_LDADD_*" (default: all).')
-    p_create.add_argument("--rcb-list", help="Chemin du fichier listant les RCB.")
+    p_create.add_argument("--rcb-list", help="File listing the RCBs (older than --rcb-filter).")
     p_create.add_argument("--triggers", help="Trigger options: dchg,qchg,dupd,integrity,gi (default integrity,gi).")
     p_create.add_argument("--integrity-ms", type=int, help="Integrity period in ms (default 2000).")
     dbg = p_create.add_mutually_exclusive_group()
-    dbg.add_argument("--debug", dest="debug", action="store_true", help="Activer le mode debug (affichage console).")
-    dbg.add_argument("--no-debug", dest="debug", action="store_false", help="Désactiver le mode debug.")
+    dbg.add_argument("--debug", dest="debug", action="store_true", help="Enable debug output (reports in the log).")
+    dbg.add_argument("--no-debug", dest="debug", action="store_false", help="Disable debug output.")
     p_create.set_defaults(func=cmd_create, debug=None)
 
     # update
-    p_update = sub.add_parser("update", help="Mettre à jour un flux existant.")
-    p_update.add_argument("id", help="Identifiant du flux à modifier.")
-    p_update.add_argument("--ied-host", help="Nouvelle IP/hostname de l'IED.")
-    p_update.add_argument("--ied-port", type=int, help="Nouveau port MMS.")
-    p_update.add_argument("--domain", help="Nouveau Domain ID MMS (LD).")
-    p_update.add_argument("--scl", help="Nouveau chemin du fichier SCL/ICD (utiliser chaîne vide pour le désactiver).")
+    p_update = sub.add_parser("update", help="Change a subscription.")
+    p_update.add_argument("id", help="Id of the subscription to change.")
+    p_update.add_argument("--ied-host", help="New IED address or host name.")
+    p_update.add_argument("--ied-port", type=int, help="New MMS port.")
+    p_update.add_argument("--domain", help="New MMS domain (logical device).")
+    p_update.add_argument("--scl", help="New SCL/ICD file (empty string to drop it).")
     p_update.add_argument("--rcb-filter", help='New block filter ("" for every block).')
-    p_update.add_argument("--rcb-list", help="Nouveau chemin du fichier RCB (utiliser chaîne vide pour revenir par défaut).")
+    p_update.add_argument("--rcb-list", help="New RCB list file (empty string to drop it).")
     p_update.add_argument("--triggers", help="Trigger options: dchg,qchg,dupd,integrity,gi.")
     p_update.add_argument("--integrity-ms", type=int, help="Integrity period in ms.")
     dbg2 = p_update.add_mutually_exclusive_group()
-    dbg2.add_argument("--debug", dest="debug", action="store_true", help="Activer le mode debug (affichage console).")
-    dbg2.add_argument("--no-debug", dest="debug", action="store_false", help="Désactiver le mode debug.")
+    dbg2.add_argument("--debug", dest="debug", action="store_true", help="Enable debug output (reports in the log).")
+    dbg2.add_argument("--no-debug", dest="debug", action="store_false", help="Disable debug output.")
     p_update.set_defaults(func=cmd_update, debug=None)
 
     # delete
-    p_delete = sub.add_parser("delete", help="Supprimer un flux.")
-    p_delete.add_argument("id", help="Identifiant du flux à supprimer.")
+    p_delete = sub.add_parser("delete", help="Delete a subscription.")
+    p_delete.add_argument("id", help="Id of the subscription to delete.")
     p_delete.set_defaults(func=cmd_delete)
 
     # purge
-    p_purge = sub.add_parser("purge", help="Supprimer tous les flux.")
+    p_purge = sub.add_parser("purge", help="Delete every subscription.")
     p_purge.set_defaults(func=cmd_purge)
 
     return parser

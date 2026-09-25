@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-API MMS exposée pour intégration dans le service unifié.
+MMS API served by the unified service.
 Routes: /subscriptions, /recents, /logs (SSE), /commands (write/operate)
 """
 from __future__ import annotations
@@ -26,11 +26,11 @@ def handle_mms(
     body: Optional[bytes],
 ) -> Tuple[int, Any]:
     """
-    Traite une requête API MMS (hors SSE /logs).
-    path: chemin après /api/mms (ex: "/subscriptions", "/recents")
+    Handle one MMS API request (the /logs SSE stream aside).
+    path: the path after /api/mms (e.g. "/subscriptions", "/recents")
     method: GET, POST, PUT, DELETE
-    body: corps brut (JSON pour POST/PUT)
-    Retourne (status_code, body) où body est dict/list (sérialisable JSON) ou None pour 204.
+    body: raw body (JSON for POST/PUT)
+    Returns (status_code, body), body being a JSON-serialisable dict/list, or None for 204.
     """
     from iec61850.mms.control import ControlError
 
@@ -231,7 +231,7 @@ def serve_logs_sse(handler: Any) -> None:
     last_sent_seq = 0
     while True:
         try:
-            # Copier les lignes à envoyer sous le lock, sans faire d’I/O (évite bloquer le worker)
+            # Copy the lines to send under the lock, without I/O (keeps the loggers unblocked)
             with LOG_LOCK:
                 to_send = [
                     (seq, line)
@@ -242,7 +242,7 @@ def serve_logs_sse(handler: Any) -> None:
                     last_sent_seq = to_send[-1][0]
                 else:
                     LOG_CONDITION.wait(timeout=0.5)
-            # Envoi hors lock pour ne pas bloquer _log()
+            # Send outside the lock so logging is not blocked
             for _seq, line in to_send:
                 handler.wfile.write(f"data: {escape_sse(line)}\n\n".encode("utf-8"))
                 handler.wfile.flush()
