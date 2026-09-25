@@ -54,7 +54,7 @@ Still on their own code: the diagnostic SV scripts in `svgenerator/`.
 | `mms/` | MMS client stack and service (see below). Stdlib only. |
 | `goose/goose61850/` | GOOSE transport (scapy send, receive through `processbus_capture`, `PacketCapture` as fallback) and streaming service over `open61850.goose`. Has its own `pyproject.toml`. |
 | `goose_listener/` | Trip-delay measurement: GOOSE trigger (stNum++, sqNum 0) vs the SV fault start of a linked flow, problem detection, PCAP ring dumps. Documented in its README. |
-| `svgenerator/` | SV generation. `rt_sender.c` (Linux, AF_PACKET, CLOCK_REALTIME, 4800 smp/s, 2 ASDU per frame, fixed 6I3U dataset) launched as a subprocess by `sv_service.py` (FastAPI models + process management, pidfiles in `svgenerator/pids/`, flows survive service restarts). `sv_api.py` adapts it to the unified server. `receiver.py`, `sv_counter3.py`, `sv_receiver_delay.py`, `parse_ref_pkt.py` are standalone diagnostic scripts, each with its own BER parser. |
+| `svgenerator/` | SV generation. `sv_service.py` launches one sender process per flow, under `seapath-run` when available: `open61850-sv` (`python -m open61850.sv_publisher`, the Rust engine of `open61850[rt]`) by default, or the C `rt_sender.c` (Linux, AF_PACKET, CLOCK_REALTIME, 4800 smp/s, 2 ASDU per frame, fixed 6I3U dataset) with `PO_SV_SENDER=rt_sender`; both take the same options and send the same samples (FastAPI models + process management, pidfiles in `svgenerator/pids/`, flows survive service restarts). `sv_api.py` adapts it to the unified server. `receiver.py`, `sv_counter3.py`, `sv_receiver_delay.py`, `parse_ref_pkt.py` are standalone diagnostic scripts, each with its own BER parser. |
 | `svlistener_view/` | SV capture + phasor display (Flask). Uses svID/smpCnt/seqData (quality ignored), 6I3U or 4I4U, 96-sample DFT at 50 Hz. |
 | `stress/` | SSH + `stress-ng` load on host cores, CPU topology from `seapath-alloc`. Not 61850. |
 
@@ -121,8 +121,10 @@ only by sqNum.
   `vlan` keyword shifted the offsets of every later test (across `or` too)
   and let only the host's own SV streams through on a NIC that strips tags;
   the ethertype filter of `open61850.capture` checks both positions instead.
-- SV: rate, ASDU count and dataset are compile-time constants in
-  `rt_sender.c`; quality is always 0; no smpMod/refrTm/gmIdentity. Listeners
+- SV: `rt_sender` has its rate, ASDU count and dataset as compile-time
+  constants and quality always 0; `open61850-sv` takes them as options. On
+  the process bus, on an isolated core with SCHED_FIFO 80, both send every
+  sample 4.3 us (median) after its nominal time, p99 about 5 us. Listeners
   assume 4800 smp/s and 50 Hz.
 - `scl_parser` keys data sets as `<ied>/LLN0$DS`, `<ied>_1<ld>/...` (VMC7
   naming) but never as the standard `<ied><ld>/LLN0$DS`. SDOs (`A.phsA`)

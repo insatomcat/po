@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import signal
+import sys
 import threading
 import time
 from subprocess import Popen
@@ -29,6 +30,8 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "flows.json"
 RECENTS_PATH = BASE_DIR / "recents.json"
 RT_SENDER_PATH = BASE_DIR / "rt_sender"
+# Sender of the SV flows: "open61850" (open61850-sv, default) or "rt_sender" (the C sender of this directory).
+SV_SENDER = os.environ.get("PO_SV_SENDER", "open61850").strip().lower()
 PIDS_DIR = BASE_DIR / "pids"
 SMP_PER_SEC = 4800
 
@@ -46,7 +49,7 @@ class FlowConfig(BaseModel):
     appid: int = Field(..., ge=0, le=0xFFFF, description="SV APPID, required, 0-65535")
     conf_rev: int = Field(..., ge=0, le=0xFFFFFFFF, description="confRev, required, 0-4294967295")
 
-    # Real-time parameters passed to rt_sender
+    # Real-time parameters passed to the sender
     smp_synch: int = Field(
         0, description="smpSynch (0=None, 1=Local, 2=Global) for --smp-synch"
     )
@@ -143,7 +146,7 @@ class FlowState(BaseModel):
 
 class FlowRuntime:
     """
-    Internal holder: configuration and its rt_sender process.
+    Internal holder: configuration and its sender process.
     proc: process handle when we started it; None when adopted (process already alive).
     pid: PID of an adopted flow (proc=None), or used to stop a flow we started.
     """
@@ -310,12 +313,18 @@ def save_config() -> None:
 
 
 def build_rt_sender_cmd(cfg: FlowConfig) -> list[str]:
-    if not RT_SENDER_PATH.exists():
-        raise RuntimeError(f"rt_sender binary not found at {RT_SENDER_PATH}")
+    """The sender command of a flow: open61850-sv by default, rt_sender with PO_SV_SENDER=rt_sender.
 
-    cmd: list[str] = [str(RT_SENDER_PATH)]
+    Both take the same options and produce the same samples (open61850 keeps
+    the phase continuous across seconds at non-integer frequencies).
+    """
+    if SV_SENDER == "rt_sender":
+        if not RT_SENDER_PATH.exists():
+            raise RuntimeError(f"rt_sender binary not found at {RT_SENDER_PATH}")
+        cmd: list[str] = [str(RT_SENDER_PATH)]
+    else:
+        cmd = [sys.executable, "-m", "open61850.sv_publisher"]
 
-    # Options de timing / contenu SV
     cmd += ["--appid", str(cfg.appid)]
     cmd += ["--conf-rev", str(cfg.conf_rev)]
     cmd += ["--smp-synch", str(cfg.smp_synch)]
@@ -380,7 +389,7 @@ def _remove_pidfile(name: str) -> None:
 
 
 def _try_adopt_flow(cfg: FlowConfig) -> Optional[FlowRuntime]:
-    """Adopt a flow whose rt_sender process is still alive (it survives service restarts)."""
+    """Adopt a flow whose sender process is still alive (it survives service restarts)."""
     pf = _pidfile_path(cfg.name)
     if not pf.exists():
         return None
@@ -448,7 +457,7 @@ def _find_free_isolated_cpu() -> Optional[int]:
 
 def start_flow_process(cfg: FlowConfig) -> Popen:
     cmd = build_rt_sender_cmd(cfg)
-    label = f"rt-sender-{cfg.name}"
+    label = f"sv-sender-{cfg.name}"
     if _SEAPATH_ALLOC_AVAILABLE:
         cmd = [_SEAPATH_RUN, label, cfg.seapath_isolation,
                cfg.seapath_scheduler, str(cfg.seapath_priority), "--"] + cmd

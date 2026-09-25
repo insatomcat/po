@@ -1,19 +1,19 @@
 # SV Generator
 
-Generates **Sampled Values** streams (IEC 61850-9-2 / IEC 61869-9, 6I3U layout) on an Ethernet interface, optionally VLAN tagged, with real-time settings (frequency, peak currents and voltages, a periodic fault). A service keeps the flows (FastAPI models, also served by the unified service) and starts one `rt_sender` process per flow; `svctl` drives its API.
+Generates **Sampled Values** streams (IEC 61850-9-2 / IEC 61869-9, 6I3U layout) on an Ethernet interface, optionally VLAN tagged, with real-time settings (frequency, peak currents and voltages, a periodic fault). A service keeps the flows (FastAPI models, also served by the unified service) and starts one sender process per flow: `open61850-sv` from the open61850 library (its Rust real-time engine) by default, or the C `rt_sender` of this directory with `PO_SV_SENDER=rt_sender`; `svctl` drives its API.
 
 ## Components
 
 | File | Role |
 |------|------|
-| `sv_service.py` | FastAPI app, `FlowConfig` / `FlowState` models, `rt_sender` process management, state files (port 7051 standalone) |
+| `sv_service.py` | FastAPI app, `FlowConfig` / `FlowState` models, sender process management, state files (port 7051 standalone) |
 | `sv_api.py` | The same API for the unified service (`/api/sv`) |
 | `svctl.py` | Command line for the API (`list`, `create`, `update`, `delete`, `clear`) |
-| `rt_sender.c` | Real-time sender (C, AF_PACKET, `CLOCK_REALTIME`, 4800 samples/s, 2 ASDUs per frame) |
+| `rt_sender.c` | The former real-time sender (C, AF_PACKET, `CLOCK_REALTIME`, 4800 samples/s, 2 ASDUs per frame), kept as a fallback (`PO_SV_SENDER=rt_sender`) |
 | `receiver.py`, `sv_receiver_delay.py`, `sv_counter3.py`, `parse_ref_pkt.py` | Diagnostic scripts (reception, delays, missing samples, reference frame dump) |
 | `svgenerator.service.example`, `svlistener_view.service.example` | Example systemd units |
 
-Rate, ASDU count and data set are compile-time constants of `rt_sender.c`; quality is always 0.
+Rate, ASDU count and data set are compile-time constants of `rt_sender.c`; quality is always 0. `open61850-sv` takes them as options; on the process bus, both send each sample about 4 µs after its nominal time on an isolated core with SCHED_FIFO 80.
 
 ## Installation
 
