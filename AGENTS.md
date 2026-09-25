@@ -6,7 +6,8 @@ such as an ABB SSC600 VM and a VMC7 IED). It speaks MMS
 (generate/listen), and wraps all of it in one HTTP service with a web UI.
 
 The protocol code is the **open61850** library (Apache 2.0, standard library
-only), in its own repository: https://github.com/insatomcat/open61850
+only), on PyPI (https://pypi.org/project/open61850/) and in its own
+repository: https://github.com/insatomcat/open61850
 (locally `~/dev/open61850`). It was extracted from this repository, with its
 history, at 0.1.0. PO depends on a version published on PyPI (`requirements.txt`); its
 maintainer notes, including what the IED captures taught about MMS on the
@@ -146,7 +147,7 @@ when absent.
 The library has its own tests. `tests/fake_ied.py` is a copy of its fake
 MMS server (socketpair) for the tests of PO's MMS service;
 `tests/test_processbus_capture.py` runs the shared capture on `lo` (Linux,
-root). Tests find open61850 installed, or in `../open61850/src`.
+root). open61850 must be installed (`pip install -r requirements.txt`).
 
 Every known bug above has a `xfail(strict=True)` test stating the correct
 behaviour. Fixing one makes it XPASS and fail: remove the marker in the same
@@ -168,7 +169,7 @@ of git (`*.pcap`, `*.pcapng` ignored); only the few bytes a test needs go to
 ## Working here
 
 - Python 3.10+ (dev machine has 3.14), with open61850 installed
-  (`pip install -r requirements.txt`) or checked out next to po. macOS dev box has no scapy,
+  (`pip install -r requirements.txt`, from PyPI). macOS dev box has no scapy,
   Docker is available for Linux-only checks (`rt_sender`, raw sockets on `lo`;
   on `lo` an AF_PACKET socket sees each frame twice, skip `PACKET_OUTGOING`).
 - Quick checks: `python3 -m py_compile <file>`; codec round trips with

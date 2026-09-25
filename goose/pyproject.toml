@@ -15,7 +15,7 @@ authors = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-  "open61850>=0.1",
+  "open61850>=0.1.1",
   "scapy>=2.5.0",
 ]
 
