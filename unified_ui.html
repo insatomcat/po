@@ -1405,8 +1405,9 @@ SPDX-License-Identifier: Apache-2.0
         "mms.debugOn": "Activer debug",
         "mms.debugOff": "Désactiver debug",
         "mms.lastError": "Dernière erreur",
-        "mms.rcbList": "RCB list",
-        "mms.rcbBuiltin": "tous les RCB du domaine",
+        "mms.rcbFilter": "RCB",
+        "mms.rcbBuiltin": "tous les RCB",
+        "mms.allDomains": "tous",
         "mms.triggers": "Déclencheurs",
         "mms.integrity": "intégrité {ms} ms",
         "mms.reports": "Reports ({n})",
@@ -1773,8 +1774,9 @@ SPDX-License-Identifier: Apache-2.0
         "mms.debugOn": "Enable debug",
         "mms.debugOff": "Disable debug",
         "mms.lastError": "Last error",
-        "mms.rcbList": "RCB list",
-        "mms.rcbBuiltin": "every RCB of the domain",
+        "mms.rcbFilter": "RCB",
+        "mms.rcbBuiltin": "every RCB",
+        "mms.allDomains": "all",
         "mms.triggers": "Triggers",
         "mms.integrity": "integrity {ms} ms",
         "mms.reports": "Reports ({n})",
@@ -2547,9 +2549,9 @@ SPDX-License-Identifier: Apache-2.0
       const errBlock = s.last_error ? `<dt>${t('mms.lastError')}</dt><dd class="error-msg">${escapeHtml(s.last_error)}</dd>` : '';
       return `<dl class="details-grid">
         <dt>IED</dt><dd>${escapeHtml(s.ied_host)}:${s.ied_port}</dd>
-        <dt>${t('mms.col.domain')}</dt><dd>${escapeHtml(s.domain)}</dd>
+        <dt>${t('mms.col.domain')}</dt><dd>${escapeHtml(s.domain) || t('mms.allDomains')}</dd>
         <dt>SCL</dt><dd>${escapeHtml(s.scl) || '-'}</dd>
-        <dt>${t('mms.rcbList')}</dt><dd>${escapeHtml(s.rcb_list) || t('mms.rcbBuiltin')}</dd>
+        <dt>${t('mms.rcbFilter')}</dt><dd>${escapeHtml(s.rcb_filter) || (s.rcb_list ? escapeHtml(s.rcb_list) : t('mms.rcbBuiltin'))}</dd>
         <dt>${t('mms.triggers')}</dt><dd>${escapeHtml(s.triggers || 'integrity,gi')} · ${t('mms.integrity', { ms: s.integrity_ms || 2000 })}</dd>
         <dt>${t('mms.col.debug')}</dt><dd>${s.debug ? t('common.yes') : t('common.no')}</dd>
         <dt>${t('mms.reports', { n: items.length })}</dt><dd>${rcbList}</dd>
@@ -2564,7 +2566,7 @@ SPDX-License-Identifier: Apache-2.0
       tbody.innerHTML = rows.map((s, idx) => {
         const rowId = 'mms-row-' + idx;
         const isExp = expanded.has(s.id);
-        return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain)}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td>${s.debug ? t('common.yes') : t('common.no')}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? t('mms.debugOff') : t('mms.debugOn')}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">${t('common.delete')}</button></td></tr>
+        return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain) || t('mms.allDomains')}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td>${s.debug ? t('common.yes') : t('common.no')}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? t('mms.debugOff') : t('mms.debugOn')}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">${t('common.delete')}</button></td></tr>
         <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${mmsDetailsHtml(s)}</td></tr>`;
       }).join('');
       tbody.querySelectorAll('[data-action="expand"]').forEach(btn => {
@@ -2605,7 +2607,7 @@ SPDX-License-Identifier: Apache-2.0
         const isExp = expanded.has(r.id);
         const live = subsById.get(r.id);
         const payload = { ...r, rcb_items: (run && live?.rcb_items) ? live.rcb_items : (r.rcb_items || []) };
-        return `<div class="recent-card"><button type="button" class="btn btn--small expand-btn" data-action="mms-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button><div class="info"><strong>${escapeHtml(r.id)}</strong> - ${escapeHtml(r.domain)} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">' + t('common.runningParen') + '</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">${t('common.restart')}</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
+        return `<div class="recent-card"><button type="button" class="btn btn--small expand-btn" data-action="mms-recent-expand" data-detailid="${detailId}">${isExp ? '▼' : '▶'}</button><div class="info"><strong>${escapeHtml(r.id)}</strong> - ${escapeHtml(r.domain) || t('mms.allDomains')} @ ${escapeHtml(r.ied_host)}:${r.ied_port} ${run ? '<span class="status running">' + t('common.runningParen') + '</span>' : ''}</div>${!run ? `<button type="button" class="btn btn--small btn--accent" data-idx="${idx}">${t('common.restart')}</button>` : ''}<div class="recent-details ${isExp ? 'visible' : ''}" id="${detailId}" data-id="${escapeHtml(r.id)}">${mmsDetailsHtml(payload)}</div></div>`;
       }).join('');
       el.querySelectorAll('[data-action="mms-recent-expand"]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2619,7 +2621,7 @@ SPDX-License-Identifier: Apache-2.0
           const r = mmsRecentsCache[parseInt(btn.dataset.idx, 10)];
           if (!r) return;
           try {
-            await fetch(API.mms + '/subscriptions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl, rcb_list: r.rcb_list, debug: r.debug, triggers: r.triggers, integrity_ms: r.integrity_ms }) });
+            await fetch(API.mms + '/subscriptions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl, rcb_list: r.rcb_list, rcb_filter: r.rcb_filter, debug: r.debug, triggers: r.triggers, integrity_ms: r.integrity_ms }) });
             mmsLoad();
           } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
         });

@@ -78,10 +78,14 @@ are top-level modules, `goose/` and `goose_listener/` are added to the path by
 
 ## MMS service (`mms/mms_service.py`)
 
-One thread per subscription: `MmsClient.connect`, GetNameList of the domain,
-`reporting.plan_subscriptions` (every RCB group, or the `rcb_list` entries; a
-trailing instance number is the preferred instance, instances used before
-come first), `rcb.find_free`, data set members and types read from the IED
+One thread per subscription (one IED; `domain` optional, empty means every
+logical device). The report control blocks come from the SCL file (`scl`,
+read with `iec61850.scl`) when its IED matches the domains the IED lists,
+else from GetNameList of each domain (grouped by two-digit instance
+suffix); a mismatch is logged with both names. `rcb_filter` selects blocks
+by shell pattern on their name without instance (`CB_LDPX_*, CB_LDADD_*`);
+the older `rcb_list` file still works. `reporting.plan_subscriptions` puts
+instances used before first, then `rcb.usable`, data set members and types read from the IED
 (`reporting.load_data_set`, SCL labels only as fallback), `rcb.enable` with
 po's historical OptFlds and the configured `triggers` / `integrity_ms`.
 Reports are decoded on the worker thread; `reporting.report_to_lines` keeps

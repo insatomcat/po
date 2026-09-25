@@ -107,7 +107,9 @@ from http import HTTPStatus
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Optional, Any, Tuple
 
+from iec61850 import scl
 from iec61850.mms import (
+    OBJECT_CLASS_DOMAIN,
     OBJECT_CLASS_NAMED_VARIABLE,
     MmsClient,
     MmsError,
@@ -160,12 +162,40 @@ class SubscriptionConfig:
     id: str
     ied_host: str
     ied_port: int
-    domain: str
-    scl: Optional[str] = None
-    rcb_list: Optional[str] = None
+    domain: str = ""  # one logical device; empty: every one the IED has
+    scl: Optional[str] = None  # CID/SCD: block names without asking the IED, and a consistency check
+    rcb_list: Optional[str] = None  # older: file of block names
     debug: bool = False
     triggers: Optional[str] = None  # e.g. "integrity,gi" (default) or "dchg,qchg,integrity,gi"
     integrity_ms: int = 2000
+    rcb_filter: Optional[str] = None  # e.g. "CB_LDPX_*, CB_LDADD_*"; empty: every block
+
+
+CONFIG_FIELDS = ("ied_host", "ied_port", "domain", "scl", "rcb_list", "rcb_filter", "debug", "triggers", "integrity_ms")
+
+
+def config_from_json(data: Dict[str, Any], sub_id: Optional[str] = None) -> SubscriptionConfig:
+    """A subscription from an API body; raises KeyError (missing ied_host) or ValueError."""
+    cfg = SubscriptionConfig(
+        id=str(sub_id or data.get("id") or uuid.uuid4().hex),
+        ied_host=str(data["ied_host"]),
+        ied_port=int(data.get("ied_port") or 102),
+        domain=str(data.get("domain") or ""),
+        scl=data.get("scl") or None,
+        rcb_list=data.get("rcb_list") or None,
+        rcb_filter=data.get("rcb_filter") or None,
+        debug=bool(data.get("debug", False)),
+        triggers=data.get("triggers") or None,
+        integrity_ms=int(data.get("integrity_ms") or 2000),
+    )
+    reporting.parse_triggers(cfg.triggers)
+    return cfg
+
+
+def config_to_json(cfg: SubscriptionConfig) -> Dict[str, Any]:
+    out = {"id": cfg.id, **{name: getattr(cfg, name) for name in CONFIG_FIELDS}}
+    out["triggers"] = cfg.triggers or reporting.DEFAULT_TRIGGERS
+    return out
 
 
 @dataclass
@@ -323,18 +353,7 @@ class SubscriptionManager:
     def _add_to_recents(self, runtime: SubscriptionRuntime) -> None:
         """Ajoute un flux aux récents (20 derniers uniques par id)."""
         cfg = runtime.config
-        entry = {
-            "id": cfg.id,
-            "ied_host": cfg.ied_host,
-            "ied_port": cfg.ied_port,
-            "domain": cfg.domain,
-            "scl": cfg.scl,
-            "rcb_list": cfg.rcb_list,
-            "debug": cfg.debug,
-            "triggers": cfg.triggers,
-            "integrity_ms": cfg.integrity_ms,
-            "rcb_items": list(runtime.rcb_items),
-        }
+        entry = {**config_to_json(cfg), "triggers": cfg.triggers, "rcb_items": list(runtime.rcb_items)}
         with self._lock:
             self._recents = [e for e in self._recents if e.get("id") != cfg.id]
             self._recents.insert(0, entry)
@@ -566,6 +585,7 @@ class SubscriptionManager:
             except Exception as e:
                 print(f"[SCL] Cannot load {cfg.scl}: {e}")
         wanted = load_rcb_list(cfg.rcb_list)
+        scl_ied = load_scl_ied(cfg)
         try:
             settings = reporting.rcb_settings(cfg.triggers, cfg.integrity_ms)
         except ValueError as e:
@@ -583,9 +603,9 @@ class SubscriptionManager:
                 print(f"[MMS] Stream {cfg.id}: connecting to {cfg.ied_host}:{cfg.ied_port} ...")
                 client = MmsClient.connect(cfg.ied_host, cfg.ied_port, timeout=10.0, on_information_report=reports.put)
                 runtime.client = client
-                data_sets, enabled = self._subscribe(runtime, client, wanted, settings, scl_labels)
+                data_sets, enabled = self._subscribe(runtime, client, wanted, scl_ied, settings, scl_labels)
                 connection_ok = bool(enabled)
-                print(f"[Stream {cfg.id}] {len(enabled)} RCB enabled: {', '.join(r.item for r in enabled)}")
+                print(f"[Stream {cfg.id}] {len(enabled)} RCB enabled: {', '.join(str(r) for r in enabled)}")
                 while not runtime.stop_event.is_set():
                     try:
                         message = reports.get(timeout=0.5)
@@ -636,23 +656,26 @@ class SubscriptionManager:
         runtime: SubscriptionRuntime,
         client: MmsClient,
         wanted: Optional[list],
+        scl_ied: "Optional[scl.SclIed]",
         settings: "rcb.RcbSettings",
         scl_labels: Dict[str, list],
     ) -> "tuple[Dict[str, reporting.DataSetInfo], list[ObjectName]]":
-        """Pick a free instance of each wanted block group, read its data set and enable it."""
+        """Pick a free instance of each selected block, read its data set and enable it."""
         cfg = runtime.config
-        names = client.get_name_list(OBJECT_CLASS_NAMED_VARIABLE, cfg.domain)
-        available = [n for n in names if rcb.is_rcb_name(n)]
-        plan, missing = reporting.plan_subscriptions(available, wanted, previous=runtime.rcb_items)
+        groups = self._rcb_groups(cfg, client, scl_ied)
+        plan, missing = reporting.plan_subscriptions(
+            groups, patterns=reporting.parse_rcb_filter(cfg.rcb_filter), wanted=wanted, previous=runtime.rcb_items
+        )
         for name in missing:
-            print(f"[Stream {cfg.id}] RCB {name} not found in {cfg.domain}")
+            print(f"[Stream {cfg.id}] no report control block matches {name}")
+        print(f"[Stream {cfg.id}] {len(plan)} of {len(groups)} report control block(s) selected")
         data_sets: Dict[str, reporting.DataSetInfo] = {}
         enabled: list[ObjectName] = []
         errors: list[str] = []
         for i, candidates in enumerate(plan, 1):
             if runtime.stop_event.is_set():
                 break
-            options = rcb.usable(client, [ObjectName(c, cfg.domain) for c in candidates])
+            options = rcb.usable(client, candidates)
             status = None
             refused: list[str] = []
             for option in options:
@@ -667,7 +690,7 @@ class SubscriptionManager:
                 status = option
                 break
             if status is None:
-                base = rcb.instance_base(candidates[0])
+                base = rcb.instance_base(str(candidates[0]))
                 errors.append(f"{base}: every instance is in use" + (f" ({refused[-1]})" if refused else ""))
                 print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {errors[-1]}")
                 continue
@@ -676,9 +699,36 @@ class SubscriptionManager:
             members = len(data_sets[ds_ref].members) if ds_ref in data_sets else 0
             print(f"[Stream {cfg.id}] [{i}/{len(plan)}] {status.rcb.item} enabled "
                   f"(RptID {status.rpt_id}, {members} members)")
-        runtime.rcb_items = [r.item for r in enabled]
+        runtime.rcb_items = [str(r) for r in enabled]
         runtime.last_error = "; ".join(errors) or None
         return data_sets, enabled
+
+    def _rcb_groups(
+        self, cfg: SubscriptionConfig, client: MmsClient, scl_ied: "Optional[scl.SclIed]"
+    ) -> "list[reporting.RcbGroup]":
+        """The IED's report control blocks: from the SCL when it matches the IED, else asked to the IED."""
+        ied_domains = client.get_name_list(OBJECT_CLASS_DOMAIN)
+        if cfg.domain and cfg.domain not in ied_domains:
+            raise MmsError(f"domain {cfg.domain} not on the IED at {cfg.ied_host}, which has {_list(ied_domains)}")
+        wanted_domains = [cfg.domain] if cfg.domain else ied_domains
+        if scl_ied is not None:
+            known = [d for d in scl_ied.domains if d in wanted_domains]
+            if known:
+                groups = reporting.groups_from_scl(scl_ied, known)
+                print(f"[Stream {cfg.id}] {len(groups)} report control block(s) of {scl_ied.name} from {cfg.scl}")
+                return groups
+            print(
+                f"[Stream {cfg.id}] {cfg.scl} describes {scl_ied.name} ({_list(scl_ied.domains)}) but the IED at "
+                f"{cfg.ied_host} has {_list(ied_domains)}: asking the IED instead"
+            )
+        groups: "list[reporting.RcbGroup]" = []
+        for domain in wanted_domains:
+            names = client.get_name_list(OBJECT_CLASS_NAMED_VARIABLE, domain)
+            found = reporting.groups_from_names(domain, names)
+            if found:
+                print(f"[Stream {cfg.id}] {domain}: {len(found)} report control block(s) among {len(names)} names")
+            groups += found
+        return groups
 
     def _handle_report(
         self,
@@ -715,6 +765,31 @@ class SubscriptionManager:
         if _DEBUG_CONSOLE.get(cfg.id, False):
             for line in reporting.format_report(report, data_set):
                 _log_line(line)
+
+
+def _list(names: list[str], shown: int = 4) -> str:
+    return ", ".join(names[:shown]) + (f" (+{len(names) - shown})" if len(names) > shown else "") if names else "none"
+
+
+def load_scl_ied(cfg: SubscriptionConfig) -> "Optional[scl.SclIed]":
+    """The IED of ``cfg.scl`` at ``cfg.ied_host`` (the only one of a CID), or None."""
+    if not cfg.scl:
+        return None
+    try:
+        ieds = scl.load_ieds(cfg.scl)
+    except scl.SclError as e:
+        print(f"[SCL] {e}")
+        return None
+    ied = scl.find_ied(ieds, cfg.ied_host)
+    if ied is None:
+        print(f"[SCL] {cfg.scl}: no IED at {cfg.ied_host} among {_list([i.name for i in ieds])}")
+    elif ied.addresses and cfg.ied_host not in ied.addresses:
+        print(f"[SCL] {cfg.scl}: {ied.name} is at {', '.join(ied.addresses)}, connecting to {cfg.ied_host}")
+    return ied
+
+
+def runtime_to_json(rt: SubscriptionRuntime) -> Dict[str, Any]:
+    return {**config_to_json(rt.config), "last_error": rt.last_error, "rcb_items": list(rt.rcb_items)}
 
 
 def load_rcb_list(path: Optional[str]) -> Optional[list]:
@@ -862,31 +937,11 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             _json_error(self, HTTPStatus.BAD_REQUEST, "invalid JSON body")
             return
         try:
-            sub_id = data.get("id") or uuid.uuid4().hex
-            ied_host = data["ied_host"]
-            ied_port = int(data.get("ied_port", 102))
-            domain = data["domain"]
+            cfg = config_from_json(data)
         except KeyError as e:
             _json_error(self, HTTPStatus.BAD_REQUEST, f"missing field: {e.args[0]}")
             return
-        except (TypeError, ValueError):
-            _json_error(self, HTTPStatus.BAD_REQUEST, "invalid ied_port")
-            return
-
-        cfg = SubscriptionConfig(
-            id=sub_id,
-            ied_host=str(ied_host),
-            ied_port=int(ied_port),
-            domain=str(domain),
-            scl=data.get("scl"),
-            rcb_list=data.get("rcb_list"),
-            debug=bool(data.get("debug", False)),
-            triggers=data.get("triggers"),
-            integrity_ms=int(data.get("integrity_ms") or 2000),
-        )
-        try:
-            reporting.parse_triggers(cfg.triggers)
-        except ValueError as e:
+        except (TypeError, ValueError) as e:
             _json_error(self, HTTPStatus.BAD_REQUEST, str(e))
             return
         try:
@@ -906,7 +961,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
             _json_error(self, HTTPStatus.BAD_REQUEST, "invalid JSON body")
             return
         # On accepte seulement les champs connus
-        allowed_fields = {"ied_host", "ied_port", "domain", "scl", "rcb_list", "debug", "triggers", "integrity_ms"}
+        allowed_fields = set(CONFIG_FIELDS)
         update_fields: Dict[str, Any] = {}
         for k, v in data.items():
             if k not in allowed_fields:
@@ -955,20 +1010,7 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _runtime_to_dict(rt: SubscriptionRuntime) -> Dict[str, Any]:
-        cfg = rt.config
-        return {
-            "id": cfg.id,
-            "ied_host": cfg.ied_host,
-            "ied_port": cfg.ied_port,
-            "domain": cfg.domain,
-            "scl": cfg.scl,
-            "rcb_list": cfg.rcb_list,
-            "debug": cfg.debug,
-            "triggers": cfg.triggers or reporting.DEFAULT_TRIGGERS,
-            "integrity_ms": cfg.integrity_ms,
-            "last_error": rt.last_error,
-            "rcb_items": list(rt.rcb_items),
-        }
+        return runtime_to_json(rt)
 
 
 def main() -> int:

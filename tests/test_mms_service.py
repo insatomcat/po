@@ -36,7 +36,11 @@ class FakeIed:
 
     def handler(self, invoke_id: int, service: int, content: bytes, server: FakeServer) -> None:
         if service == pdu.SERVICE_GET_NAME_LIST:
-            names = ["LLN0", "LLN0$BR$CB_A01", "LLN0$BR$CB_A01$RptID", "LLN0$BR$CB_A02", "XCBR1"]
+            object_class = list(ber.iter_tlvs(ber.decode_tlv(content).value))[0].value[0]
+            if object_class == 9:  # domains
+                names = ["LD0"]
+            else:
+                names = ["LLN0", "LLN0$BR$CB_A01", "LLN0$BR$CB_A01$RptID", "LLN0$BR$CB_A02", "XCBR1"]
             body = ber.encode_tlv(0xA0, b"".join(ber.encode_tlv(0x1A, n.encode()) for n in names))
             server.respond(invoke_id, service, body + ber.encode_tlv(0x81, b"\x00"))
         elif service == pdu.SERVICE_GET_NAMED_VARIABLE_LIST_ATTRIBUTES:
@@ -87,7 +91,7 @@ def test_subscription_end_to_end(service: tuple[mms_service.SubscriptionManager,
     runtime = manager.create_subscription(cfg)
     _wait(lambda: len(pushed) >= 8)
 
-    assert runtime.rcb_items == ["LLN0$BR$CB_A02"]  # CB_A01 is used by another client
+    assert runtime.rcb_items == ["LD0/LLN0$BR$CB_A02"]  # CB_A01 is used by another client
     assert runtime.last_error is None
     writes = [(n.rsplit("$", 1)[1], v) for n, v in ied.model.writes]
     assert [a for a, _ in writes] == ["ResvTms", "IntgPd", "TrgOps", "OptFlds", "PurgeBuf", "EntryID", "RptEna", "GI"]
@@ -144,6 +148,14 @@ def test_http_api_fields(service: tuple[mms_service.SubscriptionManager, FakeIed
     assert status == 200 and result["integrity_ms"] == 500
     status, result = handle_mms(manager, "/subscriptions/s3", "PUT", json.dumps({"triggers": "nope"}).encode())
     assert status == 400
+    status, result = handle_mms(manager, "/subscriptions/s3", "PUT", json.dumps({"rcb_filter": "CB_A*"}).encode())
+    assert status == 200 and result["rcb_filter"] == "CB_A*" and result["domain"] == "LD0"
+
+    body = {"id": "s4", "ied_host": "ied", "rcb_filter": "CB_Z*"}  # no domain: every logical device
+    status, result = handle_mms(manager, "/subscriptions", "POST", json.dumps(body).encode())
+    assert status == 201 and result["domain"] == "" and result["rcb_filter"] == "CB_Z*"
+    status, result = handle_mms(manager, "/subscriptions", "POST", json.dumps({"id": "s5"}).encode())
+    assert status == 400 and "ied_host" in result["error"]
 
 
 def test_command_operates_the_breaker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -191,3 +203,47 @@ def test_command_operates_the_breaker(tmp_path: Path, monkeypatch: pytest.Monkey
     finally:
         for server in servers:
             server.close()
+
+
+class _NamesClient:
+    """Answers GetNameList only: domains, then the names of each domain."""
+
+    def __init__(self, domains: dict[str, list[str]]) -> None:
+        self.domains = domains
+        self.calls: list[object] = []
+
+    def get_name_list(self, object_class: int, domain: object = None) -> list[str]:
+        self.calls.append(domain)
+        return list(self.domains) if object_class == 9 else self.domains[domain]  # type: ignore[index]
+
+
+def _groups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: _NamesClient, **cfg: object) -> list[str]:
+    from conftest import DATA_DIR
+
+    for name in ("SUBSCRIPTIONS_PATH", "RECENTS_PATH", "COMMANDS_PATH"):
+        monkeypatch.setattr(mms_service, name, tmp_path / f"{name}.json")
+    manager = mms_service.SubscriptionManager(vm_url=None, vm_batch_ms=0)
+    config = mms_service.SubscriptionConfig(id="g", ied_host="192.0.2.10", ied_port=102, **cfg)  # type: ignore[arg-type]
+    config.scl = str(DATA_DIR / "two_ieds.scd.xml") if config.scl == "fixture" else config.scl
+    groups = manager._rcb_groups(config, client, mms_service.load_scl_ied(config))  # type: ignore[arg-type]
+    return [str(g.base) for g in groups]
+
+
+def test_blocks_come_from_the_scl_when_it_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _NamesClient({"IED01_ALD0": [], "IED01_ACTRL": []})
+    groups = _groups(tmp_path, monkeypatch, client, scl="fixture")
+    assert "IED01_ALD0/LLN0$BR$CB_LDPX_DQPO_DEP1" in groups and "IED01_ACTRL/CBCSWI1$BR$CB_POS" in groups
+    assert client.calls == [None]  # only the domain list: no name listing of the logical devices
+
+
+def test_blocks_are_discovered_when_the_scl_describes_another_ied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _NamesClient({"IED02LD0": ["LLN0", "LLN0$BR$CB_X01", "LLN0$BR$CB_X02", "LLN0$BR$CB_X01$RptID"], "IED02CTRL": []})
+    assert _groups(tmp_path, monkeypatch, client, scl="fixture") == ["IED02LD0/LLN0$BR$CB_X"]
+    assert client.calls == [None, "IED02LD0", "IED02CTRL"]
+
+
+def test_a_missing_domain_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from iec61850.mms import MmsError
+
+    with pytest.raises(MmsError, match="domain IED01_XLD0 not on the IED at 192.0.2.10, which has IED02LD0"):
+        _groups(tmp_path, monkeypatch, _NamesClient({"IED02LD0": []}), domain="IED01_XLD0")

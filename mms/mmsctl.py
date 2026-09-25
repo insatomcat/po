@@ -106,7 +106,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         host = sub.get("ied_host")
         port = sub.get("ied_port")
         debug = sub.get("debug")
-        print(f"- {sid}: {domain} @ {host}:{port}  debug={debug}")
+        print(f"- {sid}: {domain or 'all domains'} @ {host}:{port}  debug={debug}")
     return 0
 
 
@@ -137,8 +137,11 @@ def cmd_create(args: argparse.Namespace) -> int:
     payload: Dict[str, Any] = {
         "ied_host": args.ied_host,
         "ied_port": args.ied_port,
-        "domain": args.domain,
     }
+    if args.domain:
+        payload["domain"] = args.domain
+    if args.rcb_filter:
+        payload["rcb_filter"] = args.rcb_filter
     if args.id:
         payload["id"] = args.id
     if args.scl:
@@ -181,6 +184,8 @@ def cmd_update(args: argparse.Namespace) -> int:
         payload["scl"] = args.scl
     if args.rcb_list is not None:
         payload["rcb_list"] = args.rcb_list
+    if args.rcb_filter is not None:
+        payload["rcb_filter"] = args.rcb_filter
     if args.triggers is not None:
         payload["triggers"] = args.triggers
     if args.integrity_ms is not None:
@@ -276,8 +281,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_create.add_argument("--id", help="Identifiant du flux (sinon généré côté service).")
     p_create.add_argument("--ied-host", required=True, help="IP/hostname de l'IED.")
     p_create.add_argument("--ied-port", type=int, default=102, help="Port MMS (défaut: 102).")
-    p_create.add_argument("--domain", required=True, help="Domain ID MMS (LD).")
-    p_create.add_argument("--scl", help="Chemin du fichier SCL/ICD.")
+    p_create.add_argument("--domain", help="One logical device (MMS domain); default: every one of the IED.")
+    p_create.add_argument("--scl", help="CID/SCD of the IED: block names without asking the IED.")
+    p_create.add_argument("--rcb-filter", help='Blocks to subscribe to, e.g. "CB_LDPX_*, CB_LDADD_*" (default: all).')
     p_create.add_argument("--rcb-list", help="Chemin du fichier listant les RCB.")
     p_create.add_argument("--triggers", help="Trigger options: dchg,qchg,dupd,integrity,gi (default integrity,gi).")
     p_create.add_argument("--integrity-ms", type=int, help="Integrity period in ms (default 2000).")
@@ -293,6 +299,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_update.add_argument("--ied-port", type=int, help="Nouveau port MMS.")
     p_update.add_argument("--domain", help="Nouveau Domain ID MMS (LD).")
     p_update.add_argument("--scl", help="Nouveau chemin du fichier SCL/ICD (utiliser chaîne vide pour le désactiver).")
+    p_update.add_argument("--rcb-filter", help='New block filter ("" for every block).')
     p_update.add_argument("--rcb-list", help="Nouveau chemin du fichier RCB (utiliser chaîne vide pour revenir par défaut).")
     p_update.add_argument("--triggers", help="Trigger options: dchg,qchg,dupd,integrity,gi.")
     p_update.add_argument("--integrity-ms", type=int, help="Integrity period in ms.")

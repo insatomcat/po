@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import time
 from dataclasses import dataclass, field
 from datetime import timezone
@@ -20,6 +21,7 @@ from typing import Optional
 from iec61850.data import ArrayData, BitStringData, BoolData, FloatData, IECData, IntData, StructureData, UIntData
 from iec61850.display import format_value
 from iec61850.mms import DataAccessError, MmsClient, MmsError, MmsType, ObjectName, OptFlds, Report, TrgOps, rcb
+from iec61850 import scl
 from iec61850.mms.types import StructureType, label
 
 # --- settings -----------------------------------------------------------------
@@ -63,35 +65,85 @@ def rcb_settings(triggers: Optional[str], integrity_ms: int = 2000) -> rcb.RcbSe
 # --- which blocks -------------------------------------------------------------
 
 
-def plan_subscriptions(
-    available: list[str], wanted: Optional[list[str]], previous: Optional[list[str]] = None
-) -> tuple[list[list[str]], list[str]]:
-    """Candidate instances per block group, most preferred first, and the wanted names not found.
+@dataclass
+class RcbGroup:
+    """The instances of one report control block, in preference order."""
 
-    ``available`` are the RCB names of the domain. ``wanted`` lists blocks or
-    groups (a trailing instance number marks the preferred instance); None
-    means every group. Instances used before (``previous``) come first, so a
-    reconnection keeps the same RptID.
-    """
+    base: ObjectName  # domain and item without instance number
+    instances: list[ObjectName]
+
+    @property
+    def name(self) -> str:
+        """The block name the filter applies to: ``CB_LDPX_DQPO_DEP1``."""
+        return self.base.item.rsplit("$", 1)[-1]
+
+
+def groups_from_scl(ied: "scl.SclIed", domains: Optional[list[str]] = None) -> list[RcbGroup]:
+    """Every report control block of an SCL IED, restricted to ``domains`` when given."""
+    return [
+        RcbGroup(block.base, block.instances())
+        for block in ied.report_controls
+        if domains is None or block.domain in domains
+    ]
+
+
+def groups_from_names(domain: str, names: list[str]) -> list[RcbGroup]:
+    """Report control blocks found by GetNameList, grouped by instance (two-digit suffix)."""
     groups: dict[str, list[str]] = {}
-    for name in sorted(available):
+    for name in sorted(n for n in names if rcb.is_rcb_name(n)):
         groups.setdefault(rcb.instance_base(name), []).append(name)
-    requests = wanted if wanted is not None else list(groups)
-    plan: list[list[str]] = []
+    return [RcbGroup(ObjectName(base, domain), [ObjectName(n, domain) for n in items]) for base, items in groups.items()]
+
+
+def parse_rcb_filter(text: Optional[str]) -> list[str]:
+    """``"CB_LDPX_*, CB_LDADD_*"`` -> patterns; empty means every block."""
+    return [p.strip() for p in (text or "").split(",") if p.strip()]
+
+
+def plan_subscriptions(
+    groups: list[RcbGroup],
+    *,
+    patterns: Optional[list[str]] = None,
+    wanted: Optional[list[str]] = None,
+    previous: Optional[list[str]] = None,
+) -> tuple[list[list[ObjectName]], list[str]]:
+    """Candidate instances per selected block, most preferred first, and what was not found.
+
+    ``patterns`` (shell-style, ``*`` and ``?``) select blocks by name, instance
+    number excluded; ``wanted`` is the older list of block names (a trailing
+    instance number marks the preferred instance). With neither, every block
+    is selected. Instances used before (``previous``, ``domain/item`` or bare
+    item) come first, so a reconnection keeps the same RptID.
+    """
+    used = set(previous or [])
+
+    def order(group: RcbGroup, preferred: Optional[str] = None) -> list[ObjectName]:
+        first = [i for i in group.instances if str(i) in used or i.item in used]
+        chosen = [i for i in group.instances if i.item == preferred]
+        return list(dict.fromkeys(first + chosen + group.instances))
+
+    plan: list[list[ObjectName]] = []
     missing: list[str] = []
-    seen: set[str] = set()
-    for request in requests:
-        base = rcb.instance_base(request)
-        if base in seen:
-            continue
-        candidates = groups.get(base)
-        if not candidates:
-            missing.append(request)
-            continue
-        seen.add(base)
-        preferred = [n for n in (previous or []) if n in candidates] + ([request] if request in candidates else [])
-        ordered = list(dict.fromkeys(preferred + candidates))
-        plan.append(ordered)
+    if wanted is not None:
+        seen: set[str] = set()
+        for request in wanted:
+            base = rcb.instance_base(request)
+            matches = [g for g in groups if g.base.item in (base, request) and str(g.base) not in seen]
+            if not matches:
+                if not any(g.base.item in (base, request) for g in groups):
+                    missing.append(request)
+                continue
+            for group in matches:
+                seen.add(str(group.base))
+                plan.append(order(group, request))
+        return plan, missing
+
+    for pattern in patterns or []:
+        if not any(fnmatch.fnmatchcase(g.name, pattern) for g in groups):
+            missing.append(pattern)
+    for group in groups:
+        if not patterns or any(fnmatch.fnmatchcase(group.name, p) for p in patterns):
+            plan.append(order(group))
     return plan, missing
 
 

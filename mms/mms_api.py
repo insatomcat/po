@@ -13,7 +13,7 @@ from dataclasses import asdict
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
-from .reporting import DEFAULT_TRIGGERS, parse_triggers
+from .reporting import parse_triggers
 
 if TYPE_CHECKING:
     from .mms_service import SubscriptionManager, SubscriptionRuntime
@@ -34,7 +34,7 @@ def handle_mms(
     """
     from iec61850.mms.control import ControlError
 
-    from .mms_service import COMMAND_POSITIONS, SubscriptionConfig, MMSCommandConfig
+    from .mms_service import CONFIG_FIELDS, COMMAND_POSITIONS, MMSCommandConfig, config_from_json, runtime_to_json
 
     path = (path or "/").rstrip("/") or "/"
 
@@ -47,21 +47,7 @@ def handle_mms(
         except Exception:
             return None, False
 
-    def _runtime_to_dict(rt: "SubscriptionRuntime") -> Dict[str, Any]:
-        cfg = rt.config
-        return {
-            "id": cfg.id,
-            "ied_host": cfg.ied_host,
-            "ied_port": cfg.ied_port,
-            "domain": cfg.domain,
-            "scl": cfg.scl,
-            "rcb_list": cfg.rcb_list,
-            "debug": cfg.debug,
-            "triggers": cfg.triggers or DEFAULT_TRIGGERS,
-            "integrity_ms": cfg.integrity_ms,
-            "last_error": rt.last_error,
-            "rcb_items": list(rt.rcb_items),
-        }
+    _runtime_to_dict = runtime_to_json
 
     # GET /recents
     if path == "/recents" and method == "GET":
@@ -90,29 +76,10 @@ def handle_mms(
         if not ok or data is None:
             return HTTPStatus.BAD_REQUEST, {"error": "invalid JSON body"}
         try:
-            sub_id = data.get("id") or uuid.uuid4().hex
-            ied_host = data["ied_host"]
-            ied_port = int(data.get("ied_port", 102))
-            domain = data["domain"]
+            cfg = config_from_json(data)
         except KeyError as e:
             return HTTPStatus.BAD_REQUEST, {"error": f"missing field: {e.args[0]}"}
-        except (TypeError, ValueError):
-            return HTTPStatus.BAD_REQUEST, {"error": "invalid ied_port"}
-
-        cfg = SubscriptionConfig(
-            id=sub_id,
-            ied_host=str(ied_host),
-            ied_port=int(ied_port),
-            domain=str(domain),
-            scl=data.get("scl"),
-            rcb_list=data.get("rcb_list"),
-            debug=bool(data.get("debug", False)),
-            triggers=data.get("triggers"),
-            integrity_ms=int(data.get("integrity_ms") or 2000),
-        )
-        try:
-            parse_triggers(cfg.triggers)
-        except ValueError as e:
+        except (TypeError, ValueError) as e:
             return HTTPStatus.BAD_REQUEST, {"error": str(e)}
         try:
             rt = manager.create_subscription(cfg)
@@ -126,7 +93,7 @@ def handle_mms(
         data, ok = _read_json()
         if not ok or data is None:
             return HTTPStatus.BAD_REQUEST, {"error": "invalid JSON body"}
-        allowed_fields = {"ied_host", "ied_port", "domain", "scl", "rcb_list", "debug", "triggers", "integrity_ms"}
+        allowed_fields = set(CONFIG_FIELDS)
         update_fields: Dict[str, Any] = {}
         for k, v in data.items():
             if k not in allowed_fields:

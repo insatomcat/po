@@ -167,18 +167,52 @@ def test_triggers() -> None:
 
 
 AVAILABLE = [f"LLN0$BR$CB_A0{i}" for i in (1, 2, 3, 4)] + [f"LLN0$BR$CB_B0{i}" for i in (1, 2)]
+GROUPS = reporting.groups_from_names("LD0", AVAILABLE + ["LLN0$BR$CB_A01$RptID", "XCBR1"])
+
+
+def _names(plan: list[list[ObjectName]]) -> list[list[str]]:
+    return [[o.item for o in group] for group in plan]
+
+
+def test_groups_from_names() -> None:
+    assert [(str(g.base), g.name) for g in GROUPS] == [("LD0/LLN0$BR$CB_A", "CB_A"), ("LD0/LLN0$BR$CB_B", "CB_B")]
+    assert [o.item for o in GROUPS[0].instances] == AVAILABLE[:4]
 
 
 def test_plan_every_group_by_default() -> None:
-    plan, missing = reporting.plan_subscriptions(AVAILABLE, None)
-    assert plan == [AVAILABLE[:4], AVAILABLE[4:]] and missing == []
+    plan, missing = reporting.plan_subscriptions(GROUPS)
+    assert _names(plan) == [AVAILABLE[:4], AVAILABLE[4:]] and missing == []
+
+
+def test_plan_with_patterns() -> None:
+    plan, missing = reporting.plan_subscriptions(GROUPS, patterns=reporting.parse_rcb_filter(" CB_B*, CB_Z* "))
+    assert _names(plan) == [AVAILABLE[4:]] and missing == ["CB_Z*"]
 
 
 def test_plan_prefers_requested_then_previous_instances() -> None:
-    plan, missing = reporting.plan_subscriptions(AVAILABLE, ["LLN0$BR$CB_A03", "LLN0$BR$CB_C01"])
-    assert plan == [["LLN0$BR$CB_A03", "LLN0$BR$CB_A01", "LLN0$BR$CB_A02", "LLN0$BR$CB_A04"]]
+    plan, missing = reporting.plan_subscriptions(GROUPS, wanted=["LLN0$BR$CB_A03", "LLN0$BR$CB_C01"])
+    assert _names(plan) == [["LLN0$BR$CB_A03", "LLN0$BR$CB_A01", "LLN0$BR$CB_A02", "LLN0$BR$CB_A04"]]
     assert missing == ["LLN0$BR$CB_C01"]
-    plan, _ = reporting.plan_subscriptions(AVAILABLE, ["LLN0$BR$CB_A03"], previous=["LLN0$BR$CB_A02"])
-    assert plan[0][:2] == ["LLN0$BR$CB_A02", "LLN0$BR$CB_A03"]
-    plan, _ = reporting.plan_subscriptions(AVAILABLE, ["LLN0$BR$CB_B"])  # a group without instance number
-    assert plan == [AVAILABLE[4:]]
+    plan, _ = reporting.plan_subscriptions(GROUPS, wanted=["LLN0$BR$CB_A03"], previous=["LD0/LLN0$BR$CB_A02"])
+    assert _names(plan)[0][:2] == ["LLN0$BR$CB_A02", "LLN0$BR$CB_A03"]
+    plan, _ = reporting.plan_subscriptions(GROUPS, previous=["LLN0$BR$CB_B02"])  # older bare items still match
+    assert _names(plan)[1][0] == "LLN0$BR$CB_B02"
+    plan, _ = reporting.plan_subscriptions(GROUPS, wanted=["LLN0$BR$CB_B"])  # a group without instance number
+    assert _names(plan) == [AVAILABLE[4:]]
+
+
+def test_groups_from_scl_and_filter() -> None:
+    from conftest import DATA_DIR
+
+    from iec61850 import scl
+
+    ied = scl.find_ied(scl.load_ieds(DATA_DIR / "two_ieds.scd.xml"), "192.0.2.10")
+    assert ied is not None and ied.domains == ["IED01_ALD0", "IED01_ACTRL"]
+    groups = reporting.groups_from_scl(ied)
+    plan, _ = reporting.plan_subscriptions(groups, patterns=["CB_LDPX_*", "CB_LDADD_*"])
+    assert [[str(o) for o in g] for g in plan] == [
+        [f"IED01_ALD0/LLN0$BR$CB_LDPX_DQPO_DEP1{i:02d}" for i in (1, 2, 3)],
+        [f"IED01_ALD0/LLN0$BR$CB_LDPX_DQPO_DEP2{i:02d}" for i in (1, 2, 3)],
+        [f"IED01_ALD0/LLN0$BR$CB_LDADD_DQPO_DEP1{i:02d}" for i in (1, 2)],
+    ]
+    assert [str(g.base) for g in reporting.groups_from_scl(ied, ["IED01_ACTRL"])] == ["IED01_ACTRL/CBCSWI1$BR$CB_POS"]
