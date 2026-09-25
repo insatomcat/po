@@ -44,7 +44,7 @@ API HTTP (JSON, état persistant dans mms/subscriptions.json) :
           "id": "flux-1",           # optionnel, sinon généré
           "ied_host": "10.1.2.3",
           "ied_port": 102,
-          "domain": "VMC7_1LD0",
+          "domain": "IED01_LD0",
           "scl": "/chemin/vers/fichier.icd",        # optionnel
           "rcb_list": "/chemin/vers/rcb.txt",       # optionnel
           "debug": true                             # optionnel, défaut False

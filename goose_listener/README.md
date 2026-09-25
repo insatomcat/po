@@ -8,7 +8,7 @@ Intégré dans **`po_service`** (onglet **GOOSE Listener** de `unified_ui.html`)
 
 ## Objectif métier
 
-Sur un relais type SSC600, chaque **défaut** envoie un GOOSE de déclenchement vers ~**24 ms** après le sample SV de début de défaut. L’objectif est de vérifier que ce délai reste dans une marge (ex. **< 40 ms**) et que les défauts arrivent au **cycle attendu** du flux SV lié (ex. toutes les **4 s** sur LDPX_GSI_DEP5).
+Sur un relais type SSC600, chaque **défaut** envoie un GOOSE de déclenchement vers ~**24 ms** après le sample SV de début de défaut. L’objectif est de vérifier que ce délai reste dans une marge (ex. **< 40 ms**) et que les défauts arrivent au **cycle attendu** du flux SV lié (ex. toutes les **4 s** sur LDPX_GSI_1).
 
 Le listener ne remplace pas une analyse réseau complète : il agrège capture, mesure et alertes pour le diagnostic opérationnel.
 
@@ -40,7 +40,7 @@ t_ref     = multiple de cycle le plus proche de ts_rx, décalé de phase
 
 La **temporisation** (ms) est configurable par flux analysé (protection / paramètre relais à soustraire).
 
-### Exemple typique (LDPX_GSI_DEP5_B)
+### Exemple typique (LDPX_GSI_1)
 
 | Événement | Fraction dans la seconde | Δ net (~) |
 |-----------|--------------------------|-----------|
@@ -249,9 +249,9 @@ curl -s -X POST http://127.0.0.1:7050/api/gooselistener/analysis/start \
     "event_filter": "defauts_only",
     "targets": [
       {
-        "gocb_ref": "SSC600SW_BLD0/LLN0$GO$CB_LDPX_GSI_DEP5",
-        "go_id": "LDPX_GSI_DEP5_B",
-        "svid": "LDTM1_SVI_DEP5",
+        "gocb_ref": "IED01LD0/LLN0$GO$CB_LDPX_GSI_1",
+        "go_id": "LDPX_GSI_1",
+        "svid": "LDTM1_SVI_1",
         "svid_manual": true,
         "delay_ms": 0
       }
@@ -278,7 +278,7 @@ Chemin : `goose/examples/listen_goose.py`
 ```bash
 python3 goose/examples/listen_goose.py processbus \
   --app-id 0x150A \
-  --go-id 'LDPX_GSI_DEP5_B' \
+  --go-id 'LDPX_GSI_1' \
   --sqnum-zero --bool-true
 ```
 
@@ -289,8 +289,8 @@ python3 goose/examples/listen_goose.py processbus \
 ```bash
 python3 goose/examples/listen_goose.py processbus \
   --app-id 0x150A \
-  --gocb-ref 'SSC600SW_BLD0/LLN0$GO$CB_LDPX_GSI_DEP5' \
-  --go-id 'LDPX_GSI_DEP5_B' \
+  --gocb-ref 'IED01LD0/LLN0$GO$CB_LDPX_GSI_1' \
+  --go-id 'LDPX_GSI_1' \
   --measure-delay --triggers-only
 ```
 
@@ -299,8 +299,8 @@ python3 goose/examples/listen_goose.py processbus \
 ```bash
 python3 goose/examples/listen_goose.py processbus \
   --app-id 0x150A \
-  --gocb-ref 'SSC600SW_BLD0/LLN0$GO$CB_LDPX_GSI_DEP5' \
-  --go-id 'LDPX_GSI_DEP5_B' \
+  --gocb-ref 'IED01LD0/LLN0$GO$CB_LDPX_GSI_1' \
+  --go-id 'LDPX_GSI_1' \
   --problem-diag --problem-cycle 4 --problem-threshold 40
 ```
 
@@ -310,7 +310,7 @@ Silencieux si OK ; alertes compactes sur Δ > seuil ; rapport détaillé sur man
 
 ```bash
 python3 goose/examples/listen_goose.py processbus \
-  --app-id 0x150A --go-id 'LDPX_GSI_DEP5_B' \
+  --app-id 0x150A --go-id 'LDPX_GSI_1' \
   --measure-delay --audit-triggers
 ```
 

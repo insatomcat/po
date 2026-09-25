@@ -3,10 +3,9 @@
 
 """mms/reporting.py: subscription plan, text and VictoriaMetrics lines.
 
-The key test feeds the same report bytes to the historical pipeline
-(asn1_codec + victoriametrics_push with SCL labels) and to the new one
-(iec61850.mms + reporting with labels and types read from the IED), and
-expects the same Prometheus lines, so Grafana series do not change.
+The expected Prometheus lines are the ones the historical pipeline
+(asn1_codec + victoriametrics_push with SCL labels) produced for the same
+report bytes, so Grafana series did not change when it was replaced.
 """
 
 from __future__ import annotations
@@ -33,8 +32,6 @@ from iec61850.mms import ObjectName, TrgOps, decode_report, pdu
 from iec61850.mms.report import ReasonCode, bitstring_of
 from iec61850.mms.types import PrimitiveType, StructureType
 from mms import reporting
-from mms.asn1_codec import decode_mms_pdu
-from mms.victoriametrics_push import _report_to_lines
 
 DS = "IED01_LD0/LLN0$DS_TEST"
 TOE = datetime(2026, 9, 24, 14, 40, 54, 747000, tzinfo=timezone.utc)
@@ -102,18 +99,10 @@ def _new_lines(raw: bytes, data_set: reporting.DataSetInfo) -> list[str]:
     return reporting.report_to_lines(decode_report(message), data_set)  # type: ignore[arg-type]
 
 
-def _legacy_lines(raw: bytes) -> list[str]:
-    labels = {DS: [reporting.member_label(name) for name, _, _ in MEMBERS]}
-    return _report_to_lines(decode_mms_pdu(raw), labels, None)
-
-
-def test_lines_match_the_historical_pipeline() -> None:
-    raw = _report_bytes([True, True, True, True])
-    new = _new_lines(raw, _data_set())
-    assert new == _legacy_lines(raw)
+def _historical_lines() -> list[str]:
     ts = int(TOE.timestamp() * 1000)
     base = f'rpt_id="LDTEST_DEP1",data_set="{DS}"'
-    assert new == [
+    return [
         f'mms_report_value{{{base},member="SeqNum"}} 7.0 {ts}',
         f'mms_report_value{{{base},member="BufOvfl"}} 0.0 {ts}',
         f'mms_report_value{{{base},member="LogOut10"}} 1.0 {ts}',
@@ -125,19 +114,22 @@ def test_lines_match_the_historical_pipeline() -> None:
     ]
 
 
+def test_lines_match_the_historical_pipeline() -> None:
+    raw = _report_bytes([True, True, True, True])
+    assert _new_lines(raw, _data_set()) == _historical_lines()
+
+
 def test_lines_without_types_fall_back_like_before() -> None:
     raw = _report_bytes([True, True, True, True])
-    assert _new_lines(raw, _data_set(with_types=False)) == _legacy_lines(raw)
+    assert _new_lines(raw, _data_set(with_types=False)) == _historical_lines()
 
 
 def test_partial_inclusion_keeps_member_names() -> None:
-    # The historical pipeline mislabels members when the inclusion bitstring skips
-    # some; the new one names them by their position in the data set.
+    # Members are named by their position in the data set. The historical
+    # pipeline published Hz here under the first member's name (LogOut10).
     raw = _report_bytes([False, False, True, False])
     members = [line.split("member=")[1].split("}")[0] for line in _new_lines(raw, _data_set())]
     assert members == ['"SeqNum"', '"BufOvfl"', '"Hz"']
-    legacy = [line.split("member=")[1].split("}")[0] for line in _legacy_lines(raw)]
-    assert legacy == ['"SeqNum"', '"BufOvfl"', '"LogOut10"']  # Hz published under the first member's name
 
 
 def test_format_report() -> None:

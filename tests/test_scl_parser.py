@@ -5,12 +5,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 import pytest
 from conftest import DATA_DIR
 
-from mms import mms_report_processing as processing
 from mms.scl_parser import parse_scl_data_set_members, parse_scl_data_set_members_with_components
 
 SCL = DATA_DIR / "minimal_ied.scl.xml"
@@ -42,20 +39,3 @@ def test_standard_data_set_reference_is_a_key() -> None:
 def test_sub_data_object_components() -> None:
     _, components, _ = parse_scl_data_set_members_with_components(SCL)
     assert components["IED1/LLN0$DS1"]["A.phsA"] == ["cVal", "q", "t"]
-
-
-@pytest.fixture
-def loaded_labels() -> Iterator[None]:
-    saved = dict(processing.DATA_SET_MEMBER_LABELS)
-    processing.DATA_SET_MEMBER_LABELS.clear()
-    processing.DATA_SET_MEMBER_LABELS.update(parse_scl_data_set_members(SCL))
-    yield
-    processing.DATA_SET_MEMBER_LABELS.clear()
-    processing.DATA_SET_MEMBER_LABELS.update(saved)
-
-
-def test_report_label_resolution_falls_back_on_data_set_name(loaded_labels: None) -> None:
-    # 8 header entries + 3 values + 3 reason codes.
-    assert processing._resolve_member_labels_for_dataset("IED1LD0/LLN0$DS1", 14) == MEMBERS
-    assert processing._resolve_member_labels_for_dataset("IED1LD0/LLN0$DS1", 12) == []
-    assert processing._resolve_member_labels_for_dataset("OTHER/LLN0$DS9", 14) == []

@@ -2,16 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [Unit]
-Description=Service unifié PO (MMS, GOOSE, SV) sur port 7050
+Description=PO unified service (MMS, GOOSE, SV) on port 7050
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/root/po
-# Adapter si besoin (eth0, enp1s0, processbus, ...)
+# Site settings go in a drop-in (systemctl edit po-service):
+#   SVVIEW_INTERFACE: process bus interface (eth0, enp1s0, processbus, ...)
+#   PO_VICTORIAMETRICS_URL: e.g. http://victoriametrics:8428; empty = no push
 Environment=SVVIEW_INTERFACE=processbus
-# processbus (et interfaces virtuelles) reste souvent en "state UNKNOWN" malgré UP/LOWER_UP
+Environment=PO_VICTORIAMETRICS_URL=
+# processbus (like other virtual interfaces) often stays in "state UNKNOWN" despite UP/LOWER_UP
 ExecStartPre=/bin/bash -c '\
   for i in $(seq 1 20); do \
     ip link set ${SVVIEW_INTERFACE} up >/dev/null 2>&1 || true; \
@@ -19,7 +22,7 @@ ExecStartPre=/bin/bash -c '\
     sleep 0.5; \
   done; \
   echo "ERROR: ${SVVIEW_INTERFACE} link not ready (no LOWER_UP) after 10s"; exit 1'
-ExecStart=/usr/bin/python3 /root/po/po_service.py --victoriametrics-url=http://192.168.165.3:8428 --svview-interface=${SVVIEW_INTERFACE}
+ExecStart=/usr/bin/python3 /root/po/po_service.py --victoriametrics-url=${PO_VICTORIAMETRICS_URL} --svview-interface=${SVVIEW_INTERFACE}
 Restart=always
 RestartSec=5
 User=root

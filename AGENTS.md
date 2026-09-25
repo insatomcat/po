@@ -54,8 +54,8 @@ the old parser that decoded every frame. Library decode alone: 22 us per
 `ber.decode_tlv` and `sv._asdu_fields` have fast paths for short tags and
 lengths. Malformed frames count as `parse_errors`. Streams with fewer than 8
 channels per ASDU are listed but not displayed (as before).
-Still on their own code: the legacy CLIs `mms/test_client_reports.py` and
-`mms/discover_reports.py`, and the diagnostic SV scripts in `svgenerator/`.
+Still on their own code: the diagnostic SV scripts in `svgenerator/`.
+The command-line MMS client is `tools/mms_client.py` (see Captures).
 
 ## Layout
 
@@ -94,12 +94,15 @@ pipeline byte for byte), `reporting.format_report` feeds the SSE logs when
 debug is on. Stopping a stream disables its RCBs. Reconnect backoff 5 s to
 60 s as before.
 
-## Legacy MMS stack (`mms/`, still used by controls and old CLIs)
+## Legacy MMS stack (`mms/`, no longer used by po)
+
+Kept with its characterization tests until it is removed; po only still
+uses `scl_parser.py` (label fallback) and `victoriametrics_push.py` (batched
+POST of the lines `reporting` builds).
 
 Layers: `tpkt.py` (RFC 1006) -> `cotp.py` (class 0, CR/CC, DT with fixed
 `02 F0 80`) -> `asn1_codec.py` (everything above COTP) -> `mms_reports_client.py`
-(blocking socket client) -> `mms_service.py` (one thread per subscription,
-reconnect with backoff 5 s to 60 s, JSON persistence).
+(blocking socket client).
 
 Every confirmed request is built as:
 
@@ -121,15 +124,13 @@ response is not decoded.
 Reports: `decode_mms_pdu` walks `unconfirmed-PDU / informationReport`, decodes
 `listOfAccessResult` with `iec_data`, then assumes a fixed header layout
 (0 RptID, 1 OptFlds, 2 SeqNum, 3 TimeOfEntry, 4 DatSet, 5 BufOvfl, 6 EntryID,
-7 Inclusion, 8+ values then reason codes). `mms_report_processing.py` formats
-and labels entries using SCL data (`scl_parser.py`) through module-level
-global dicts, and pushes to VictoriaMetrics (`victoriametrics_push.py`).
+7 Inclusion, 8+ values then reason codes).
 
 GetNameList follows ISO 9506 and matches IEDscout byte for byte (checked on
 a capture): `a1 { a0 { 80 01 <class> } a1 { 80 00 | 81 <domain> } [82 <continueAfter>] }`.
-`MMSReportsClient.get_all_names` pages with continueAfter (the VMC7 answers
-100 names per page), and `discover_reports` keeps only `<LN>$BR|RP$<name>`
-(68 RCBs on the VMC7, 1088 names if attributes are counted).
+Names come in pages followed with continueAfter (the VMC7 answers 100
+names per page); only `<LN>$BR|RP$<name>` are blocks (68 RCBs on the VMC7,
+1088 names if attributes are counted).
 `cotp_recv_data` joins DT TPDUs until the EOT bit: responses above ~1 KB
 arrive in several segments.
 
@@ -193,8 +194,7 @@ only by sqNum.
 - Legacy RCB settings: `DEFAULT_TRG_OPS = 020c` is integrity + GI only (the
   comment claims data-change and quality-change). The service keeps it as
   the default `triggers` (`integrity,gi`); set `dchg,qchg,...` to get
-  reports on change. The legacy VictoriaMetrics pipeline also mislabels
-  members when the inclusion bitstring skips some; the new one does not.
+  reports on change.
 - RCB writes: `_encode_mms_value_unsigned` uses tag `0x85` (integer) below 256
   and `0x86` (unsigned) above, so `IntgPd` < 256 ms would go out as an integer.
 - `iec_data_from_json` turns strings with control chars into `RawData(0x83)`
@@ -215,13 +215,10 @@ only by sqNum.
   `rt_sender.c`; quality is always 0; no smpMod/refrTm/gmIdentity. Listeners
   assume 4800 smp/s and 50 Hz.
 - `scl_parser` keys data sets as `<ied>/LLN0$DS`, `<ied>_1<ld>/...` (VMC7
-  naming) but never as the standard `<ied><ld>/LLN0$DS`; reports still get
-  labels through the suffix fallback in `mms_report_processing`. SDOs
-  (`A.phsA`) are not resolved to components.
+  naming) but never as the standard `<ied><ld>/LLN0$DS`. SDOs (`A.phsA`)
+  are not resolved to components. The service reads labels from the IED
+  and uses these only as a fallback.
 - The legacy MMS stack and the `svgenerator/` diagnostic scripts still carry their own BER readers.
-- IED-specific defaults are hardcoded in the legacy CLIs, READMEs and UI
-  placeholders (an IED IP and domain, RCB lists, `_DQPO`/`_CYPO` suffix
-  normalisation).
 - No `logging` (prints, plus a stdout tee for SSE).
 - Three HTTP stacks coexist: `http.server` (unified, MMS, GOOSE), FastAPI
   (SV standalone, models reused by the unified API), Flask (SV listener).

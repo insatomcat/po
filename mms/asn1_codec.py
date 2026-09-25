@@ -138,7 +138,7 @@ def encode_mms_initiate() -> bytes:
 def encode_mms_get_rcb(domain_id: str, item_id: str) -> bytes:
     """Construit un MMS GetRCBValues (confirmed-RequestPDU [read]).
 
-    Object name = domainId / itemId (ex: VMC7_1LD0 / LLN0$BR$CB_LDPHAS1_CYPO02).
+    Object name = domainId / itemId (ex: IED01_LD0 / LLN0$BR$CB_LDPHAS1_CYPO02).
     """
     name_part = _encode_domain_specific_name(domain_id, item_id)
 

@@ -1,8 +1,8 @@
 # Stress-test des nœuds (SSH + stress-ng)
 
-Onglet **Stress** de `unified_ui.html` : connecte PO au nœud hôte (`ccv1`, `ccv2`, ou une adresse libre), découvre la topologie CPU via `seapath-alloc` (housekeeping, isolated, free logical, acteurs VM/IRQ/RT), lance `stress-ng` sur les cœurs choisis, et affiche la charge en direct.
+Onglet **Stress** de `unified_ui.html` : connecte PO à un nœud hôte (nom ou adresse), découvre la topologie CPU via `seapath-alloc` (housekeeping, isolated, free logical, acteurs VM/IRQ/RT), lance `stress-ng` sur les cœurs choisis, et affiche la charge en direct.
 
-Le but est de vérifier que l'isolation des VM (SSC600W sur ccv1, VMC7 sur ccv2) tient sous charge host, en regardant les latences dans l'onglet **GOOSE Listener**.
+Le but est de vérifier que l'isolation des VM d'IED tient sous charge host, en regardant les latences dans l'onglet **GOOSE Listener**.
 
 ## Principe
 
@@ -24,7 +24,7 @@ Le stress continue si on change d'onglet. **Arrêter** (ou l'arrêt de `po_servi
 - Accès SSH clé (recommandé) ou mot de passe
 - `virsh` si les VM sont gérées par libvirt (SEAPATH)
 
-Depuis la machine qui héberge déjà PO (souvent `ccv1`), la connexion à `ccv1` est **locale** (pas de SSH). Cocher « Forcer SSH » si besoin.
+Quand le nœud visé est la machine qui fait tourner PO, la connexion est **locale** (pas de SSH). Cocher « Forcer SSH » si besoin.
 
 ## API (`/api/stress`)
 

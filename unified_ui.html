@@ -364,7 +364,7 @@ SPDX-License-Identifier: Apache-2.0
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
             <span data-i18n="mms.field.iedHost">IED Host</span>
-            <input type="text" id="mms-cmd-ied-host" name="ied_host" placeholder="10.132.159.191" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+            <input type="text" id="mms-cmd-ied-host" name="ied_host" placeholder="192.0.2.10" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
             <span data-i18n="mms.field.iedPort">IED Port</span>
@@ -372,7 +372,7 @@ SPDX-License-Identifier: Apache-2.0
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
             <span data-i18n="mms.field.domainLd">Domaine (LD)</span>
-            <input type="text" id="mms-cmd-domain" name="domain" placeholder="VMC7_2BayLD" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
+            <input type="text" id="mms-cmd-domain" name="domain" placeholder="IED01_BayLD" style="padding:0.5rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" />
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;min-width:0">
             <span data-i18n="mms.field.item">Objet MMS (ex: CBCSWI1$CO$Pos$Oper)</span>
@@ -732,8 +732,8 @@ SPDX-License-Identifier: Apache-2.0
           <h2 data-i18n="st.node">Noeud</h2>
           <div id="st-host-presets" class="st-presets"></div>
           <div class="st-form">
-            <label><span data-i18n="st.name">Nom</span><input type="text" id="st-name" value="ccv1" autocomplete="off"></label>
-            <label><span data-i18n="st.address">Adresse</span><input type="text" id="st-host" value="ccv1" placeholder="ccv1 ou 192.168.x.x" autocomplete="off"></label>
+            <label><span data-i18n="st.name">Nom</span><input type="text" id="st-name" value="" autocomplete="off"></label>
+            <label><span data-i18n="st.address">Adresse</span><input type="text" id="st-host" value="" placeholder="hostname / 192.0.2.10" autocomplete="off"></label>
             <label><span data-i18n="st.user">Utilisateur</span><input type="text" id="st-user" value="root" autocomplete="off"></label>
             <label><span data-i18n="st.port">Port SSH</span><input type="number" id="st-port" value="22" min="1" max="65535"></label>
             <label><span data-i18n="st.identity">Cle SSH (optionnel)</span><input type="text" id="st-identity" placeholder="/root/.ssh/id_ed25519" autocomplete="off"></label>
@@ -5042,7 +5042,7 @@ SPDX-License-Identifier: Apache-2.0
 
     function stForm() {
       return {
-        name: (stEl('st-name')?.value || '').trim() || 'ccv1',
+        name: (stEl('st-name')?.value || '').trim() || (stEl('st-host')?.value || '').trim(),
         host: (stEl('st-host')?.value || '').trim(),
         user: (stEl('st-user')?.value || 'root').trim() || 'root',
         port: Number(stEl('st-port')?.value || 22),

@@ -13,9 +13,9 @@ exposée par `mms_service.py` :
         python3 mmsctl.py create \
             --api-url http://127.0.0.1:8080 \
             --id flux-1 \
-            --ied-host 10.132.159.191 \
+            --ied-host 192.0.2.10 \
             --ied-port 102 \
-            --domain VMC7_1LD0 \
+            --domain IED01_LD0 \
             --scl /chemin/ied.icd \
             --rcb-list /chemin/rcb.txt \
             --debug

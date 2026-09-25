@@ -22,9 +22,9 @@ ROOT = Path(__file__).resolve().parent
 HOSTS_PATH = ROOT / "hosts.json"
 OPS_SOURCE = (ROOT / "remote_ops.py").read_bytes()
 
+# Until nodes are saved in hosts.json, the only preset is the machine running po.
 DEFAULT_HOSTS = [
-    {"id": "ccv1", "name": "ccv1", "host": "ccv1", "port": 22, "user": "root", "identity": ""},
-    {"id": "ccv2", "name": "ccv2", "host": "ccv2", "port": 22, "user": "root", "identity": ""},
+    {"id": "localhost", "name": socket.gethostname().split(".")[0] or "localhost", "host": "localhost", "port": 22, "user": "root", "identity": ""},
 ]
 
 HISTORY_MAX = 120
