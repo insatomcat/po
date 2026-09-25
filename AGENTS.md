@@ -8,7 +8,7 @@ such as an ABB SSC600 VM and a VMC7 IED). It speaks MMS
 The protocol code is the **open61850** library (Apache 2.0, standard library
 only), in its own repository: https://github.com/insatomcat/open61850
 (locally `~/dev/open61850`). It was extracted from this repository, with its
-history, at 0.1.0. PO depends on a tagged version (`requirements.txt`); its
+history, at 0.1.0. PO depends on a version published on PyPI (`requirements.txt`); its
 maintainer notes, including what the IED captures taught about MMS on the
 wire, are in that repository's AGENTS.md. Protocol changes go there first,
 then PO moves to the new tag.
