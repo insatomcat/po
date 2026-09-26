@@ -154,7 +154,8 @@ when absent.
 The library has its own tests. `tests/fake_ied.py` is a copy of its fake
 MMS server (socketpair) for the tests of PO's MMS service;
 `tests/test_processbus_capture.py` runs the shared capture on `lo` (Linux,
-root). open61850 must be installed (`pip install -r requirements.txt`).
+root). open61850 must be installed at the version `requirements.txt` pins
+(`pip install -r requirements.txt`); `test_requirements.py` checks it.
 
 Every known bug above has a `xfail(strict=True)` test stating the correct
 behaviour. Fixing one makes it XPASS and fail: remove the marker in the same
