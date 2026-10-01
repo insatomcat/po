@@ -208,6 +208,8 @@ SPDX-License-Identifier: Apache-2.0
     }
     .sv-edit-check input[type="checkbox"] { width: auto; margin: 0; }
     .sv-edit-fault-fields.is-disabled { opacity: 0.45; pointer-events: none; }
+    .sv-edit-grid input[readonly] { opacity: 0.72; }
+    .modal-content textarea.textarea--compact { min-height: 6rem; }
     @media (max-width: 640px) {
       .sv-edit-grid { grid-template-columns: 1fr; }
     }
@@ -423,6 +425,7 @@ SPDX-License-Identifier: Apache-2.0
     </div>
     <div id="goose-streams-body" style="display:block">
       <div class="toolbar">
+        <button type="button" class="btn btn--accent" id="goose-new" data-i18n="common.newStream">New stream</button>
         <button type="button" class="btn btn--accent" id="goose-refresh" data-i18n="common.refresh">Refresh</button>
         <span id="goose-loading"></span>
       </div>
@@ -458,6 +461,57 @@ SPDX-License-Identifier: Apache-2.0
         </form>
       </div>
     </div>
+
+    <div id="goose-create-modal" class="modal" style="display:none">
+      <div class="modal-content modal-content--wide">
+        <h2 data-i18n="goose.createTitle">New GOOSE stream</h2>
+        <p class="modal-details" data-i18n="goose.createNote">The stream is published as soon as it is created.</p>
+        <form id="goose-create-form">
+          <div class="sv-edit-grid">
+            <p class="sv-edit-section" data-i18n="sv.edit.network">Network</p>
+            <label><span data-i18n="common.interface">Interface</span>
+              <input type="text" id="goose-new-iface" required autocomplete="off"></label>
+            <label>src_mac
+              <input type="text" id="goose-new-src-mac" required autocomplete="off" placeholder="02:00:00:00:00:01"></label>
+            <label>dst_mac
+              <input type="text" id="goose-new-dst-mac" required autocomplete="off" placeholder="01:0c:cd:01:00:01"></label>
+            <label>appID
+              <input type="text" id="goose-new-appid" required autocomplete="off" placeholder="4096 or 0x1000" data-i18n-placeholder="goose.appidPh"></label>
+            <label>VLAN ID
+              <input type="number" id="goose-new-vlan-id" min="0" max="4095" placeholder="-"></label>
+            <label>VLAN prio
+              <input type="number" id="goose-new-vlan-prio" min="0" max="7" placeholder="-"></label>
+            <p class="sv-edit-section" data-i18n="goose.identity">GOOSE identity</p>
+            <label>gocbRef
+              <input type="text" id="goose-new-gocb" required autocomplete="off" placeholder="IED01LD0/LLN0$GO$gcb01"></label>
+            <label>datSet
+              <input type="text" id="goose-new-datset" required autocomplete="off" placeholder="IED01LD0/LLN0$DS_GOOSE"></label>
+            <label>goID
+              <input type="text" id="goose-new-goid" required autocomplete="off"></label>
+            <label><span data-i18n="goose.ttl">TTL (ms)</span>
+              <input type="number" id="goose-new-ttl" min="1" value="5000" required></label>
+            <label>confRev
+              <input type="number" id="goose-new-conf-rev" min="0" value="1" required></label>
+            <label class="sv-edit-check">
+              <input type="checkbox" id="goose-new-sim">
+              <span>simulation</span>
+            </label>
+            <label class="sv-edit-check">
+              <input type="checkbox" id="goose-new-nds">
+              <span>ndsCom</span>
+            </label>
+            <label style="grid-column:1 / -1"><span data-i18n="goose.allData">allData (JSON)</span>
+              <textarea id="goose-new-alldata" class="textarea--compact" rows="6" spellcheck="false">[]</textarea>
+            </label>
+            <p class="sv-edit-section" data-i18n="goose.allDataHint" style="font-weight:400">JSON array: booleans, integers, strings, or ["raw", tag, "hex"].</p>
+          </div>
+          <div class="modal-actions">
+            <button type="submit" class="btn btn--accent" id="goose-create-save" data-i18n="common.add">Add</button>
+            <button type="button" class="btn goose-create-cancel" data-i18n="common.cancel">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 
   <div id="panel-sv" class="panel">
@@ -468,6 +522,7 @@ SPDX-License-Identifier: Apache-2.0
     </div>
     <div id="sv-streams-body" style="display:block">
       <div class="toolbar">
+        <button type="button" class="btn btn--accent" id="sv-new" data-i18n="common.newStream">New stream</button>
         <button type="button" class="btn btn--accent" id="sv-refresh" data-i18n="common.refresh">Refresh</button>
         <button type="button" class="btn btn--danger" id="sv-purge" data-i18n="common.deleteAll">Delete all</button>
         <span id="sv-msg"></span>
@@ -488,11 +543,12 @@ SPDX-License-Identifier: Apache-2.0
 
     <div id="sv-edit-modal" class="modal" style="display:none">
       <div class="modal-content modal-content--wide">
-        <h2 data-i18n="sv.editTitle">Edit SV stream</h2>
+        <h2 id="sv-edit-title" data-i18n="sv.editTitle">Edit SV stream</h2>
         <p class="modal-details" id="sv-edit-details"></p>
         <form id="sv-edit-form">
-          <input type="hidden" id="sv-edit-name" name="name">
           <div class="sv-edit-grid">
+            <label style="grid-column:1 / -1"><span data-i18n="common.name">Name</span>
+              <input type="text" id="sv-edit-name" name="name" required autocomplete="off"></label>
             <p class="sv-edit-section" data-i18n="sv.edit.network">Network</p>
             <label><span data-i18n="common.interface">Interface</span>
               <input type="text" id="sv-edit-interface" required autocomplete="off"></label>
@@ -1275,6 +1331,7 @@ SPDX-License-Identifier: Apache-2.0
         "common.cancel": "Annuler",
         "common.close": "Fermer",
         "common.add": "Ajouter",
+        "common.newStream": "Nouveau flux",
         "common.delete": "Supprimer",
         "common.edit": "Modifier",
         "common.send": "Envoyer",
@@ -1437,6 +1494,14 @@ SPDX-License-Identifier: Apache-2.0
         "goose.confirmDelete": "Supprimer ce flux ?",
         "goose.invalidJson": "JSON invalide dans allData",
         "goose.vlan": "{id} / priorité {prio}",
+        "goose.createTitle": "Nouveau flux GOOSE",
+        "goose.createNote": "Le flux est publié dès sa création.",
+        "goose.created": "Flux créé.",
+        "goose.identity": "Identité GOOSE",
+        "goose.allDataHint": "Tableau JSON : booléens, entiers, chaînes, ou [\"raw\", tag, \"hex\"].",
+        "goose.invalidAppid": "appID invalide (entier ou 0x…).",
+        "goose.invalidAllData": "allData doit être un tableau JSON.",
+        "goose.appidPh": "4096 ou 0x1000",
         "sv.title": "SV Generator",
         "sv.streams": "Flux en cours",
         "sv.recents": "Récents",
@@ -1456,6 +1521,9 @@ SPDX-License-Identifier: Apache-2.0
         "sv.editRestartNote": "L'enregistrement relance l'émetteur SV.",
         "sv.saved": "Flux mis à jour.",
         "sv.invalidAppid": "appID invalide (entier ou 0x…).",
+        "sv.createTitle": "Nouveau flux SV",
+        "sv.createNote": "Le flux démarre dès l'enregistrement.",
+        "sv.created": "Flux créé.",
         "svview.title": "SV Listener – Phasors U & I",
         "svview.unconfigured": "SV Listener non configuré. Lancez le service avec <code>--svview-interface &lt;interface&gt;</code> pour capturer les flux SV (0x88ba).",
         "svview.chooseSvid": "Choisir un svID",
@@ -1646,6 +1714,7 @@ SPDX-License-Identifier: Apache-2.0
         "common.cancel": "Cancel",
         "common.close": "Close",
         "common.add": "Add",
+        "common.newStream": "New stream",
         "common.delete": "Delete",
         "common.edit": "Edit",
         "common.send": "Send",
@@ -1808,6 +1877,14 @@ SPDX-License-Identifier: Apache-2.0
         "goose.confirmDelete": "Delete this stream?",
         "goose.invalidJson": "Invalid JSON in allData",
         "goose.vlan": "{id} / priority {prio}",
+        "goose.createTitle": "New GOOSE stream",
+        "goose.createNote": "The stream is published as soon as it is created.",
+        "goose.created": "Stream created.",
+        "goose.identity": "GOOSE identity",
+        "goose.allDataHint": "JSON array: booleans, integers, strings, or [\"raw\", tag, \"hex\"].",
+        "goose.invalidAppid": "Invalid appID (integer or 0x…).",
+        "goose.invalidAllData": "allData must be a JSON array.",
+        "goose.appidPh": "4096 or 0x1000",
         "sv.title": "SV Generator",
         "sv.streams": "Active streams",
         "sv.recents": "Recent",
@@ -1827,6 +1904,9 @@ SPDX-License-Identifier: Apache-2.0
         "sv.editRestartNote": "Saving restarts the SV sender.",
         "sv.saved": "Stream updated.",
         "sv.invalidAppid": "Invalid appID (integer or 0x…).",
+        "sv.createTitle": "New SV stream",
+        "sv.createNote": "The stream starts as soon as it is saved.",
+        "sv.created": "Stream created.",
         "svview.title": "SV Listener – Phasors U & I",
         "svview.unconfigured": "SV Listener is not configured. Start the service with <code>--svview-interface &lt;interface&gt;</code> to capture SV streams (0x88ba).",
         "svview.chooseSvid": "Choose an svID",
@@ -3036,10 +3116,16 @@ SPDX-License-Identifier: Apache-2.0
             gooseLoad();
           });
         });
-        document.getElementById('goose-loading').textContent = '';
+        const note = gooseStatusNote;
+        gooseStatusNote = '';
+        document.getElementById('goose-loading').textContent = note;
       }).catch(e => { document.getElementById('goose-loading').textContent = t('common.error', { msg: e.message }); });
     }
-    document.getElementById('goose-refresh').addEventListener('click', gooseLoad);
+    let gooseStatusNote = '';
+    document.getElementById('goose-refresh').addEventListener('click', () => {
+      gooseStatusNote = '';
+      gooseLoad();
+    });
 
     function gooseToggleSection(sectionEl, btnEl) {
       if (!sectionEl) return;
@@ -3106,6 +3192,97 @@ SPDX-License-Identifier: Apache-2.0
     });
     document.getElementById('goose-edit-modal').addEventListener('click', (e) => {
       if (e.target.id === 'goose-edit-modal') e.target.style.display = 'none';
+    });
+
+    function gooseCloseCreate() {
+      const modal = document.getElementById('goose-create-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function gooseBuildCreateConfig() {
+      const appid = svParseAppid(document.getElementById('goose-new-appid').value);
+      if (appid == null) throw new Error(t('goose.invalidAppid'));
+      const vlanId = svOptNumber('goose-new-vlan-id', true);
+      let raw = (document.getElementById('goose-new-alldata').value || '').trim();
+      if (!raw) raw = '[]';
+      let all_data;
+      try {
+        all_data = JSON.parse(raw);
+      } catch (err) {
+        throw new Error(t('goose.invalidJson'));
+      }
+      if (!Array.isArray(all_data)) throw new Error(t('goose.invalidAllData'));
+      const ttl = svOptNumber('goose-new-ttl', true);
+      const confRev = svOptNumber('goose-new-conf-rev', true);
+      if (ttl == null || ttl < 1) throw new Error(t('goose.ttl'));
+      if (confRev == null || confRev < 0) throw new Error('confRev');
+      return {
+        iface: document.getElementById('goose-new-iface').value.trim(),
+        src_mac: document.getElementById('goose-new-src-mac').value.trim(),
+        dst_mac: document.getElementById('goose-new-dst-mac').value.trim(),
+        app_id: appid,
+        vlan_id: vlanId,
+        vlan_priority: vlanId == null ? null : (svOptNumber('goose-new-vlan-prio', true) ?? 0),
+        gocb_ref: document.getElementById('goose-new-gocb').value.trim(),
+        dat_set: document.getElementById('goose-new-datset').value.trim(),
+        go_id: document.getElementById('goose-new-goid').value.trim(),
+        ttl,
+        conf_rev: confRev,
+        simulation: !!document.getElementById('goose-new-sim').checked,
+        nds_com: !!document.getElementById('goose-new-nds').checked,
+        all_data,
+      };
+    }
+
+    function gooseOpenCreate() {
+      const form = document.getElementById('goose-create-form');
+      if (form) form.reset();
+      const allData = document.getElementById('goose-new-alldata');
+      if (allData && !allData.value.trim()) allData.value = '[]';
+      document.getElementById('goose-create-modal').style.display = 'flex';
+      document.getElementById('goose-new-iface')?.focus();
+    }
+
+    document.getElementById('goose-new')?.addEventListener('click', gooseOpenCreate);
+    document.querySelector('.goose-create-cancel')?.addEventListener('click', gooseCloseCreate);
+    document.getElementById('goose-create-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'goose-create-modal') gooseCloseCreate();
+    });
+    document.getElementById('goose-create-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const saveBtn = document.getElementById('goose-create-save');
+      let cfg;
+      try {
+        cfg = gooseBuildCreateConfig();
+      } catch (err) {
+        alert(err.message);
+        return;
+      }
+      if (!cfg.iface || !cfg.src_mac || !cfg.dst_mac || !cfg.gocb_ref || !cfg.dat_set || !cfg.go_id) return;
+      if (saveBtn) saveBtn.disabled = true;
+      try {
+        const r = await fetch(API.goose + '/streams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cfg),
+        });
+        if (!r.ok) {
+          const text = await r.text();
+          let detail = text;
+          try {
+            const parsed = JSON.parse(text);
+            detail = parsed.detail || parsed.error || text;
+          } catch (_) { /* raw */ }
+          throw new Error(detail);
+        }
+        gooseCloseCreate();
+        gooseStatusNote = t('goose.created');
+        gooseLoad();
+      } catch (err) {
+        alert(t('common.error', { msg: err.message }));
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+      }
     });
 
     // --- SV ---
@@ -3261,9 +3438,61 @@ SPDX-License-Identifier: Apache-2.0
       document.getElementById('sv-edit-scheduler').value = f.seapath_scheduler || 'FIFO';
       document.getElementById('sv-edit-priority').value = f.seapath_priority ?? 80;
       document.getElementById('sv-edit-cpu-cores').value = f.seapath_cpu_cores || '';
-      document.getElementById('sv-edit-details').textContent =
-        f.name + ' · ' + t('sv.editRestartNote');
       svSyncFaultFields();
+    }
+
+    function svSetMode(creating) {
+      svCreating = creating;
+      const title = document.getElementById('sv-edit-title');
+      if (title) {
+        title.dataset.i18n = creating ? 'sv.createTitle' : 'sv.editTitle';
+        title.textContent = t(title.dataset.i18n);
+      }
+      const nameInput = document.getElementById('sv-edit-name');
+      if (nameInput) nameInput.readOnly = !creating;
+      const saveBtn = document.getElementById('sv-edit-save');
+      if (saveBtn) {
+        saveBtn.dataset.i18n = creating ? 'common.add' : 'common.save';
+        saveBtn.textContent = t(saveBtn.dataset.i18n);
+      }
+      const details = document.getElementById('sv-edit-details');
+      if (!details) return;
+      if (creating) {
+        details.textContent = t('sv.createNote');
+      } else {
+        const name = nameInput ? nameInput.value : '';
+        details.textContent = name ? (name + ' · ' + t('sv.editRestartNote')) : t('sv.editRestartNote');
+      }
+    }
+
+    function svNew() {
+      svFillEditForm({
+        name: '',
+        interface: '',
+        src_mac: '',
+        dst_mac: '',
+        svid: '',
+        appid: null,
+        conf_rev: 1,
+        smp_synch: 0,
+        vlan_id: null,
+        vlan_priority: 0,
+        freq_hz: 50,
+        i_peak: 10,
+        v_peak: 100,
+        phase_deg: 0,
+        fault: false,
+        fault_cycle_s: 2,
+        fault_smpcnt: 0,
+        fault_offset_s: 0,
+        seapath_isolation: 'exclusive_logical',
+        seapath_scheduler: 'FIFO',
+        seapath_priority: 80,
+        seapath_cpu_cores: '',
+      });
+      svSetMode(true);
+      document.getElementById('sv-edit-modal').style.display = 'flex';
+      document.getElementById('sv-edit-name')?.focus();
     }
 
     function svBuildConfigFromForm() {
@@ -3271,7 +3500,7 @@ SPDX-License-Identifier: Apache-2.0
       if (appid == null) throw new Error(t('sv.invalidAppid'));
       const cores = (document.getElementById('sv-edit-cpu-cores').value || '').trim();
       return {
-        name: document.getElementById('sv-edit-name').value,
+        name: document.getElementById('sv-edit-name').value.trim(),
         interface: document.getElementById('sv-edit-interface').value.trim(),
         src_mac: document.getElementById('sv-edit-src-mac').value.trim(),
         dst_mac: document.getElementById('sv-edit-dst-mac').value.trim(),
@@ -3304,6 +3533,8 @@ SPDX-License-Identifier: Apache-2.0
       if (modal) modal.style.display = 'none';
     }
 
+    let svCreating = false;
+
     function svEdit(name) {
       const f = (svLastFlows || []).find(x => x.name === name);
       if (!f) {
@@ -3312,6 +3543,7 @@ SPDX-License-Identifier: Apache-2.0
         return;
       }
       svFillEditForm(f);
+      svSetMode(false);
       document.getElementById('sv-edit-modal').style.display = 'flex';
     }
 
@@ -3327,22 +3559,29 @@ SPDX-License-Identifier: Apache-2.0
         return;
       }
       if (saveBtn) saveBtn.disabled = true;
+      const created = svCreating;
       try {
-        const r = await fetch(API.sv + '/flows/' + encodeURIComponent(cfg.name), {
-          method: 'PUT',
+        const r = await fetch(created ? (API.sv + '/flows') : (API.sv + '/flows/' + encodeURIComponent(cfg.name)), {
+          method: created ? 'POST' : 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(cfg),
         });
         if (!r.ok) {
           const text = await r.text();
           let detail = text;
-          try { detail = JSON.parse(text).detail || text; } catch (_) { /* raw */ }
+          try {
+            const parsed = JSON.parse(text);
+            detail = parsed.detail || parsed.error || text;
+          } catch (_) { /* raw */ }
           throw new Error(detail);
         }
         svCloseEdit();
-        document.getElementById('sv-msg').textContent = t('sv.saved');
-        document.getElementById('sv-msg').className = 'ok';
-        svLoad();
+        await svLoad();
+        const msg = document.getElementById('sv-msg');
+        if (msg && msg.className !== 'err') {
+          msg.textContent = t(created ? 'sv.created' : 'sv.saved');
+          msg.className = 'ok';
+        }
       } catch (err) {
         alert(t('common.error', { msg: err.message }));
       } finally {
@@ -3353,6 +3592,7 @@ SPDX-License-Identifier: Apache-2.0
     document.getElementById('sv-edit-modal')?.addEventListener('click', (e) => {
       if (e.target.id === 'sv-edit-modal') svCloseEdit();
     });
+    document.getElementById('sv-new')?.addEventListener('click', svNew);
     document.getElementById('sv-refresh').addEventListener('click', () => { document.getElementById('sv-msg').textContent = ''; svLoad(); });
     document.getElementById('sv-purge').addEventListener('click', async () => {
       if (!confirm(t('common.confirmDeleteAll'))) return;
