@@ -142,12 +142,16 @@ def test_http_api_fields(service: tuple[mms_service.SubscriptionManager, FakeIed
     body["triggers"] = "dchg,gi"
     status, result = handle_mms(manager, "/subscriptions", "POST", json.dumps(body).encode())
     assert status == 201
-    assert (result["triggers"], result["integrity_ms"]) == ("dchg,gi", 2000)
+    assert (result["triggers"], result["integrity_ms"], result["first_instance"]) == ("dchg,gi", 2000, 1)
     _wait(lambda: len(pushed) >= 8)
 
     status, result = handle_mms(manager, "/subscriptions/s3", "PUT", json.dumps({"integrity_ms": "500"}).encode())
     assert status == 200 and result["integrity_ms"] == 500
     status, result = handle_mms(manager, "/subscriptions/s3", "PUT", json.dumps({"triggers": "nope"}).encode())
+    assert status == 400
+    status, result = handle_mms(manager, "/subscriptions/s3", "PUT", json.dumps({"first_instance": "3"}).encode())
+    assert status == 200 and result["first_instance"] == 3
+    status, result = handle_mms(manager, "/subscriptions/s3", "PUT", json.dumps({"first_instance": 0}).encode())
     assert status == 400
     status, result = handle_mms(manager, "/subscriptions/s3", "PUT", json.dumps({"rcb_filter": "CB_A*"}).encode())
     assert status == 200 and result["rcb_filter"] == "CB_A*" and result["domain"] == "LD0"

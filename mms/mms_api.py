@@ -103,11 +103,13 @@ def handle_mms(
                     parse_triggers(v)
                 except ValueError as e:
                     return HTTPStatus.BAD_REQUEST, {"error": str(e)}
-            if k in ("ied_port", "integrity_ms") and v is not None:
+            if k in ("ied_port", "integrity_ms", "first_instance") and v is not None:
                 try:
                     v = int(v)
                 except (TypeError, ValueError):
                     return HTTPStatus.BAD_REQUEST, {"error": f"invalid {k}"}
+                if k == "first_instance" and not 1 <= v <= 99:
+                    return HTTPStatus.BAD_REQUEST, {"error": "first_instance must be between 1 and 99"}
             update_fields[k] = v
         try:
             rt = manager.update_subscription(sub_id, update_fields)

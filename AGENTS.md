@@ -83,7 +83,9 @@ else from GetNameList of each domain (grouped by two-digit instance
 suffix); a mismatch is logged with both names. `rcb_filter` selects blocks
 by shell pattern on their name without instance (`CB_LDPX_*, CB_LDADD_*`);
 the older `rcb_list` file still works. `reporting.plan_subscriptions` puts
-instances used before first, then `rcb.usable`, data set members and types read from the IED
+instances used before first and skips those below `first_instance` (1 by
+default, set per subscription in the UI to leave the low instances to other
+clients), then `rcb.usable`, data set members and types read from the IED
 (`reporting.load_data_set`, SCL labels only as fallback), `rcb.enable` with
 po's historical OptFlds and the configured `triggers` / `integrity_ms`.
 Reports are decoded on the worker thread; `reporting.report_to_lines` keeps

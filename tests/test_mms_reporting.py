@@ -193,6 +193,14 @@ def test_plan_prefers_requested_then_previous_instances() -> None:
     assert _names(plan) == [AVAILABLE[4:]]
 
 
+def test_plan_skips_instances_below_first_instance() -> None:
+    plan, missing = reporting.plan_subscriptions(GROUPS, previous=["LD0/LLN0$BR$CB_A01"], first_instance=3)
+    assert _names(plan) == [["LLN0$BR$CB_A03", "LLN0$BR$CB_A04"]]
+    assert missing == ["LLN0$BR$CB_B (no instance from 03)"]
+    plan, _ = reporting.plan_subscriptions(GROUPS, previous=["LD0/LLN0$BR$CB_A04"], first_instance=3)
+    assert _names(plan)[0] == ["LLN0$BR$CB_A04", "LLN0$BR$CB_A03"]
+
+
 def test_groups_from_scl_and_filter() -> None:
     from conftest import DATA_DIR
 

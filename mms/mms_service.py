@@ -12,7 +12,8 @@ as text in the log). State is kept in mms/subscriptions.json.
 
   POST   /subscriptions        {"id"?, "ied_host", "ied_port", "domain"?, "scl"?,
                                 "rcb_filter"?, "rcb_list"?, "debug"?, "triggers"?,
-                                "integrity_ms"?} -> 201 and the subscription
+                                "integrity_ms"?, "first_instance"?} -> 201 and
+                                the subscription
   GET    /subscriptions        -> every subscription, with last_error and rcb_items
   GET    /subscriptions/<id>   -> one subscription, or 404
   PUT    /subscriptions/<id>   same fields as POST, all optional; a debug-only
@@ -81,9 +82,11 @@ class SubscriptionConfig:
     triggers: Optional[str] = None  # e.g. "integrity,gi" (default) or "dchg,qchg,integrity,gi"
     integrity_ms: int = 2000
     rcb_filter: Optional[str] = None  # e.g. "CB_LDPX_*, CB_LDADD_*"; empty: every block
+    first_instance: int = 1  # lowest RCB instance po may take; lower ones stay free for other clients
 
 
-CONFIG_FIELDS = ("ied_host", "ied_port", "domain", "scl", "rcb_list", "rcb_filter", "debug", "triggers", "integrity_ms")
+CONFIG_FIELDS = ("ied_host", "ied_port", "domain", "scl", "rcb_list", "rcb_filter", "debug", "triggers", "integrity_ms",
+                 "first_instance")
 
 
 def config_from_json(data: Dict[str, Any], sub_id: Optional[str] = None) -> SubscriptionConfig:
@@ -99,6 +102,7 @@ def config_from_json(data: Dict[str, Any], sub_id: Optional[str] = None) -> Subs
         debug=bool(data.get("debug", False)),
         triggers=data.get("triggers") or None,
         integrity_ms=int(data.get("integrity_ms") or 2000),
+        first_instance=max(1, int(data.get("first_instance") or 1)),
     )
     reporting.parse_triggers(cfg.triggers)
     return cfg
@@ -576,7 +580,8 @@ class SubscriptionManager:
         cfg = runtime.config
         groups = self._rcb_groups(cfg, client, scl_ied)
         plan, missing = reporting.plan_subscriptions(
-            groups, patterns=reporting.parse_rcb_filter(cfg.rcb_filter), wanted=wanted, previous=runtime.rcb_items
+            groups, patterns=reporting.parse_rcb_filter(cfg.rcb_filter), wanted=wanted, previous=runtime.rcb_items,
+            first_instance=cfg.first_instance,
         )
         for name in missing:
             log.warning(f"[Stream {cfg.id}] no report control block matches {name}")
@@ -603,7 +608,10 @@ class SubscriptionManager:
                 break
             if status is None:
                 base = rcb.instance_base(str(candidates[0]))
-                errors.append(f"{base}: every instance is in use" + (f" ({refused[-1]})" if refused else ""))
+                errors.append(
+                    f"{base}: every instance from {cfg.first_instance:02d} is in use"
+                    + (f" ({refused[-1]})" if refused else "")
+                )
                 log.warning(f"[Stream {cfg.id}] [{i}/{len(plan)}] {errors[-1]}")
                 continue
             ds_ref = status.dat_set or ""
@@ -871,11 +879,14 @@ class MMSServiceHandler(BaseHTTPRequestHandler):
                 except ValueError as e:
                     _json_error(self, HTTPStatus.BAD_REQUEST, str(e))
                     return
-            if k in ("ied_port", "integrity_ms") and v is not None:
+            if k in ("ied_port", "integrity_ms", "first_instance") and v is not None:
                 try:
                     v = int(v)
                 except (TypeError, ValueError):
                     _json_error(self, HTTPStatus.BAD_REQUEST, f"invalid {k}")
+                    return
+                if k == "first_instance" and not 1 <= v <= 99:
+                    _json_error(self, HTTPStatus.BAD_REQUEST, "first_instance must be between 1 and 99")
                     return
             update_fields[k] = v
         try:

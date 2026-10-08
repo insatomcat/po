@@ -100,12 +100,19 @@ def parse_rcb_filter(text: Optional[str]) -> list[str]:
     return [p.strip() for p in (text or "").split(",") if p.strip()]
 
 
+def instance_number(group: RcbGroup, instance: ObjectName) -> int:
+    """``CB_LDPX_DQPO03`` in group ``CB_LDPX_DQPO`` -> 3; a block without instance number counts as the last."""
+    suffix = instance.item[len(group.base.item):]
+    return int(suffix) if suffix.isdigit() else 99
+
+
 def plan_subscriptions(
     groups: list[RcbGroup],
     *,
     patterns: Optional[list[str]] = None,
     wanted: Optional[list[str]] = None,
     previous: Optional[list[str]] = None,
+    first_instance: int = 1,
 ) -> tuple[list[list[ObjectName]], list[str]]:
     """Candidate instances per selected block, most preferred first, and what was not found.
 
@@ -113,17 +120,28 @@ def plan_subscriptions(
     number excluded; ``wanted`` is the older list of block names (a trailing
     instance number marks the preferred instance). With neither, every block
     is selected. Instances used before (``previous``, ``domain/item`` or bare
-    item) come first, so a reconnection keeps the same RptID.
+    item) come first, so a reconnection keeps the same RptID. Instances
+    numbered below ``first_instance`` are left out, previous ones included;
+    a block with no other instance goes to the missing list.
     """
     used = set(previous or [])
 
     def order(group: RcbGroup, preferred: Optional[str] = None) -> list[ObjectName]:
-        first = [i for i in group.instances if str(i) in used or i.item in used]
-        chosen = [i for i in group.instances if i.item == preferred]
-        return list(dict.fromkeys(first + chosen + group.instances))
+        allowed = [i for i in group.instances if instance_number(group, i) >= first_instance]
+        first = [i for i in allowed if str(i) in used or i.item in used]
+        chosen = [i for i in allowed if i.item == preferred]
+        return list(dict.fromkeys(first + chosen + allowed))
 
     plan: list[list[ObjectName]] = []
     missing: list[str] = []
+
+    def add(group: RcbGroup, preferred: Optional[str] = None) -> None:
+        candidates = order(group, preferred)
+        if candidates:
+            plan.append(candidates)
+        else:
+            missing.append(f"{group.base.item} (no instance from {first_instance:02d})")
+
     if wanted is not None:
         seen: set[str] = set()
         for request in wanted:
@@ -135,7 +153,7 @@ def plan_subscriptions(
                 continue
             for group in matches:
                 seen.add(str(group.base))
-                plan.append(order(group, request))
+                add(group, request)
         return plan, missing
 
     for pattern in patterns or []:
@@ -143,7 +161,7 @@ def plan_subscriptions(
             missing.append(pattern)
     for group in groups:
         if not patterns or any(fnmatch.fnmatchcase(group.name, p) for p in patterns):
-            plan.append(order(group))
+            add(group)
     return plan, missing
 
 

@@ -1469,6 +1469,7 @@ SPDX-License-Identifier: Apache-2.0
         "mms.allDomains": "tous",
         "mms.triggers": "Déclencheurs",
         "mms.integrity": "intégrité {ms} ms",
+        "mms.firstInstance": "Première instance RCB",
         "mms.reports": "Reports ({n})",
         "mms.loadingParen": "(chargement…)",
         "mms.noCommands": "Aucune commande enregistrée.",
@@ -1852,6 +1853,7 @@ SPDX-License-Identifier: Apache-2.0
         "mms.allDomains": "all",
         "mms.triggers": "Triggers",
         "mms.integrity": "integrity {ms} ms",
+        "mms.firstInstance": "First RCB instance",
         "mms.reports": "Reports ({n})",
         "mms.loadingParen": "(loading…)",
         "mms.noCommands": "No saved commands.",
@@ -2618,7 +2620,7 @@ SPDX-License-Identifier: Apache-2.0
       if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
       return r.json();
     }
-    function mmsDetailsHtml(s) {
+    function mmsDetailsHtml(s, editable) {
       const items = s.rcb_items || [];
       const rcbList = items.length ? '<ul style="margin:0;padding-left:1.2rem;max-height:12rem;overflow-y:auto">' + items.map(r => '<li>' + escapeHtml(r) + '</li>').join('') + '</ul>' : '<span style="color:var(--muted)">' + t('mms.loadingParen') + '</span>';
       const errBlock = s.last_error ? `<dt>${t('mms.lastError')}</dt><dd class="error-msg">${escapeHtml(s.last_error)}</dd>` : '';
@@ -2628,6 +2630,9 @@ SPDX-License-Identifier: Apache-2.0
         <dt>SCL</dt><dd>${escapeHtml(s.scl) || '-'}</dd>
         <dt>${t('mms.rcbFilter')}</dt><dd>${escapeHtml(s.rcb_filter) || (s.rcb_list ? escapeHtml(s.rcb_list) : t('mms.rcbBuiltin'))}</dd>
         <dt>${t('mms.triggers')}</dt><dd>${escapeHtml(s.triggers || 'integrity,gi')} · ${t('mms.integrity', { ms: s.integrity_ms || 2000 })}</dd>
+        <dt>${t('mms.firstInstance')}</dt><dd>${editable
+          ? `<input type="number" min="1" max="99" value="${s.first_instance || 1}" data-first-instance="${escapeHtml(s.id)}" style="width:4.5rem;padding:0.2rem;background:var(--bg);border:1px solid var(--muted);border-radius:4px;color:var(--text);font-family:inherit" /> <button type="button" class="btn btn--small" data-action="first-instance" data-id="${escapeHtml(s.id)}">${t('common.apply')}</button>`
+          : String(s.first_instance || 1).padStart(2, '0')}</dd>
         <dt>${t('mms.col.debug')}</dt><dd>${s.debug ? t('common.yes') : t('common.no')}</dd>
         <dt>${t('mms.reports', { n: items.length })}</dt><dd>${rcbList}</dd>
         ${errBlock}
@@ -2642,7 +2647,7 @@ SPDX-License-Identifier: Apache-2.0
         const rowId = 'mms-row-' + idx;
         const isExp = expanded.has(s.id);
         return `<tr data-id="${escapeHtml(s.id)}"><td><button type="button" class="btn btn--small expand-btn" data-action="expand" data-rowid="${rowId}">${isExp ? '▼' : '▶'}</button></td><td><strong>${escapeHtml(s.id)}</strong></td><td>${escapeHtml(s.domain) || t('mms.allDomains')}</td><td>${escapeHtml(s.ied_host)}:${s.ied_port}</td><td>${s.debug ? t('common.yes') : t('common.no')}</td><td><button type="button" class="btn btn--small" data-action="debug" data-id="${escapeHtml(s.id)}" data-debug="${!s.debug}">${s.debug ? t('mms.debugOff') : t('mms.debugOn')}</button><button type="button" class="btn btn--small btn--danger" data-action="delete" data-id="${escapeHtml(s.id)}">${t('common.delete')}</button></td></tr>
-        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${mmsDetailsHtml(s)}</td></tr>`;
+        <tr class="details-row" id="${rowId}" data-id="${escapeHtml(s.id)}" style="display:${isExp ? 'table-row' : 'none'}"><td colspan="6">${mmsDetailsHtml(s, true)}</td></tr>`;
       }).join('');
       tbody.querySelectorAll('[data-action="expand"]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2655,6 +2660,17 @@ SPDX-License-Identifier: Apache-2.0
         btn.addEventListener('click', async () => {
           try {
             await fetch(API.mms + '/subscriptions/' + encodeURIComponent(btn.dataset.id), { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ debug: btn.dataset.debug === 'true' }) });
+            mmsLoad();
+          } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
+        });
+      });
+      tbody.querySelectorAll('[data-action="first-instance"]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const input = tbody.querySelector(`[data-first-instance="${CSS.escape(btn.dataset.id)}"]`);
+          const n = parseInt(input.value, 10);
+          if (!(n >= 1 && n <= 99)) { input.focus(); return; }
+          try {
+            await fetch(API.mms + '/subscriptions/' + encodeURIComponent(btn.dataset.id), { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ first_instance: n }) });
             mmsLoad();
           } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
         });
@@ -2696,7 +2712,7 @@ SPDX-License-Identifier: Apache-2.0
           const r = mmsRecentsCache[parseInt(btn.dataset.idx, 10)];
           if (!r) return;
           try {
-            await fetch(API.mms + '/subscriptions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl, rcb_list: r.rcb_list, rcb_filter: r.rcb_filter, debug: r.debug, triggers: r.triggers, integrity_ms: r.integrity_ms }) });
+            await fetch(API.mms + '/subscriptions', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: r.id, ied_host: r.ied_host, ied_port: r.ied_port, domain: r.domain, scl: r.scl, rcb_list: r.rcb_list, rcb_filter: r.rcb_filter, debug: r.debug, triggers: r.triggers, integrity_ms: r.integrity_ms, first_instance: r.first_instance }) });
             mmsLoad();
           } catch (e) { document.getElementById('mms-loading').textContent = e.message; }
         });
