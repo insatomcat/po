@@ -1,5 +1,5 @@
 # Copyright 2026 Florent Carli
 # SPDX-License-Identifier: Apache-2.0
 
-# The IEC 61850 library PO is built on.
-open61850[rt]==0.9.9
+# The IEC 61850 library PO is built on: the latest, from this version on.
+open61850[rt]>=0.9.9
