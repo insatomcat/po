@@ -53,7 +53,8 @@ def main() -> None:
 
     log.info(f"GOOSE service on http://{args.host}:{args.port} (API /api/streams, web UI /); Ctrl+C to stop")
 
-    stop_event.wait()
+    while not stop_event.wait(0.5):  # a signal taken by another thread wakes no wait without a timeout
+        pass
 
 
 if __name__ == "__main__":
